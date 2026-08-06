@@ -1,0 +1,18 @@
+# CMake / Ninja build output
+build/
+out/
+
+# Generated images and map files
+*.map
+*.hex
+*.bin
+*.elf
+*.list
+*.su
+
+# IDE / editor
+.cache/
+compile_commands.json
+*.code-workspace
+.DS_Store
+Thumbs.db

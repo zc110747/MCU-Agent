@@ -1,0 +1,64 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (ST-Link + OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/debug/stm32_sd_oled.elf",
+            "device": "STM32H743ZI",
+            "interface": "swd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32h7x.cfg"
+            ],
+            "openOCDLaunchCommands": [
+                "adapter speed 4000"
+            ],
+            "svdFile": "${workspaceFolder}/tools/STM32H743.svd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "build (debug)",
+            "showDevDebugOutput": "none",
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
+        },
+        {
+            "name": "Attach (ST-Link + OpenOCD)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/debug/stm32_sd_oled.elf",
+            "device": "STM32H743ZI",
+            "interface": "swd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32h7x.cfg"
+            ],
+            "svdFile": "${workspaceFolder}/tools/STM32H743.svd",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "name": "Debug Release (ST-Link + OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/release/stm32_sd_oled.elf",
+            "device": "STM32H743ZI",
+            "interface": "swd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32h7x.cfg"
+            ],
+            "svdFile": "${workspaceFolder}/tools/STM32H743.svd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "build (release)",
+            "showDevDebugOutput": "none"
+        }
+    ]
+}
