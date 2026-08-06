@@ -64,3 +64,23 @@
 附件:
 原理图.pdf、drv_spi_oled.c、drv_spi_oled.h
 ```
+
+### 005. 实现基于模型的人脸检测和输出显示的功能
+
+构建STM32平台的vscode项目，实现基于ov5640的图像采集、模型的人脸检测功能，并输出到OLED上，
+
+```shell
+1. 芯片型号为STM32H743ZIT6(鹿小班开发板)，原理图见附件，提供部分摄像头ov5640驱动，OLED驱动  
+2. 编译工具使用arm-none-gnueabi-gcc，使用CMake管理项目，仿真工具使用ST-Link，相关程序已经添加到系统中，不要使用绝对路径   
+3. vscode环境已经集成cortex-debug，可以实现单步仿真   
+4. 图像满足96x96即可，使用0x24000000作为缓冲，支持双缓冲，oled尺寸为240x240，只需要裁剪显示96x96区域即可；当人脸存在时，画框人脸区域  
+5. HAL相关放在Drivers目录下，第三方库(如Fatfs)放在third_party，方便后续统一管理    
+6. 识别模型推荐BlazeFace模型，选择满足性能要求和功能即可  
+7. 代码实现完成后，直接进行仿真调试
+
+备注:
+可以先实现摄像头采集到OLED显示功能，再集成人脸检测模型
+
+附件:
+原理图.pdf、drv_spi_oled.c、drv_spi_oled.h、drv_dcmi.c、drv_dcmi.h、drv_dcmi_ov5640.c、drv_dcmi_ov5640.h
+```
