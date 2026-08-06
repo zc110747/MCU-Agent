@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "marus25.cortex-debug",
+    "ms-vscode.cpptools",
+    "ms-vscode.cmake-tools",
+    "twxs.cmake",
+    "dan-c-underwood.arm"
+  ]
+}

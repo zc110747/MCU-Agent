@@ -1,0 +1,59 @@
+{
+    // All paths below are relative to the workspace (${workspaceFolder}).
+    // Nothing here is machine-specific, so the project stays portable.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // F5: build -> flash -> reset -> stop at main().
+            "name": "Debug (OpenOCD + ST-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/lvgl_oled.elf",
+
+            "preLaunchTask": "CMake: Build",
+
+            "configFiles": [
+                "${workspaceFolder}/openocd.cfg"
+            ],
+
+            // Resolved from the system PATH - no absolute paths.
+            "openocdPath": "openocd",
+            "gdbPath": "arm-none-eabi-gdb",
+
+            // Peripheral register view (RCC / GPIOG / SPI6 / SDMMC1 / USART1).
+            "svdFile": "${workspaceFolder}/debug/STM32H743.svd",
+
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+
+            "postRestartCommands": [
+                "monitor halt"
+            ]
+        },
+        {
+            // Attach to a board that is already running, WITHOUT reflashing or
+            // resetting it.  Useful to inspect a live fault or a long uptime.
+            "name": "Attach (no reflash)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "servertype": "openocd",
+
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/lvgl_oled.elf",
+
+            "configFiles": [
+                "${workspaceFolder}/openocd.cfg"
+            ],
+
+            "openocdPath": "openocd",
+            "gdbPath": "arm-none-eabi-gdb",
+
+            "svdFile": "${workspaceFolder}/debug/STM32H743.svd",
+
+            "showDevDebugOutput": "none"
+        }
+    ]
+}

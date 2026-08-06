@@ -1,0 +1,36 @@
+{
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb.exe",
+  "cortex-debug.openocdPath": "openocd.exe",
+  "cortex-debug.variableUseNaturalFormat": false,
+
+  "cmake.configureOnOpen": false,
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.generator": "Ninja",
+
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.errorSquiggles": "enabled",
+
+  "files.associations": {
+    "*.h": "c",
+    "*.ld": "plaintext",
+    "tusb_config.h": "c",
+    "tusb.h": "c"
+  },
+  "files.exclude": {
+    "build/CMakeFiles": true,
+    "**/*.o": true,
+    "**/*.d": true
+  },
+  "search.exclude": {
+    "build": true,
+    "third_party/tinyusb/docs": true,
+    "third_party/tinyusb/examples": true,
+    "third_party/tinyusb/hw": true
+  },
+
+  "editor.rulers": [100],
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true
+}
