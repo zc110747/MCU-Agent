@@ -3,7 +3,6 @@
   "configurations": [
     {
       "name": "STM32H743 (arm-none-eabi)",
-      "compilerPath": "arm-none-eabi-gcc.exe",
       "compilerArgs": ["-mcpu=cortex-m7", "-mthumb", "-mfpu=fpv5-d16", "-mfloat-abi=hard"],
       "cStandard": "c11",
       "cppStandard": "c++17",

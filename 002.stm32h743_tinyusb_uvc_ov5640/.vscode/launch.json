@@ -8,7 +8,6 @@
       "cwd": "${workspaceFolder}",
       "executable": "${workspaceFolder}/build/stm32h743_uvc.elf",
       "servertype": "openocd",
-      "serverpath": "openocd.exe",
       "configFiles": ["${workspaceFolder}/debug/openocd.cfg"],
       "gdbPath": "arm-none-eabi-gdb.exe",
       "device": "STM32H743ZI",

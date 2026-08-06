@@ -1,0 +1,10 @@
+﻿
+DriveLetter FileSystemLabel FileSystem SizeGB
+----------- --------------- ---------- ------
+          D DATA            NTFS       1862.9
+          E UNDEFINED       FAT             0
+          F                                 0
+          C                 NTFS        222.3
+          G                 FAT32        29.8
+
+
