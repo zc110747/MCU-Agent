@@ -1,6 +1,6 @@
 /**
   ******************************************************************************
-  * @file    bsp_sdcard.h
+  * @file    drv_sdio.h
   * @brief   SDMMC1 block device + FatFs volume management.
   ******************************************************************************
   */
@@ -16,10 +16,10 @@ extern "C" {
 #include "ff.h"
 
 /** Logical drive used for the SD card. FF_VOLUMES == 1, so this is "0:". */
-#define SD_DRIVE_PATH        "0:"
+#define SD_DRIVE_PATH        "1:"
 
 /** Re-initialise the SDMMC peripheral / card. Called on recovery paths too. */
-GlobalType_t bsp_sdcard_init(void);
+GlobalType_t drv_sdcard_init(void);
 
 /** Initialise the card and mount the FatFs volume on SD_DRIVE_PATH. */
 GlobalType_t bsp_sdcard_mount(void);
@@ -37,7 +37,10 @@ void bsp_sdcard_dump_info(void);
 HAL_StatusTypeDef bsp_sdcard_read_blocks(uint8_t *buf, uint32_t start_block, uint32_t nblocks);
 HAL_StatusTypeDef bsp_sdcard_write_blocks(const uint8_t *buf, uint32_t start_block, uint32_t nblocks);
 uint32_t          bsp_sdcard_block_count(void);
-
+HAL_StatusTypeDef sdcard_read_disk(uint8_t *buf, uint32_t startBlocks,
+                                   uint32_t NumberOfBlocks);
+HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
+                                    uint32_t NumberOfBlocks);
 #ifdef __cplusplus
 }
 #endif

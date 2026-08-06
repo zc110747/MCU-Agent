@@ -15,7 +15,7 @@ extern "C" {
 #include "main.h"
 
 /** Directory scanned for pictures. */
-#define SLIDESHOW_DIR           "0:/image"
+#define SLIDESHOW_DIR           "1:/image"
 
 /** Frame interval in milliseconds. */
 #define SLIDESHOW_PERIOD_MS     5000U

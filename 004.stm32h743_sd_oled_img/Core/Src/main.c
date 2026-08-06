@@ -11,7 +11,7 @@
 #include "main.h"
 
 #include "bsp_log.h"
-#include "bsp_sdcard.h"
+#include "drv_sdio.h"
 #include "bsp_oled.h"
 #include "app_slideshow.h"
 

@@ -14,7 +14,7 @@
   ******************************************************************************
   */
 
-#include "bsp_sdcard.h"
+#include "drv_sdio.h"
 #include "bsp_log.h"
 
 #include "diskio.h"
@@ -28,6 +28,27 @@ static int   s_mounted = 0;
 /* -------------------------------------------------------------------------- */
 /* Low level                                                                   */
 /* -------------------------------------------------------------------------- */
+GlobalType_t drv_sdcard_init(void)
+{
+    if (HAL_SD_DeInit(&hsd1) != HAL_OK)
+    {
+        return RT_FAIL;
+    }
+
+    hsd1.Instance                 = SDMMC1;
+    hsd1.Init.ClockEdge           = SDMMC_CLOCK_EDGE_RISING;
+    hsd1.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
+    hsd1.Init.BusWide             = SDMMC_BUS_WIDE_4B;
+    hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
+    hsd1.Init.ClockDiv            = 6;
+
+    if (HAL_SD_Init(&hsd1) != HAL_OK) {
+        /* No card inserted is not fatal: the app reports it on screen. */
+        return RT_FAIL;
+    }
+
+    return RT_OK;
+}
 
 /**
   * @brief  Wait until the card returns to the transfer state.
@@ -44,24 +65,45 @@ static HAL_StatusTypeDef sd_wait_ready(void)
     return HAL_OK;
 }
 
-GlobalType_t bsp_sdcard_init(void)
+HAL_StatusTypeDef sdcard_read_disk(uint8_t *buf, uint32_t startBlocks,
+                                   uint32_t NumberOfBlocks)
 {
-    HAL_SD_DeInit(&hsd1);
+    HAL_StatusTypeDef status;
 
-    hsd1.Instance                 = SDMMC1;
-    hsd1.Init.ClockEdge           = SDMMC_CLOCK_EDGE_RISING;
-    hsd1.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
-    hsd1.Init.BusWide             = SDMMC_BUS_WIDE_4B;
-    hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-    hsd1.Init.ClockDiv            = 6;
+    /* Card must be idle before a new command */
+    if (sd_wait_ready() != HAL_OK)
+    {
+        return HAL_TIMEOUT;
+    }
 
-    if (HAL_SD_Init(&hsd1) != HAL_OK) {
-        return RT_FAIL;
+    status = HAL_SD_ReadBlocks(&hsd1, buf, startBlocks, NumberOfBlocks,
+                               SD_OP_TIMEOUT_MS);
+    if (status != HAL_OK)
+    {
+        return status;
     }
-    if (sd_wait_ready() != HAL_OK) {
-        return RT_FAIL;
+
+    return sd_wait_ready();
+}
+
+HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
+                                    uint32_t NumberOfBlocks)
+{
+    HAL_StatusTypeDef status;
+
+    if (sd_wait_ready() != HAL_OK)
+    {
+        return HAL_TIMEOUT;
     }
-    return RT_OK;
+
+    status = HAL_SD_WriteBlocks(&hsd1, (uint8_t *)buf, startBlocks,
+                                NumberOfBlocks, SD_OP_TIMEOUT_MS);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    return sd_wait_ready();
 }
 
 HAL_StatusTypeDef bsp_sdcard_read_blocks(uint8_t *buf, uint32_t start_block, uint32_t nblocks)
@@ -100,11 +142,6 @@ GlobalType_t bsp_sdcard_mount(void)
     FRESULT res;
 
     s_mounted = 0;
-
-    if (bsp_sdcard_init() != RT_OK) {
-        LOG_E("SDMMC init failed (no card inserted?)");
-        return RT_FAIL;
-    }
 
     bsp_sdcard_dump_info();
 
