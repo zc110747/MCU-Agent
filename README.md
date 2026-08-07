@@ -57,8 +57,8 @@
 
 提示词内容：[项目生成时提示词](./005.stm32h743_person_detect/prompter.md)
 
-🚀 [006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)](./006.stm32h753_face_detect/README.md)
+🚀 [006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)](./006.stm32h743_face_detect/README.md)
 
 ![image](./document/image/006-01.jpg)
 
-提示词内容：[项目生成时提示词](./006.stm32h753_face_detect/prompter.md)
+提示词内容：[项目生成时提示词](./006.stm32h743_face_detect/prompter.md)
