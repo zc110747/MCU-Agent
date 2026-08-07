@@ -39,7 +39,7 @@ static volatile link_state_t s_link = LINK_UNMOUNTED;
 static uint32_t s_rx_bytes = 0;
 static uint32_t s_tx_bytes = 0;
 static uint32_t s_lines    = 0;
-static bool     s_heartbeat = true;
+static bool     s_heartbeat = false;
 
 #define LINE_MAX 128
 static char     s_line[LINE_MAX];

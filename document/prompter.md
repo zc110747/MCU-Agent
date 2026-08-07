@@ -1,20 +1,5 @@
 # 提示词说明
 
-## 001.基于tinyusb实现USB混合设备(CDC+MSC)
-
-```shell
-构建STM32平台的vscode项目，基于tinyusb实现CDC+MSC混合设备
-
-1. 芯片型号为STM32H743ZIT6(鹿小班开发板)，原理图见附件，USB使用FS模式
-2. 编译工具使用arm-none-gnueabi-gcc，使用CMake管理项目，仿真工具使用ST-Link，相关程序已经添加到系统中，不要使用绝对路径   
-3. vscode环境已经集成cortex-debug，可以实现单步仿真 
-4. HAL相关放在Drivers目录下，第三方库(如Fatfs、lvgl、tinyusb)放在third_party，方便后续统一管理  
-5. USB硬件已经连接，代码实现完成后，直接进行仿真调试。
-
-附件:
-原理图.pdf
-```
-
 ## 002.基于tinyusb实现UVC摄像头(基于ov5640)
 
 ```shell

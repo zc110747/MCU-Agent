@@ -4,7 +4,7 @@
 
 ❓ **如何让AI自动编译、调试、下载和仿真，然后走通loop的自我迭代流程**  
 
-- [单片机支持ai agent开发环境](./support.md)  
+- [单片机支持ai agent开发环境](./document/support.md)  
 
 ❓ **提示词如何实现，才能让AI更好的规划单片机任务处理**  
 ❓ **AI完成的项目，如何进行验收应用**  
@@ -17,13 +17,27 @@
 
 🚀 [001.基于tinyusb实现USB混合设备(CDC+MSC)](./001.stm32h743_tinyusb_cdc_msc/README.md)
 
+![image](./document/image/001-01.jpg)
 
+提示词内容：[生成提示词](./001.stm32h743_tinyusb_cdc_msc/prompter.md)
 
 🚀 [002.基于tinyusb实现UVC摄像头(基于ov5640)](./002.stm32h743_tinyusb_uvc_ov5640/README.md)
 
+![image](./document/image/002-01.jpg)
+
+提示词内容：[生成提示词](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
+
 🚀 [003.使用lvgl实现oled显示(支持通过sd卡使用中文字库)](./003.stm32h743_lvgl_oled/README.md)
 
+![image](./document/image/003-01.jpg)
+
+提示词内容：[生成提示词](./003.stm32h743_lvgl_oled/prompter.md)
+
 🚀 [004.基于SD卡和OLED实现图片轮播功能](./004.stm32h743_sd_oled_img/README.md)
+
+![image](./document/image/004-01.jpg)
+
+提示词内容：[生成提示词](./004.stm32h743_sd_oled_img/prompter.md)
 
 🚀 [005.实现基于CMSIS-NN的人存在检测功能(ov5640+cmsis-nn)](./005.stm32h743_person_detect/README.md)
 
