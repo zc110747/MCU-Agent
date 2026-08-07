@@ -1,0 +1,35 @@
+{
+    "cmake.configureOnOpen": false,
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.buildDirectory": "${workspaceFolder}/build/debug",
+    "cmake.generator": "Ninja",
+
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+    "C_Cpp.errorSquiggles": "enabled",
+
+    "files.associations": {
+        "*.h": "c",
+        "*.ld": "plaintext"
+    },
+    "files.exclude": {
+        "build": false,
+        "tools/dataset": true
+    },
+    "search.exclude": {
+        "build": true,
+        "Drivers": true,
+        "tools/dataset": true
+    },
+
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4,
+    "editor.rulers": [80],
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+
+    // Cortex-Debug picks these up from PATH; kept empty on purpose so the
+    // project stays free of machine specific absolute paths.
+    "cortex-debug.armToolchainPath": "",
+    "cortex-debug.openocdPath": "openocd",
+    "cortex-debug.variableUseNaturalFormat": true
+}

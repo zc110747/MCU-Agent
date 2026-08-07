@@ -1,0 +1,77 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "configure (debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--preset", "debug"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "build (debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "--preset", "debug"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": { "kind": "build", "isDefault": true },
+            "dependsOn": "configure (debug)",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "build (release)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "--preset", "release"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "--preset", "debug", "--target", "clean"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "flash (openocd)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f", "debug/openocd.cfg",
+                "-c", "program build/debug/stm32h7_face_detect.elf verify reset exit"
+            ],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "build (debug)",
+            "problemMatcher": []
+        },
+        {
+            "label": "openocd server",
+            "type": "shell",
+            "command": "openocd",
+            "args": ["-f", "debug/openocd.cfg"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "model: export placeholder weights",
+            "type": "shell",
+            "command": "python",
+            "args": ["tools/fd_export.py", "--placeholder"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "model: train + export",
+            "type": "shell",
+            "command": "python",
+            "args": ["tools/fd_train.py"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        }
+    ]
+}
