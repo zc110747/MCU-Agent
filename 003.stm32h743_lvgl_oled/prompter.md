@@ -22,10 +22,12 @@
 
 - 工程模块化
 
+对于部分目录给出结构，项目额外下载要尽可能精简，下载必须即可
+
 1. app: 存放应用逻辑
 2. bsp：存放用户开发的驱动程序
-3. Drivers: 存放ST官方HAL库和CMSIS内容
-4. third_party: 存放第三方库(如FatFs、lvgl和third_party)
+3. Drivers: HAL相关放在Drivers目录下
+4. third_party: 存放第三方库(如FatFs、lvgl)
 
 其它目录无限制。
 
