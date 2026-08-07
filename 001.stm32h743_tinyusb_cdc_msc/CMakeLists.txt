@@ -22,11 +22,12 @@ else()
 endif()
 message(STATUS "USB port: OTG_${USB_PORT} -> TinyUSB rhport ${BOARD_TUD_RHPORT}")
 
-set(LIB_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/lib)
-set(TINYUSB_DIR  ${LIB_DIR}/tinyusb)
-set(CMSIS_CORE   ${LIB_DIR}/cmsis_core/CMSIS/Core/Include)
-set(CMSIS_DEVICE ${LIB_DIR}/cmsis_device_h7)
-set(HAL_DIR      ${LIB_DIR}/stm32h7xx_hal_driver)
+set(THIRD_PARTY      ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+set(TINYUSB_DIR  ${THIRD_PARTY}/tinyusb)
+set(DRIVERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers)
+set(HAL_DIR      ${DRIVERS_DIR}/STM32H7xx_HAL_Driver)
+set(CMSIS_CORE   ${DRIVERS_DIR}/CMSIS/Core/Include)
+set(CMSIS_DEVICE ${DRIVERS_DIR}/CMSIS/Device/ST/STM32H7xx)
 
 foreach(_d ${TINYUSB_DIR} ${CMSIS_CORE} ${CMSIS_DEVICE} ${HAL_DIR})
   if(NOT EXISTS ${_d})
@@ -46,9 +47,9 @@ set(APP_SOURCES
   src/stm32h7xx_it.c
   src/syscalls.c
   src/sdcard.c
-  src/fatfs_diskio.c
   src/msc_disk.c
   src/sd_app.c
+  src/disk_interface.c
   ${CMSIS_DEVICE}/Source/Templates/system_stm32h7xx.c
   ${CMSIS_DEVICE}/Source/Templates/gcc/startup_stm32h743xx.s
 )
@@ -76,10 +77,7 @@ set(TINYUSB_SOURCES
   ${TINYUSB_DIR}/src/class/msc/msc_device.c
 )
 
-set(FATFS_SOURCES
-  ${LIB_DIR}/fatfs/source/ff.c
-  ${LIB_DIR}/fatfs/source/ffsystem.c
-)
+file(GLOB FATFS_SOURCES CONFIGURE_DEPENDS ${THIRD_PARTY}/FatFs/*.c)
 
 add_executable(${TARGET} ${APP_SOURCES} ${HAL_SOURCES} ${TINYUSB_SOURCES} ${FATFS_SOURCES})
 
@@ -89,7 +87,7 @@ target_include_directories(${TARGET} PRIVATE
   ${CMSIS_DEVICE}/Include
   ${HAL_DIR}/Inc
   ${TINYUSB_DIR}/src
-  ${LIB_DIR}/fatfs/source
+  ${THIRD_PARTY}/FatFs
 )
 
 target_compile_definitions(${TARGET} PRIVATE

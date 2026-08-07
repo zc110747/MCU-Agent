@@ -8,7 +8,7 @@
     "stm32h7xx_hal_conf.h": "c"
   },
   "files.exclude": {
-    "build/": true
+    "build/": false,
   },
   "search.exclude": {
     "build/": true,

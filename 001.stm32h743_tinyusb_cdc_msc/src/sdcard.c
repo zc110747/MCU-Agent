@@ -5,6 +5,8 @@
 #include "sdcard.h"
 #include "stm32h7xx_hal.h"
 
+#define SDMMC_READ_WRITE_TIMEOUT        1000
+
 SD_HandleTypeDef hsd1;
 
 static bool     s_ready  = false;
@@ -51,6 +53,8 @@ void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd) {
 void sdcard_init(void) {
   HAL_SD_CardInfoTypeDef info;
 
+  HAL_SD_DeInit(&hsd1);
+  
   hsd1.Instance = SDMMC1;
   hsd1.Init.ClockEdge           = SDMMC_CLOCK_EDGE_RISING;
   hsd1.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
@@ -94,4 +98,59 @@ int sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count) {
     if ((int32_t)(HAL_GetTick() - deadline) >= 0) return SD_ST_ERR;
   }
   return SD_ST_OK;
+}
+
+static HAL_StatusTypeDef sdcard_wait_ready(void)
+{
+    uint32_t tickstart = HAL_GetTick();
+
+    while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
+    {
+        if ((HAL_GetTick() - tickstart) > SDMMC_READ_WRITE_TIMEOUT)
+        {
+            return HAL_TIMEOUT;
+        }
+    }
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef sdcard_read_disk(uint8_t *buf, uint32_t startBlocks,
+                                   uint32_t NumberOfBlocks)
+{
+    HAL_StatusTypeDef status;
+
+    /* Card must be idle before a new command */
+    if (sdcard_wait_ready() != HAL_OK)
+    {
+        return HAL_TIMEOUT;
+    }
+
+    status = HAL_SD_ReadBlocks(&hsd1, buf, startBlocks, NumberOfBlocks,
+                               SDMMC_READ_WRITE_TIMEOUT);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    return sdcard_wait_ready();
+}
+
+HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
+                                    uint32_t NumberOfBlocks)
+{
+    HAL_StatusTypeDef status;
+
+    if (sdcard_wait_ready() != HAL_OK)
+    {
+        return HAL_TIMEOUT;
+    }
+
+    status = HAL_SD_WriteBlocks(&hsd1, (uint8_t *)buf, startBlocks,
+                                NumberOfBlocks, SDMMC_READ_WRITE_TIMEOUT);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    return sdcard_wait_ready();
 }

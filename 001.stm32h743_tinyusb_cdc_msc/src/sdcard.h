@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "bsp.h"
 
 typedef enum {
   SD_ST_OK      =  0,
@@ -30,3 +31,7 @@ uint32_t sdcard_block_size(void);    /* 512 for SDSC/SDHC/SDXC           */
 /* Returns SD_ST_OK on success, negative on failure. lba is the block index. */
 int sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count);
 int sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count);
+HAL_StatusTypeDef sdcard_read_disk(uint8_t *buf, uint32_t startBlocks,
+                                   uint32_t NumberOfBlocks);
+HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
+                                    uint32_t NumberOfBlocks);
