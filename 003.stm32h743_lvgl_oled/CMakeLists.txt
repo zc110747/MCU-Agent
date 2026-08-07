@@ -123,6 +123,7 @@ set(PROJECT_SRCS
   Bsp/drv_oled_text.c
   Bsp/drv_sdio.c
   Bsp/drv_rtc.c
+  Bsp/disk_interface.c
   # BSP: LVGL glue - display flush, SD-backed GBK font, Unicode->GBK table
   Bsp/lv_port_disp.c
   Bsp/lv_font_gbk.c
@@ -135,7 +136,6 @@ set(PROJECT_SRCS
   third_party/FatFs/ff.c
   third_party/FatFs/ffsystem.c
   third_party/FatFs/ffunicode.c
-  third_party/FatFs/disk_interface.c
 )
 
 add_executable(${PROJECT_NAME}.elf
