@@ -1,0 +1,31 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "STM32H743 CMSIS-DAP",
+            "compilerPath": "arm-none-eabi-gcc.exe",
+            "compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm",
+            "includePath": [
+                "${workspaceFolder}/app",
+                "${workspaceFolder}/bsp",
+                "${workspaceFolder}/third_party/CMSIS-DAP",
+                "${workspaceFolder}/Drivers/CMSIS/Core/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
+                "${workspaceFolder}/third_party/tinyusb/src"
+            ],
+            "defines": [
+                "STM32H743xx",
+                "USE_HAL_DRIVER",
+                "HSE_VALUE=25000000",
+                "CFG_TUSB_MCU=OPT_MCU_STM32H7",
+                "CFG_TUSB_OS=OPT_OS_NONE",
+                "BOARD_TUD_RHPORT=0",
+                "USB_PORT_IS_FS=1"
+            ]
+        }
+    ]
+}

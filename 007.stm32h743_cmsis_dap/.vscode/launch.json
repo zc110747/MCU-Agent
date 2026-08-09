@@ -1,0 +1,52 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug probe firmware (OpenOCD + ST-Link)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/h743_cmsis_dap.elf",
+      "servertype": "openocd",
+      "configFiles": ["${workspaceFolder}/openocd/stm32h743_stlink.cfg"],
+      "device": "STM32H743ZI",
+      "svdFile": "${workspaceFolder}/.vscode/STM32H743.svd",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build debug",
+      "showDevDebugOutput": "none",
+      "liveWatch": {
+        "enabled": true,
+        "samplesPerSecond": 4
+      },
+      "postLaunchCommands": [
+        "monitor arm semihosting disable"
+      ]
+    },
+    {
+      "name": "Attach to probe (already running)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/h743_cmsis_dap.elf",
+      "servertype": "openocd",
+      "configFiles": ["${workspaceFolder}/openocd/stm32h743_stlink.cfg"],
+      "device": "STM32H743ZI",
+      "svdFile": "${workspaceFolder}/.vscode/STM32H743.svd",
+      "interface": "swd",
+      "showDevDebugOutput": "none"
+    },
+    {
+      "name": "Debug STM32F429 THROUGH our probe",
+      "type": "cortex-debug",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/h743_cmsis_dap.elf",
+      "servertype": "openocd",
+      "configFiles": ["${workspaceFolder}/openocd/stm32f429_cmsisdap.cfg"],
+      "device": "STM32F429ZI",
+      "interface": "swd",
+      "showDevDebugOutput": "none"
+    }
+  ]
+}

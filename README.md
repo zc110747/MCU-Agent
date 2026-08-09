@@ -18,12 +18,12 @@
 
 本系列下项目如下所示。
 
-- 001.基于tinyusb实现USB混合设备(CDC+MSC)
-- 002.基于tinyusb实现UVC摄像头(基于ov5640)
-- 003.使用lvgl实现oled显示(支持通过sd卡使用中文字库)
-- 004.基于SD卡和OLED实现图片轮播功能
-- 005.实现基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)
-- 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)
+✅ 001.基于tinyusb实现USB混合设备(CDC+MSC)  
+✅ 002.基于tinyusb实现UVC摄像头(基于ov5640)  
+✅ 003.使用lvgl实现oled显示(支持通过sd卡使用中文字库)  
+✅ 004.基于SD卡和OLED实现图片轮播功能  
+✅ 005.实现基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)  
+✅ 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)  
 
 ### 具体项目效果和提示词说明
 
