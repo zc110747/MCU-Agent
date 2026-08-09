@@ -38,6 +38,7 @@
 ## 项目注意
 
 1. 协议需要兼容支持`CMSIS-DAP v1`即可，考虑兼容性
+2. 提供ARM的CMSIS-DAP、JTAG/SWD接口的源码，详细见附件
 
 ## 建议流程
 
@@ -52,4 +53,4 @@
 
 ## 附件
 
-原理图.pdf
+原理图.pdf、JTAG_DP.c、SW_DP.c、SWO.c、DAP.h
