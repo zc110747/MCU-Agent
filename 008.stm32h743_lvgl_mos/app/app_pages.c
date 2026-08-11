@@ -180,7 +180,7 @@ static void sysinfo_enter(lv_obj_t *root)
     lv_obj_set_pos(s_si_bar, UI_PAD, 134);
     lv_bar_set_range(s_si_bar, 0, 100);
     lv_bar_set_value(s_si_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_si_bar, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_si_bar, lv_color_hex(COL_DIM), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_si_bar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_si_bar, 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_si_bar, lv_color_hex(COL_ACCENT),
@@ -320,7 +320,7 @@ static void keytest_enter(lv_obj_t *root)
         lv_obj_remove_style_all(box);
         lv_obj_set_size(box, 34, 22);
         lv_obj_set_pos(box, s_kt_pos[i][0], s_kt_pos[i][1]);
-        lv_obj_set_style_bg_color(box, lv_color_hex(0x202020), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(box, lv_color_hex(COL_DIM), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(box, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_radius(box, 3, LV_PART_MAIN);
         lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
@@ -375,8 +375,8 @@ static void keytest_tick(void)
         uint32_t bit = (uint32_t)1U << i;
 
         lv_obj_set_style_bg_color(s_kt_box[i],
-                                  lv_color_hex(((mask & bit) != 0U) ? 0xE07000
-                                                                    : 0x202020),
+                                  lv_color_hex(((mask & bit) != 0U) ? COL_ACCENT
+                                                                    : COL_DIM),
                                   LV_PART_MAIN);
     }
 

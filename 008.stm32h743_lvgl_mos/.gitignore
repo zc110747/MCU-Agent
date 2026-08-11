@@ -5,5 +5,3 @@ build/
 .vscode/.ropeproject
 *.swp
 .DS_Store
-
-*.cache

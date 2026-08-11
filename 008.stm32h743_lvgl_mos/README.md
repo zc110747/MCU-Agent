@@ -67,11 +67,12 @@ stm32_nes_emulator/
 ### 内存布局要点
 - **机器状态**（约 82 KB，含 6502/ PPU 上下文）放入 `.dtcm`（`0x20000000`，128 KB 紧耦合）。
 - **ROM 镜像**（≤ 256 KB）放入 `.ram_d2`（`0x30000000`，288 KB）。
-- 构建产物实测内存占用（Release）：DTCM **62.82%**、RAM_D2 **88.89%**、FLASH 12.24%。
+- 构建产物实测内存占用（Release）：DTCM **62.82%**、RAM_D2 **88.89%**、FLASH **约 24.7%**（启用 CP936 中文字符表后 `ff.c` / `ffunicode.c` 体积增大）。
 
 ### 菜单与全屏
-- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`nes → clock → sysinfo → keytest → about`。
+- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`nes → image → clock → sysinfo → keytest → about`。
 - NES 页面标记 `full_screen` / `wants_display`：进入后主循环**暂停 LVGL**，直接刷 SPI6；退出后恢复 LVGL 节拍，避免两套刷新打架。
+- **开机默认进入时钟页（钟表界面）**：`application_init` 在 `app_menu_init()` 后调用 `app_menu_open_cmd("clock")` 直接打开时钟页；时钟页 `on_key = NULL`，按 `BACK` / `B` / `MENU` 经默认处理返回主菜单，其余功能不变。
 
 ---
 
@@ -240,16 +241,56 @@ python scripts/serial_test.py --port COM19 --interactive
 
 ---
 
-## 8. 已知限制与备注
+## 8. UI 设计规格（白底蓝字主题）
 
-- **无实机验证**：本工程在构建沙箱中**无真实 ST-Link 硬件**，仅保证源码、配置、构建（零告警）、Python 脚本可运行与端口探测正确；实机烧录、SPI 显示、SD 读取与 NES 帧率需在真实硬件上验证。
-- **无音频**：NES 核心不含 APU，不输出声音。
-- **Release 优先**：Debug 构建仅供调试，游戏帧率不达标，请用 Release。
-- **字体**：LVGL 仅启用 `lv_font_gbk_16`（所有 Montserrat 字体已禁用）；CJK 字形依赖卡上 GBK 字模，ASCII 字形来自编译内表（`show_fault` 页可纯 ASCII 工作）。
+主菜单与各页面的 UI 采用统一视觉语言。以下为设计需求与落地要点，便于后续维护与二次开发。
+
+### 8.1 总体视觉
+- **白底**（`COL_BG = 0xFFFFFF`）背景。
+- **主文字蓝色**（`COL_TEXT = 0x0319`）。
+- **描述 / 提示 / 状态栏浅蓝**（`COL_LABEL` / `COL_DIM = 0x64BB`）。
+- 分隔线淡蓝（`COL_SEP = 0xB6FF`），选中指示浅蓝发光（`COL_SEL = 0x8DFF`）。
+- 全部颜色宏集中在 `app/app_page.h`，换主题只改一处。
+
+### 8.2 主菜单（一级，横向滑动卡片）
+- 每张卡片宽 240（整屏），`LV_FLEX_FLOW_ROW` 横向排布；`← / →` 通过 `lv_obj_scroll_to_view` 切换，底栏圆点指示当前页。
+- 卡片中央为**圆形图标**：74×74 圆环（未选中浅蓝、选中蓝色 3px）+ 外圈 90×90 淡蓝发光环；**无外边框矩形**。
+- 卡片**仅显示 APP 名称**（去掉版本号 / 串口指令等小字 hint）：24 px（`lv_font_gbk_24`），蓝色居中，位于圆形图标正下方（卡片内相对 `y = CARD_H/2 + 22`）。
+- 选中态靠圆环 + 发光环 + 蓝名区分；`A / OK / START` 进入页面，进入逻辑与旧版一致。
+
+### 8.3 顶栏（所有页面共用 `ui_header`）
+- 白底蓝字，**居中标题**（如 “APPS” “系统信息”）。
+- **左上角实时时钟**：`HH:MM` 蓝色（`lv_font_gbk_16`），取自芯片 RTC（`drv_rtc_get`）；RTC 不可用显示 `--:--`。
+- 刷新节奏：主循环每 pass 调 `app_menu_tick`，仅当 `HH:MM` 变化（`strcmp` 缓存比较）才 `lv_label_set_text`，避免每 5 ms 读 RTC。
+- 菜单顶栏与页面顶栏各持独立句柄（`s_hdr_clock_menu` / `s_hdr_clock_page`）；页面重开时自动指向最新标签，旧对象随 `lv_obj_clean` 销毁，无野指针。
+
+### 8.4 SD 浏览器（目录菜单）
+- 目录名白色，左侧带 **文件夹图标**（16×16 RGB565），不再带 `/` 前缀。
+- 子目录内按 `SELECT` 返回上一级（`browser_up`）；根目录按 `SELECT` 退出应用；状态栏文字随层级变化（根目录 “SELECT 退出” / 子目录 “SELECT 上级”）。
+
+### 8.5 字体与图标资源
+- `bsp/lv_font_gbk.*` 提供 **12 / 16 / 24 / 32 px** 四档 GBK 字体；ASCII 字形来自编译内表，CJK 字形依赖卡上 `GBKxx.FON`。
+- 主菜单图标由 `tools/gen_menu_icons.py` 生成 `app/menu_icons.c/h`（48×48 白底蓝图：clock / sysinfo / keytest / nes / image / about + 16×16 folder），已加入 CMake 源列表。
+- 本版 LVGL 的 `lv_img_header_t` 无 `stride` 字段（stride 由 cf 推导），生成器已剔除该字段。
+
+### 8.6 设计演进与取舍（关键点）
+- **FreeRTOS 方案已放弃**：RTOS 端口独占 SysTick 导致 HAL 时基冻结、`MX_SDMMC1_SD_Init` 卡死；用户决定回退裸机协作循环，专注 UI 优化。代码已回退干净（`startup_stm32h743xx.s` 向量表恢复 HAL 处理、删除 `FreeRTOSConfig.h` / `hal_timebase_tim.c`）。
+- 白底主题前为黑底；灰色小字在白底下不可见，故描述 / 提示文字统一改为浅蓝。
+- 圆形图标风格（去外边框）替代原矩形卡片，参考真机截图确定。
+- **真机验证状态（2026-08-11）**：已用 OpenOCD + ST-Link V2 实机烧录，串口自测 **38/38 PASS**，UI 观感由用户在真机确认。
 
 ---
 
-## 9. 快速上手清单
+## 9. 已知限制与备注
+
+- **实机验证**：2026-08-11 起已用 OpenOCD + ST-Link V2 在真实硬件上烧录并自测（串口自测 38/38 PASS），UI 观感由用户在真机确认；更早的“无实机验证”阶段仅覆盖源码、配置、构建（零告警）与脚本端口探测。
+- **无音频**：NES 核心不含 APU，不输出声音。
+- **Release 优先**：Debug 构建仅供调试，游戏帧率不达标，请用 Release。
+- **字体**：LVGL 启用 `lv_font_gbk_12 / 16 / 24 / 32`（所有 Montserrat 字体已禁用）；CJK 字形依赖卡上 `GBKxx.FON`，ASCII 字形来自编译内表（`show_fault` 页可纯 ASCII 工作）。
+
+---
+
+## 10. 快速上手清单
 
 ```bash
 # 1) 编译 Release（推荐游玩）
@@ -272,3 +313,35 @@ python scripts/serial_test.py --port COM19 --interactive
 #   board> key start
 #   board> key a
 ```
+
+---
+
+## 11. 关键实现约束与踩坑（务必保留）
+
+以下内容是工程稳定运行的关键约束与已修复的坑，改动前请先读本节。
+
+### 11.1 中文文件名 / ROM 名渲染链路（最关键约束）
+- **FatFs `FF_CODE_PAGE` 必须为 936（GBK）**，定义在 `third_party/FatFs/ffconf.h`。**切勿改回 437**：437 会把中文长文件名（LFN）转 CP437 丢字符，导致 `f_open` 命中失败、串口与屏幕全乱码。
+- 渲染链路（两层 UTF-8 → GBK 转换）：
+  1. 卡上文件名：`fno.fname` 经 FatFs 返回 **GBK 字节**（保留中文、保证 `f_open` 命中）。
+  2. 串口输出：`bsp/gbk_conv.c` 的 `gbk_to_utf8()` 把 GBK 转 UTF-8 后打印（中文 ROM 名现正确显示）。
+  3. OLED 显示：`lv_font_gbk_16/24/32` 字体驱动做 **UTF-8 → Unicode → GBK 字形** 映射，故页面必须把 GBK 名先 `gbk_to_utf8()` 转 UTF-8 再喂 `lv_label_set_text`；直接喂 GBK 字节会乱码（原 bug #1）。
+- `bsp/gbk_unicode_tbl.c` 由 `tools/gen_gbk_table.py` 离线生成（23940 项 / 21791 映射，约 48 KB Flash）。
+- 工程源码统一 **UTF-8 + `-fexec-charset=UTF-8`**，字符串字面量保持 UTF-8（LVGL 期望）。
+
+### 11.2 SELECT 键退出语义
+- NES 运行中：`SELECT` / `BACK` / `MENU` 任一按一下 `stop_game()` → 回 ROM 浏览器。
+- ROM 浏览器中：`SELECT` → `app_menu_back()` → 回主菜单。
+- `feed_pad()` 已移除 `SELECT → NES_PAD_SELECT` 映射（设计取舍：用 SELECT 换“退出”，游戏中 SELECT 按钮不再可用）。
+- 入口提示：`↑↓ 选择  A 运行  SELECT 退`。
+
+### 11.3 SD 浏览器目录导航
+- 目录与文件一并列出，目录名白色 + 左侧文件夹图标，不再带 `/` 前缀。
+- 非根目录列表首项插入 `.. 上级目录`；`A / OK / START` 命中目录进入子目录（`browser_enter`），命中 `..` 返回上层（`browser_up`）；命中文件才触发 `on_select`。
+- 排序：先 `..`，再目录，后文件。
+- 路径缓冲 `b->path` 16 → 64；`browser_enter` 临时缓冲 128 防 `snprintf` 截断告警。
+
+### 11.4 构建与验证基线
+- 编译最多 `ninja -j4`（用户要求，避免 CPU 风扇转速过高）。
+- 实机烧录：`openocd -f openocd.cfg -c "init" -c "program build/nes_h743.elf verify reset exit"`（ST-Link V2；COM19 = USART1 VCP，COM4 = USB CDC，共用 `app_cmd` 解析器）。
+- 串口自测 **38/38 PASS**（`scripts/serial_test.py`：NES 31 fps、mapper 0、中文名正确）；`scripts/verify_features.py` 专项验证中文名 + SELECT 退出 **3/3 PASS**。

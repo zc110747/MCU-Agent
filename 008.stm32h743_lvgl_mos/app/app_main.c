@@ -241,6 +241,9 @@ void application_init(void)
         register_pages();
         app_menu_init();
         printf("[MENU] %d pages registered\r\n", app_menu_count());
+
+        /* Boot straight into the clock "watch" face; BACK returns to menu. */
+        (void)app_menu_open_cmd("clock");
     }
     else
     {

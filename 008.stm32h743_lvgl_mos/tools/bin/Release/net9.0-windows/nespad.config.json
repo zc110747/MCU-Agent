@@ -5,10 +5,11 @@
   "KeyMap": {
     "W": "up",
     "S": "down",
+    "A": "left",
     "D": "right",
     "J": "a",
     "K": "b",
     "LShiftKey": "select",
-    "A": "left"
+    "Return": "start"
   }
 }

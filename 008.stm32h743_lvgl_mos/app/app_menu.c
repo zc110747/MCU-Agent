@@ -25,6 +25,7 @@
 #include "lv_font_gbk.h"
 #include "menu_icons.h"
 #include "drv_spi_oled.h"
+#include "drv_rtc.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -47,7 +48,11 @@ static lv_obj_t         *s_list       = NULL;
 static lv_obj_t         *s_status     = NULL;
 static lv_obj_t         *s_cards[APP_PAGE_MAX];
 static lv_obj_t         *s_titles[APP_PAGE_MAX];
+static lv_obj_t         *s_rings[APP_PAGE_MAX];
+static lv_obj_t         *s_glows[APP_PAGE_MAX];
 static lv_obj_t         *s_dots[APP_PAGE_MAX];
+static lv_obj_t         *s_hdr_clock_menu = NULL;   /* "HH:MM" in root header  */
+static lv_obj_t         *s_hdr_clock_page = NULL;   /* "HH:MM" in page header  */
 
 /*----------------------------------------------------------------------------
  *  Shared UI helpers
@@ -111,6 +116,34 @@ lv_obj_t *ui_header(lv_obj_t *parent, const char *title)
 
     (void)ui_label_center(hdr, 6, &lv_font_gbk_16, COL_HDR_TXT, title);
 
+    /* Live wall-clock on the left edge: "HH:MM" (no seconds, per request). */
+    {
+        rtc_datetime_t dt;
+        char           buf[8];
+
+        if (drv_rtc_get(&dt) == RT_OK)
+        {
+            snprintf(buf, sizeof(buf), "%02u:%02u",
+                     (unsigned)dt.hour, (unsigned)dt.minute);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "--:--");
+        }
+
+        lv_obj_t *clk = ui_label(hdr, UI_PAD, 6, &lv_font_gbk_16,
+                                 COL_HDR_TXT, buf);
+
+        if (parent == s_menu_root)
+        {
+            s_hdr_clock_menu = clk;
+        }
+        else
+        {
+            s_hdr_clock_page = clk;
+        }
+    }
+
     return hdr;
 }
 
@@ -119,8 +152,9 @@ lv_obj_t *ui_header(lv_obj_t *parent, const char *title)
  *--------------------------------------------------------------------------*/
 
 /* The root menu is a horizontal strip of full-screen cards.  Only one card is
- * visible at a time; KEY_LEFT / KEY_RIGHT slide the strip and the selected card
- * gets an accent border + accent title so it is obvious which one is active. */
+ * visible at a time; KEY_LEFT / KEY_RIGHT slide the strip.  The selected icon
+ * gets a blue ring (plus a soft light-blue glow) and a blue title so it stands
+ * out against the white background - no outer rectangular border. */
 static void highlight_card(int index, int on)
 {
     if ((index < 0) || (index >= s_page_count) ||
@@ -129,14 +163,23 @@ static void highlight_card(int index, int on)
         return;
     }
 
-    lv_obj_set_style_border_color(s_cards[index],
-                                  lv_color_hex((on != 0) ? COL_ACCENT : COL_BG),
-                                  LV_PART_MAIN);
-    lv_obj_set_style_border_opa(s_cards[index],
-                                (on != 0) ? LV_OPA_COVER : LV_OPA_TRANSP,
-                                LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_cards[index], (on != 0) ? 2 : 0,
-                                  LV_PART_MAIN);
+    if (s_rings[index] != NULL)
+    {
+        lv_obj_set_style_border_color(s_rings[index],
+                                      lv_color_hex((on != 0) ? COL_ACCENT : COL_DIM),
+                                      LV_PART_MAIN);
+        lv_obj_set_style_border_width(s_rings[index], (on != 0) ? 3 : 2,
+                                      LV_PART_MAIN);
+        lv_obj_set_style_border_opa(s_rings[index], LV_OPA_COVER,
+                                    LV_PART_MAIN);
+    }
+
+    if (s_glows[index] != NULL)
+    {
+        lv_obj_set_style_border_opa(s_glows[index],
+                                    (on != 0) ? LV_OPA_30 : LV_OPA_TRANSP,
+                                    LV_PART_MAIN);
+    }
 
     lv_obj_set_style_text_color(s_titles[index],
                                 lv_color_hex((on != 0) ? COL_ACCENT : COL_TEXT),
@@ -188,6 +231,32 @@ static void build_menu(void)
         lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
+        /* Soft light-blue glow ring (only visible when selected). */
+        lv_obj_t *glow = lv_obj_create(card);
+        lv_obj_remove_style_all(glow);
+        lv_obj_set_size(glow, 90, 90);
+        lv_obj_set_style_radius(glow, 45, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(glow, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(glow, 8, LV_PART_MAIN);
+        lv_obj_set_style_border_color(glow, lv_color_hex(COL_SEL), LV_PART_MAIN);
+        lv_obj_set_style_border_opa(glow, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_align(glow, LV_ALIGN_CENTER, 0, -34);
+        lv_obj_clear_flag(glow, LV_OBJ_FLAG_SCROLLABLE);
+        s_glows[i] = glow;
+
+        /* Main icon circle outline. */
+        lv_obj_t *ring = lv_obj_create(card);
+        lv_obj_remove_style_all(ring);
+        lv_obj_set_size(ring, 74, 74);
+        lv_obj_set_style_radius(ring, 37, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN);
+        lv_obj_set_style_border_color(ring, lv_color_hex(COL_DIM), LV_PART_MAIN);
+        lv_obj_set_style_border_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_align(ring, LV_ALIGN_CENTER, 0, -34);
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+        s_rings[i] = ring;
+
         const lv_img_dsc_t *ic = s_pages[i]->icon;
         if (ic != NULL)
         {
@@ -196,14 +265,9 @@ static void build_menu(void)
             lv_obj_align(img, LV_ALIGN_CENTER, 0, -34);
         }
 
-        s_titles[i] = ui_label_center(card, CARD_H / 2 + 10, &lv_font_gbk_16,
+        /* App name only: larger font, just below the icon ring. */
+        s_titles[i] = ui_label_center(card, CARD_H / 2 + 22, &lv_font_gbk_24,
                                       COL_TEXT, s_pages[i]->title);
-
-        if (s_pages[i]->hint != NULL)
-        {
-            (void)ui_label_center(card, CARD_H / 2 + 34, &lv_font_gbk_12,
-                                  COL_DIM, s_pages[i]->hint);
-        }
 
         s_cards[i] = card;
 
@@ -257,7 +321,7 @@ void app_menu_init(void)
     lv_obj_clear_flag(s_page_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
 
-    (void)ui_header(s_menu_root, "STM32H743  主菜单");
+    (void)ui_header(s_menu_root, "APPS");
 
     build_menu();
     s_current = -1;
@@ -463,6 +527,36 @@ void app_menu_handle_key(key_id_t id, key_edge_t edge)
 
 void app_menu_tick(void)
 {
+    /* Refresh the header clock at most once per minute (HH:MM only). */
+    static char s_clk_cache[6] = "";
+    rtc_datetime_t dt;
+    char           buf[8];
+
+    if (drv_rtc_get(&dt) == RT_OK)
+    {
+        snprintf(buf, sizeof(buf), "%02u:%02u",
+                 (unsigned)dt.hour, (unsigned)dt.minute);
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "--:--");
+    }
+
+    if (strcmp(buf, s_clk_cache) != 0)
+    {
+        (void)strncpy(s_clk_cache, buf, sizeof(s_clk_cache) - 1);
+        s_clk_cache[sizeof(s_clk_cache) - 1] = '\0';
+
+        if (s_hdr_clock_menu != NULL)
+        {
+            lv_label_set_text(s_hdr_clock_menu, buf);
+        }
+        if (s_hdr_clock_page != NULL)
+        {
+            lv_label_set_text(s_hdr_clock_page, buf);
+        }
+    }
+
     if (s_current >= 0)
     {
         const app_page_t *page = s_pages[s_current];

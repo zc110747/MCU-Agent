@@ -133,17 +133,17 @@ void        page_image_info(char *out, int out_size);
 #define UI_PAD              8
 #define UI_HDR_H            28
 
-#define COL_BG              0x000000
-#define COL_HDR             0x0A3D62
-#define COL_HDR_TXT         0xFFD966
-#define COL_SEL             0x1E5F8C
-#define COL_TEXT            0xFFFFFF
-#define COL_LABEL           0xC4CCD6  /* 冷亮灰：黑底上比 0x8A8A8A 清晰得多 */
+#define COL_BG              0xFFFFFF  /* 白底 */
+#define COL_HDR             0xFFFFFF  /* 标题栏背景与屏幕一致 */
+#define COL_HDR_TXT         0x0319    /* 深蓝标题文字 */
+#define COL_SEL             0x8DFF    /* 浅蓝选中高亮 */
+#define COL_TEXT            0x0319    /* 主文字：蓝色 */
+#define COL_LABEL           0x64BB    /* 描述文字：浅蓝 */
 #define COL_VALUE           0x40E070
-#define COL_ACCENT          0xFFA000
-#define COL_DIM             0x9CA8B4  /* 冷亮灰：黑底上比 0x606060 清晰得多 */
+#define COL_ACCENT          0x0319    /* 强调/选中图标环：蓝色 */
+#define COL_DIM             0x64BB    /* 提示/状态栏：浅蓝 */
 #define COL_ERR             0xFF4040
-#define COL_SEP             0x243447
+#define COL_SEP             0xB6FF    /* 分隔线：淡蓝 */
 
 lv_obj_t *ui_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
                    const lv_font_t *font, uint32_t color, const char *text);
