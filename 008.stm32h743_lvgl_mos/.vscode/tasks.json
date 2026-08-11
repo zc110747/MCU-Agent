@@ -1,0 +1,133 @@
+{
+    // Every task runs with cwd = workspace root and uses RELATIVE paths, so the
+    // project can be cloned anywhere. All tools come from the system PATH.
+    "version": "2.0.0",
+    "options": {
+        "cwd": "${workspaceFolder}"
+    },
+    "tasks": [
+        {
+            "label": "CMake: Configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S", ".",
+                "-B", "build",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Debug"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            // Depends on Configure so that F5 works on a fresh clone
+            // (re-running configure is a fast no-op once the cache exists).
+            "label": "CMake: Build",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build"],
+            "dependsOn": "CMake: Configure",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "CMake: Configure Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S", ".",
+                "-B", "build-release",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            // -O2.  Use this one for actual gaming: the 6502 interpreter and
+            // the scanline PPU do not make 60 fps at -Og.
+            "label": "CMake: Build Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build-release"],
+            "dependsOn": "CMake: Configure Release",
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "CMake: Clean",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build", "--target", "clean"],
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash (OpenOCD)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f", "openocd.cfg",
+                "-c", "program build/nes_h743.elf verify reset exit"
+            ],
+            "dependsOn": "CMake: Build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash Release (OpenOCD)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f", "openocd.cfg",
+                "-c", "program build-release/nes_h743.elf verify reset exit"
+            ],
+            "dependsOn": "CMake: Build Release",
+            "problemMatcher": []
+        },
+        {
+            // Restart the board without reflashing - handy to re-read the
+            // USART1 boot banner in the Serial Monitor (COM port @115200).
+            "label": "Reset & Run (OpenOCD)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f", "openocd.cfg",
+                "-c", "init; reset run; exit"
+            ],
+            "problemMatcher": []
+        },
+        {
+            // End-to-end console check over the ST-Link VCP (or the USB CDC
+            // port - pass its COM number instead).
+            "label": "Serial: self-test",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "scripts/serial_test.py",
+                "--port", "${input:serialPort}"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Serial: interactive terminal",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "scripts/serial_test.py",
+                "--port", "${input:serialPort}",
+                "--interactive"
+            ],
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "serialPort",
+            "type": "promptString",
+            "description": "Serial port (ST-Link VCP or USB CDC), e.g. COM19",
+            "default": "COM19"
+        }
+    ]
+}

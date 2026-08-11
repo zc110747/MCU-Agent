@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "marus25.cortex-debug",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.vscode-serial-monitor"
+    ]
+}

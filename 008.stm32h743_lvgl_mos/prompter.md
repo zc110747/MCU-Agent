@@ -1,21 +1,15 @@
-# 基于tinyusb实现cmsis-dap协议项目
+# 使用lvgl实现oled显示(支持通过sd卡使用中文字库)
 
-构建STM32平台的vscode项目，基于第三方库tinyusb实现cmsis-dap v1协议项目，能够仿真stm32f4。  
+构建STM32平台的vscode项目，基于SD卡驱动、中文GBK字库、LVGL在OLED上显示中文标签和界面。
 
-项目生成后直接构建，仿真，异常时使用st-link进行单步调试项目，并连接stm32f429，使用openocd进行验证
+项目生成后直接构建，仿真，异常时使用st-link进行单步调试解决。
 
-## 硬件资源(详细原理图和部分驱动见附件)
+## 硬件资源(详细原理图见附件，直接解析补充)
 
-1. 芯片STM32H743ZIT6，USB为FS模式，外部无源晶振25MHZ
-2. USB硬件接口为FS，已经连接，可直接调试
-3. 使用硬件引脚模拟cmsis-dap调试接口，引脚连接如下(支持JTAG/SWD接口)：
-
-- JTRST - PA3
-- JTDI - PC4
-- JTMS/SWDIO - PA0
-- JTCK/SWCLK - PA1
-- JTDO - PA7
-- NRST - PA2
+1. 芯片STM32H743ZIT6，外部无源晶振25MHZ
+2. OLED硬件已经连接，尺寸240x240，可直接调试，可提供部分已验证驱动代码
+3. 外部已经接入SD卡，其中中文字库位于"1:/SYSTEM/FONT/"目录，可提供部分已验证驱动代码
+4. 支持调试串口，连接PA9/PA10
 
 ## 编译环境
 
@@ -35,22 +29,19 @@
 3. Drivers: HAL相关放在Drivers目录下
 4. third_party: 存放第三方库(如FatFs、lvgl)
 
-## 项目注意
-
-1. 协议需要兼容支持`CMSIS-DAP v1`即可，考虑兼容性
-2. 提供ARM的CMSIS-DAP、JTAG/SWD接口的源码，详细见附件
+其它目录无限制。
 
 ## 建议流程
 
-1. 先基于USB实现cmsis-dap协议设备，并能够支持openocd的命令仿真
-2. 实现引脚模拟实现cmsis-dap协议的所有时序，结合命令仿真，实现对芯片的访问
-3. 两部分组合，最终实现完整功能
-4. 总结具体流程和问题解决办法，更新到项目下的README.md文件中
+1. 先实现SD卡数据读取
+2. 再实现OLED的LED显示输出
+3. 集成LVGL，实现基于LVGL的显示应用
+4. 完成后总结项目执行步骤、解决问题，更新到项目下的README.md文件中
 
 ## 验收标准
 
-1. 使用openocd能够正常通过此单片机，访问stm32f429的芯片，支持下载和调试命令
+1. 调试仿真，确定在OLED上显示界面符合预期
 
 ## 附件
 
-原理图.pdf、JTAG_DP.c、SW_DP.c、SWO.c、DAP.h
+原理图.pdf、drv_ov5640.c/drv_ov5640.h

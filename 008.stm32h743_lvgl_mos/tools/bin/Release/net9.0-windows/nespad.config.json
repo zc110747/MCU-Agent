@@ -1,0 +1,14 @@
+{
+  "Port": "COM4",
+  "Baud": 921600,
+  "SkinName": "\u9ED8\u8BA4\u00B7\u84DD",
+  "KeyMap": {
+    "W": "up",
+    "S": "down",
+    "D": "right",
+    "J": "a",
+    "K": "b",
+    "LShiftKey": "select",
+    "A": "left"
+  }
+}
