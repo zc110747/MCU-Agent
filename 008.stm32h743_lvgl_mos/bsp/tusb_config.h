@@ -40,14 +40,35 @@ extern "C" {
 #define CFG_TUD_VBUS_DETECT_HW      0
 
 /* --------------------------------------------------------------------------
- *  Memory placement
+ *  Memory placement & D-Cache coherency
  *
- *  The D-Cache is disabled board-wide (see MPU_Config in main.c), so USB
- *  buffers need no cache maintenance and can live in ordinary .bss on the AXI
- *  SRAM, which the OTG core can reach.
+ *  D-Cache IS enabled board-wide (see MPU_Config in main.c).  The OTG internal
+ *  DMA reads/writes the USB buffers (DWC2 descriptors, CDC RX/TX data) directly,
+ *  so the CPU and DMA must agree on their contents or the console dies after a
+ *  few minutes of traffic (classic write-back coherency corruption -> BusFault).
+ *
+ *  Two complementary measures keep every DMA-touched buffer coherent:
+ *
+ *   1. CFG_TUD_MEM_DCACHE_ENABLE = 1  (the authoritative fix)
+ *      tinyusb calls dcd_dcache_clean()/invalidate() around EVERY xfer->buffer
+ *      (the real CDC RX/TX data buffers and the EP0 buffer) - see dcd_dwc2.c
+ *      lines 392 / 1015 / 1039 / 1064.  This covers the buffers that live in
+ *      ordinary .bss (cdcd_interface_t.rx_ff_buf / tx_ff_buf) which the
+ *      CFG_TUSB_MEM_SECTION trick alone does NOT reach.
+ *
+ *   2. CFG_TUSB_MEM_SECTION -> .usb_ram (defence in depth)
+ *      Routes the DWC2 DMA descriptors (_ctrl_epbuf, _dcd_usbbuf) into SRAM4
+ *      (D3, 0x38000000); MPU Region 2 marks that region non-cacheable, so the
+ *      descriptors never need manual maintenance.
+ *
+ *  Together they cover all DMA-accessed memory on the H7 USB-FS device port.
  * ------------------------------------------------------------------------*/
+#ifndef CFG_TUD_MEM_DCACHE_ENABLE
+#define CFG_TUD_MEM_DCACHE_ENABLE   1
+#endif
+
 #ifndef CFG_TUSB_MEM_SECTION
-#define CFG_TUSB_MEM_SECTION
+#define CFG_TUSB_MEM_SECTION       __attribute__ ((section(".usb_ram"), aligned(4)))
 #endif
 
 #ifndef CFG_TUSB_MEM_ALIGN

@@ -72,3 +72,6 @@ Testing/
 
 **/Drivers
 **/third_party
+
+**/Release/
+**/Debug/

@@ -194,6 +194,13 @@ static int load_rom_named(const char *name)
         return -1;
     }
 
+    if (nes_rom_arena() == NULL)
+    {
+        printf("[NES ] no ROM arena (allocation failed at page open)\r\n");
+        s_fail_reason = "内存不足";
+        return -1;
+    }
+
     (void)snprintf(path, sizeof(path), "%s/%s", sd_browser_path(s_browser), name);
     gbk_to_utf8(name, utf8, (int)sizeof(utf8));
 
@@ -354,7 +361,7 @@ static void open_browser(lv_obj_t *root)
 {
     s_browser = sd_browser_create(root, NES_DIR, "NES 模拟器",
                                   NES_ROWS_VISIBLE, NES_ROW_H,
-                                  on_pick, NULL);
+                                  on_pick, NULL, NULL);
 }
 
 /*----------------------------------------------------------------------------
@@ -365,6 +372,13 @@ static void nes_enter(lv_obj_t *root)
 {
     s_root  = root;
     s_state = NES_STATE_BROWSER;
+
+    /* Grab the DTCM machine-state + D2 ROM arena now; they are freed again in
+     * nes_exit so the memory is available to other apps while we are not here. */
+    if (nes_open() != 0)
+    {
+        printf("[NES ] cannot allocate emulator memory\r\n");
+    }
 
     find_roms();                    /* keeps the console list in sync */
     open_browser(root);
@@ -377,6 +391,7 @@ static void nes_exit(void)
     s_browser = NULL;
     s_root    = NULL;
     bsp_key_release_all();
+    nes_close();                    /* release DTCM + D2 back to sram_pool */
 }
 
 /** Leave the game and rebuild the browser without bouncing to the menu. */

@@ -7,13 +7,17 @@
   *    MPU -> I-Cache -> HAL_Init -> 480 MHz clock -> GPIO/SPI6/SDMMC1/USART1
   *    -> application_init() -> application_run() forever.
   *
-  *  Cache policy
-  *  ------------
-  *  Only the I-Cache is enabled.  The D-Cache is intentionally left OFF:
-  *  SDMMC1 moves sector data with its internal DMA, and with D-Cache on every
-  *  buffer would need explicit clean/invalidate maintenance.  For a display
-  *  demo the extra throughput is irrelevant, and this keeps SD reads correct
-  *  by construction.  (See MPU_Config() for the region setup.)
+ *  Cache policy
+ *  ------------
+ *  Both I-Cache and D-Cache are enabled.  D-Cache is safe here because the
+ *  project reads/writes SD sectors with the SDMMC1 FIFO in polling mode
+ *  (HAL_SD_ReadBlocks/WriteBlocks use SDMMC_ReadFIFO/WriteFIFO, NOT IDMA), so
+ *  every SD buffer is touched by the CPU and stays coherent by construction -
+ *  no explicit clean/invalidate maintenance is required.  The SPI6 display and
+ *  USB CDC paths are likewise CPU/OTG-FIFO driven, with no general DMA writing
+ *  AXI-SRAM.  MPU_Config() marks the two CPU SRAM banks as write-back cache
+ *  regions (see below).  DTCM holds the NES machine state and bypasses the
+ *  D-Cache by hardware, so it is left uncovered.
   ******************************************************************************
   */
 #include "main.h"
@@ -44,6 +48,7 @@ int main(void)
     /* 1. MPU + caches --------------------------------------------------------*/
     MPU_Config();
     SCB_EnableICache();
+    SCB_EnableDCache();
 
     /* 2. HAL / SysTick -------------------------------------------------------*/
     HAL_Init();
@@ -179,11 +184,28 @@ void HAL_RCC_CSSCallback(void)
 }
 
 /**
-  * @brief  MPU configuration.
+  * @brief  MPU configuration (D-Cache regions).
   *
-  * Region 0 : AXI-SRAM (0x24000000, 512 KB) marked normal / non-shareable.
-  *            This is where .data/.bss/heap/stack and every SD buffer live.
-  */
+  * Region 0 : AXI-SRAM (0x24000000, 512 KB) - write-back cacheable.
+  *            The main system RAM: .data/.bss/heap/stack and every SD sector
+  *            buffer live here.  CPU-only access (SD is polling FIFO, no IDMA)
+  *            keeps it coherent with no maintenance.
+  *
+  * Region 1 : D2 SRAM (0x30000000, 512 KB cover) - write-back cacheable.
+  *            Holds the NES ROM image (.ram_d2).  The 6502 core reads it on
+  *            every instruction fetch, so caching it directly speeds up the
+  *            emulator.  (Actual RAM_D2 is 288 KB; the larger region just makes
+  *            the attributes explicit instead of relying on the background map.)
+  *
+ * DTCM (0x20000000, NES machine state) is intentionally left uncovered: it is
+ * a tightly-coupled memory that bypasses the D-Cache by hardware.
+ *
+ * Region 2 : D3 SRAM / SRAM4 (0x38000000, 64 KB) - NON-CACHEABLE.  Holds the
+ * tinyusb DMA buffers (DWC2 descriptors + CDC FIFOs, routed via the .usb_ram
+ * section).  The OTG internal DMA touches these directly, so they must stay
+ * out of the D-Cache; non-cacheable keeps CPU and DMA coherent with no
+ * maintenance and is what stops the USB console dying after sustained traffic.
+ */
 static void MPU_Config(void)
 {
     MPU_Region_InitTypeDef MPU_InitStruct = {0};
@@ -200,6 +222,28 @@ static void MPU_Config(void)
     MPU_InitStruct.DisableExec      = MPU_INSTRUCTION_ACCESS_ENABLE;
     MPU_InitStruct.IsShareable      = MPU_ACCESS_NOT_SHAREABLE;
     MPU_InitStruct.IsCacheable      = MPU_ACCESS_CACHEABLE;
+    MPU_InitStruct.IsBufferable     = MPU_ACCESS_BUFFERABLE;
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+    /* Region 1 : D2 SRAM (0x30000000, 512 KB cover) - write-back cacheable */
+    MPU_InitStruct.Number           = MPU_REGION_NUMBER1;
+    MPU_InitStruct.BaseAddress      = 0x30000000;
+    MPU_InitStruct.Size             = MPU_REGION_SIZE_512KB;
+    MPU_InitStruct.DisableExec      = MPU_INSTRUCTION_ACCESS_ENABLE;
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+    /* Region 2 : D3 SRAM / SRAM4 (0x38000000, 64 KB) - NON-CACHEABLE.
+       This holds the tinyusb DMA buffers (.usb_ram, see tusb_config.h and the
+       linker script).  The OTG internal DMA reads/writes these directly, so
+       they must not be cached: with a write-back region the CPU and DMA would
+       eventually see different contents and the USB stack would corrupt
+       itself after a while - the "USB dies after some traffic" bug.  Marking
+       it non-cacheable keeps CPU and DMA coherent with zero maintenance. */
+    MPU_InitStruct.Number           = MPU_REGION_NUMBER2;
+    MPU_InitStruct.BaseAddress      = 0x38000000;
+    MPU_InitStruct.Size             = MPU_REGION_SIZE_64KB;
+    MPU_InitStruct.DisableExec      = MPU_INSTRUCTION_ACCESS_DISABLE;
+    MPU_InitStruct.IsCacheable      = MPU_ACCESS_NOT_CACHEABLE;
     MPU_InitStruct.IsBufferable     = MPU_ACCESS_NOT_BUFFERABLE;
     HAL_MPU_ConfigRegion(&MPU_InitStruct);
 

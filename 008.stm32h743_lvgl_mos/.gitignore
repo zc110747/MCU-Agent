@@ -5,3 +5,7 @@ build/
 .vscode/.ropeproject
 *.swp
 .DS_Store
+
+build-release/
+
+third_party/

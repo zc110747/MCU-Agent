@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO.Ports;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace NesPadTool;
@@ -11,8 +13,8 @@ namespace NesPadTool;
 /// NES 虚拟手柄工具主窗口。
 /// - 串口：复用串口调试助手的 SerialPort 连接 / 扫描 / UTF-8 收发模式。
 /// - 手柄：方向键 + A/B + Select/Start，统一风格（StyleButton 思路），鼠标与物理键共用同一高亮态 → 图标显示一致。
-/// - 映射：物理键 → NES 虚拟键，可「学习」重绑，配置落盘。
-/// - 配置：串口 port/baud + 皮肤 + 映射 存于程序目录 nespad.config.json（参考记账工具 AppConfig）。
+/// - 映射：物理键 → NES 虚拟键，固定不可改，配置不再保存映射。
+/// - 配置：串口 port/baud + 皮肤 存于程序目录 nespad.config.json（参考记账工具 AppConfig）。
 /// </summary>
 public class MainForm : Form
 {
@@ -21,15 +23,19 @@ public class MainForm : Form
     private readonly System.Windows.Forms.Timer _scanTimer = new System.Windows.Forms.Timer();
     private readonly Encoding _enc = Encoding.UTF8;
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+    private readonly object _portLock = new object();
+    private readonly ConcurrentQueue<byte> _recvQueue = new();   // 接收缓冲：后台线程入队，UI 定时批量取
+    private readonly System.Windows.Forms.Timer _recvTimer = new(); // 接收刷新节流定时器
     private long _recvBytes;
+    private bool _closing;
+    private const int LogCap = 8192;  // 日志文本上限（字符），防止高速数据下 UI 文本无限增长拖慢界面
 
     // ---- 配置 / 皮肤 ----
     private Skin _skin = SkinPresets.Skins[0];
-    private Dictionary<string, string> _keyMap = KeyMap.Default(); // 物理键 -> NES 虚拟键
-    private readonly HashSet<string> _heldPhysical = new();         // 当前按下的物理键（防 auto-repeat）
-    private string? _learningNesKey;                               // 正在学习的 NES 键
-    private string _mouseHeld = "";                                // 鼠标按住中的 NES 键
-    private bool _ready;                                           // 加载完成后才允许配置落盘
+    private readonly Dictionary<string, string> _keyMap = KeyMap.Default(); // 物理键 -> NES 虚拟键（固定）
+    private readonly HashSet<string> _heldPhysical = new();               // 当前按下的物理键（防 auto-repeat）
+    private string _mouseHeld = "";                                       // 鼠标按住中的 NES 键
+    private bool _ready;                                                  // 加载完成后才允许配置落盘
 
     // ---- 控件引用 ----
     private ComboBox _cboPort = null!;
@@ -48,10 +54,11 @@ public class MainForm : Form
     private readonly Dictionary<string, TextBox> _mapTextBox = new(); // NES 键 -> 映射显示框
     private readonly StringBuilder _recvText = new();
 
-    private const int PadSize = 52;   // 方向键 / A / B 按键边长
-    private const int MiniW = 72;      // SELECT / START 宽度
-    private const int MiniH = 40;      // SELECT / START 高度
-    private const int Gap = 8;         // 单元格内边距（按钮与单元格间距）
+    private const int PadSize = 58;   // 方向键 / A / B 按键边长
+    private const int MiniW = 74;      // SELECT / START 宽度
+    private const int MiniH = 42;      // SELECT / START 高度
+    private const int Gap = 14;        // 单元格内边距（按钮与单元格间距）
+    private const int Spacer = 36;     // 方向键与 A/B 两组之间的留白
 
     public MainForm()
     {
@@ -67,7 +74,7 @@ public class MainForm : Form
     private void InitializeComponent()
     {
         Text = "NES 虚拟手柄工具";
-        ClientSize = new Size(1020, 660);
+        ClientSize = new Size(1180, 680);
         Font = new Font("Microsoft YaHei", 9F);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = true;
@@ -105,8 +112,8 @@ public class MainForm : Form
             RowCount = 1,
             Padding = new Padding(6)
         };
-        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
+        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
+        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 72));
         content.Controls.Add(BuildLeftPanel(), 0, 0);
         content.Controls.Add(BuildRightPanel(), 1, 0);
 
@@ -126,11 +133,17 @@ public class MainForm : Form
         _port.DataReceived += Port_DataReceived;
         KeyDown += Form_KeyDown;
         KeyUp += Form_KeyUp;
-        FormClosing += (_, _) => { try { _port?.Close(); } catch { } SaveConfig(); };
+        FormClosing += MainForm_FormClosing;
+        FormClosed += (_, _) => { try { _port.Dispose(); } catch { } };
 
         _scanTimer.Interval = 1500;
         _scanTimer.Tick += ScanTimer_Tick;
         _scanTimer.Start();
+
+        // 接收刷新节流：DataReceived 只把字节入队，UI 定时(100ms)批量取一次，避免高频 BeginInvoke 堆积导致卡死
+        _recvTimer.Interval = 100;
+        _recvTimer.Tick += RecvTimer_Tick;
+        _recvTimer.Start();
 
         ApplySkin(_skin); // 初始化配色 + 顶栏
     }
@@ -212,13 +225,12 @@ public class MainForm : Form
 
     private Panel BuildMappingPanel()
     {
-        var p = new Panel { Width = 278, Height = 372, BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(6) };
+        var p = new Panel { Width = 278, Height = 300, BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(6) };
         var title = new Label { Text = "按键映射（物理键 → NES）", Dock = DockStyle.Top, Height = 22, Font = new Font(Font, FontStyle.Bold) };
 
-        var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Padding = new Padding(2) };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23));
+        var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Padding = new Padding(2) };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
 
         foreach (var (key, label) in NesKeys.Buttons)
         {
@@ -226,30 +238,20 @@ public class MainForm : Form
             var lbl = new Label { Text = $"{label} ({key})", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(2, 6, 2, 2) };
             var tb = new TextBox { Width = 78, ReadOnly = true, BackColor = _skin.InputBg, Margin = new Padding(0, 2, 2, 2) };
             _mapTextBox[key] = tb;
-            var learn = new Button { Text = "学习", Width = 50, Height = 24, Margin = new Padding(2) };
-            learn.Click += (_, _) => StartLearn(key, label);
             grid.Controls.Add(lbl, 0, r);
             grid.Controls.Add(tb, 1, r);
-            grid.Controls.Add(learn, 2, r);
         }
 
-        var btnReset = new Button
+        var hint = new Label
         {
             Dock = DockStyle.Bottom,
             Height = 28,
-            Text = "恢复默认映射",
-            Margin = new Padding(0, 4, 0, 0)
-        };
-        btnReset.Click += (_, _) =>
-        {
-            _keyMap = KeyMap.Default();
-            RefreshMappingUI();
-            SaveConfig();
-            Hint("已恢复默认映射");
-            this.ActiveControl = null;
+            Text = "映射已固定，不可修改",
+            ForeColor = _skin.SubText,
+            TextAlign = ContentAlignment.MiddleCenter
         };
 
-        p.Controls.Add(btnReset);
+        p.Controls.Add(hint);
         p.Controls.Add(grid);
         p.Controls.Add(title);
         return p;
@@ -271,30 +273,36 @@ public class MainForm : Form
         var p = new Panel { Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(6) };
         var title = new Label { Text = "NES 虚拟手柄（鼠标点按 / 键盘映射均可）", Dock = DockStyle.Top, Height = 22, Font = new Font(Font, FontStyle.Bold) };
 
-        // 标题下方的居中区域：单格 Percent 容器，内部手柄 Anchor=None 即居中，避免被拉伸
-        var area = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1, Padding = new Padding(0) };
-        area.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        area.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        // 居中容器：留出足够边距，避免右侧按键被裁切
+        var area = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8), AutoScroll = false };
 
         var dpad = BuildDpad();
         var abStart = BuildAbStart();
 
-        // 固定尺寸的左右两列，列宽严格等于内部网格宽度，杜绝尺寸失配
+        // 固定尺寸的三列：方向键 | 留白 | A/B/SELECT/START，列宽严格等于内部网格宽度
         var kp = new TableLayoutPanel
         {
             AutoSize = true,
             Anchor = AnchorStyles.None,
-            ColumnCount = 2,
+            ColumnCount = 3,
             RowCount = 1,
-            Padding = new Padding(10)
+            Padding = new Padding(14)
         };
         kp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, dpad.Width));
+        kp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Spacer)); // 两组之间的留白
         kp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, abStart.Width));
         kp.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         kp.Controls.Add(dpad, 0, 0);
-        kp.Controls.Add(abStart, 1, 0);
+        kp.Controls.Add(abStart, 2, 0);
 
-        area.Controls.Add(kp, 0, 0);
+        // 将 kp 放在 area 中央
+        void ReCenter() => kp.Location = new Point(
+            Math.Max(0, (area.ClientSize.Width - kp.Width) / 2),
+            Math.Max(0, (area.ClientSize.Height - kp.Height) / 2));
+        ReCenter();
+        area.Controls.Add(kp);
+        area.Resize += (_, _) => ReCenter();
+
         p.Controls.Add(area);
         p.Controls.Add(title);
         return p;
@@ -486,18 +494,9 @@ public class MainForm : Form
 
     private void Form_KeyDown(object? sender, KeyEventArgs e)
     {
-        // 学习模式优先捕获任意物理键
-        if (_learningNesKey != null)
-        {
-            if (e.KeyCode == Keys.Escape) { _learningNesKey = null; Hint("已取消学习"); }
-            else BindLearn(e.KeyCode.ToString());
-            e.Handled = true; e.SuppressKeyPress = true;
-            return;
-        }
-
-        // 焦点在命令按钮上时，放行其原生键盘行为（如 Enter 触发按钮）
-        if (ActiveControl is Button) return;
-
+        // 无论焦点在哪个控件（包括刚点过的按钮），都拦截映射的物理键 W/S/A/D/Q/E/J/K。
+        // 这些键不属于按钮的“激活键”(Enter/Space)，拦截后不会误触按钮；
+        // 因此不能因“焦点在按钮上”而早退——否则点过按钮后键盘映射会完全失效。
         var pk = e.KeyCode.ToString();
         if (_keyMap.TryGetValue(pk, out var nes))
         {
@@ -506,7 +505,9 @@ public class MainForm : Form
                 SendLine(NesKeys.Down(nes));
                 SetKeyPressed(nes, true);
             }
-            e.Handled = true; e.SuppressKeyPress = true;
+            // 仅标记 Handled 阻止焦点控件响应按键即可；
+            // 切勿设置 SuppressKeyPress —— 它会连带吞掉 KeyUp，导致按键卡死在按下状态。
+            e.Handled = true;
         }
     }
 
@@ -517,44 +518,13 @@ public class MainForm : Form
         {
             SendLine(NesKeys.Up(nes));
             SetKeyPressed(nes, false);
-            e.Handled = true; e.SuppressKeyPress = true;
+            e.Handled = true;
         }
     }
 
     #endregion
 
-    #region 按键映射学习
-
-    private void StartLearn(string nesKey, string label)
-    {
-        _learningNesKey = nesKey;
-        Hint($"请按下要绑定到 [{label}] 的物理键…（Esc 取消）");
-    }
-
-    private void BindLearn(string physicalKey)
-    {
-        if (_learningNesKey == null) return;
-        if (physicalKey is "ShiftKey" or "ControlKey" or "Menu" or "None")
-        {
-            Hint("请按一个非修饰键");
-            return;
-        }
-        var target = _learningNesKey;
-        _learningNesKey = null;
-
-        // 保持 1:1：移除已绑到 target 的旧物理键，以及该物理键的旧绑定
-        var toRemove = new List<string>();
-        foreach (var kv in _keyMap)
-        {
-            if (kv.Value == target || kv.Key == physicalKey) toRemove.Add(kv.Key);
-        }
-        foreach (var k in toRemove) _keyMap.Remove(k);
-        _keyMap[physicalKey] = target;
-
-        RefreshMappingUI();
-        SaveConfig();
-        Hint($"已绑定 {target} → {physicalKey}");
-    }
+    #region 映射显示（固定，不可学习）
 
     private void RefreshMappingUI()
     {
@@ -571,6 +541,27 @@ public class MainForm : Form
 
     #region 串口（复用串口调试助手模式）
 
+    private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        _closing = true;
+        try { _scanTimer?.Stop(); } catch { }
+        try { _recvTimer?.Stop(); } catch { }
+        // 先移除事件，避免 Close 期间异步回调触发
+        try { _port.DataReceived -= Port_DataReceived; } catch { }
+        // 后台线程关闭：SerialPort.Close 可能等待接收线程结束而阻塞，放后台避免 UI 卡死
+        try
+        {
+            var port = _port;
+            Task.Run(() =>
+            {
+                try { lock (_portLock) { if (port.IsOpen) port.Close(); } }
+                catch { }
+            });
+        }
+        catch { }
+        SaveConfig();
+    }
+
     private void InitPort()
     {
         _port.RtsEnable = true;
@@ -581,6 +572,7 @@ public class MainForm : Form
 
     private void RefreshPorts()
     {
+        if (_closing) return;
         string[] ports;
         try { ports = SerialPort.GetPortNames(); }
         catch { ports = Array.Empty<string>(); }
@@ -594,22 +586,25 @@ public class MainForm : Form
 
     private void ScanTimer_Tick(object? sender, EventArgs e)
     {
+        // 已打开时不再枚举端口：GetPortNames 在部分驱动/下位机不稳定时会很慢甚至卡死，且与接收线程竞争。
+        // 端口意外断开由接收异常/发送异常感知，用户手动关闭即可，避免无谓枚举导致死机。
+        if (_closing || _port.IsOpen) return;
         string[] ports;
         try { ports = SerialPort.GetPortNames(); }
         catch { return; }
 
-        if (_port.IsOpen && Array.IndexOf(ports, _port.PortName) < 0)
+        try
         {
-            try { _port.Close(); } catch { }
-            UpdateOpenState(false);
-            _lblPort.Text = $"{_port.PortName} 已断开";
-            return;
+            string cur = _cboPort.Text;
+            _cboPort.Items.Clear();
+            if (ports.Length > 0) _cboPort.Items.AddRange(ports);
+            if (Array.IndexOf(ports, cur) >= 0) _cboPort.Text = cur;
+            else if (ports.Length > 0) _cboPort.SelectedIndex = 0;
         }
-        string cur = _port.IsOpen ? _port.PortName : _cboPort.Text;
-        _cboPort.Items.Clear();
-        if (ports.Length > 0) _cboPort.Items.AddRange(ports);
-        if (Array.IndexOf(ports, cur) >= 0) _cboPort.Text = cur;
-        else if (ports.Length > 0 && !_port.IsOpen) _cboPort.SelectedIndex = 0;
+        catch
+        {
+            // 窗体正在关闭或枚举异常时忽略
+        }
     }
 
     private void BtnOpen_Click(object? sender, EventArgs e)
@@ -624,9 +619,12 @@ public class MainForm : Form
             }
             try
             {
-                _port.PortName = _cboPort.Text;
-                _port.BaudRate = int.Parse(_cboBaud.Text);
-                _port.Open();
+                lock (_portLock)
+                {
+                    _port.PortName = _cboPort.Text;
+                    _port.BaudRate = int.Parse(_cboBaud.Text);
+                    _port.Open();
+                }
                 UpdateOpenState(true);
                 SaveConfig();
             }
@@ -637,9 +635,11 @@ public class MainForm : Form
         }
         else
         {
-            try { _port.Close(); } catch { }
+            lock (_portLock) { try { _port.Close(); } catch { } }
             UpdateOpenState(false);
         }
+        // 点击后清除焦点，避免焦点一直黏在按钮上导致键盘映射失效
+        this.ActiveControl = null;
     }
 
     private void UpdateOpenState(bool open)
@@ -653,25 +653,54 @@ public class MainForm : Form
 
     private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
     {
-        if (!_port.IsOpen) return;
-        int n = _port.BytesToRead;
-        if (n <= 0) return;
-        byte[] buf = new byte[n];
-        int r = _port.Read(buf, 0, n);
-        if (r <= 0) return;
-        byte[] data = new byte[r];
-        Array.Copy(buf, data, r);
-        BeginInvoke(new Action<byte[]>(OnData), data);
+        if (_closing) return;
+        try
+        {
+            byte[] data;
+            lock (_portLock)
+            {
+                if (!_port.IsOpen) return;
+                int n = _port.BytesToRead;
+                if (n <= 0) return;
+                data = new byte[n];
+                int r = _port.Read(data, 0, n);
+                if (r <= 0) return;
+                if (r < data.Length) Array.Resize(ref data, r);
+            }
+            // 只入队，不在此处做 UI 操作，避免高频 BeginInvoke 堆积导致 UI 卡死
+            foreach (var b in data) _recvQueue.Enqueue(b);
+        }
+        catch
+        {
+            // 串口不稳定时忽略接收异常，避免崩溃
+        }
     }
 
-    private void OnData(byte[] data)
+    // 节流刷新：每 100ms 从队列批量取一次，最多 4096 字节，UI 更新频率恒定，杜绝堆积
+    private void RecvTimer_Tick(object? sender, EventArgs e)
     {
-        _recvBytes += data.Length;
+        if (_closing || IsDisposed) return;
+
+        // 背压：数据速率超消费能力时丢弃最旧数据，避免队列无限增长耗尽内存（极端高速场景）
+        const int maxQueue = 1 << 20; // 1MB 高水位
+        if (_recvQueue.Count > maxQueue)
+        {
+            int drop = _recvQueue.Count - (maxQueue >> 1);
+            for (int i = 0; i < drop; i++) _recvQueue.TryDequeue(out _);
+        }
+        if (_recvQueue.IsEmpty) return;
+
+        const int maxOnce = 4096;
+        byte[] buf = new byte[Math.Min(maxOnce, _recvQueue.Count)];
+        int taken = 0;
+        while (taken < buf.Length && _recvQueue.TryDequeue(out byte b)) buf[taken++] = b;
+
+        _recvBytes += taken;
         _lblRecvStat.Text = $"接收: {_recvBytes} 字节";
-        char[] ch = new char[_decoder.GetCharCount(data, 0, data.Length)];
-        int n = _decoder.GetChars(data, 0, data.Length, ch, 0);
+        char[] ch = new char[_decoder.GetCharCount(buf, 0, taken)];
+        int n = _decoder.GetChars(buf, 0, taken, ch, 0);
         _recvText.Append(ch, 0, n);
-        if (_recvText.Length > 20000) _recvText.Remove(0, _recvText.Length - 20000);
+        if (_recvText.Length > LogCap) _recvText.Remove(0, _recvText.Length - LogCap);
         _txtLog.Text = _recvText.ToString();
         _txtLog.SelectionStart = _txtLog.TextLength;
         _txtLog.ScrollToCaret();
@@ -679,20 +708,29 @@ public class MainForm : Form
 
     private void SendLine(string line)
     {
+        if (_closing) return;
         if (!_port.IsOpen)
         {
             Hint("! 串口未打开");
             return;
         }
-        try
+        // 后台线程发送：下位机不读取时 Write 最久阻塞 WriteTimeout，放后台避免 UI 卡死
+        var bytes = _enc.GetBytes(line + "\r\n");
+        Task.Run(() =>
         {
-            var bytes = _enc.GetBytes(line + "\r\n");
-            _port.Write(bytes, 0, bytes.Length);
-        }
-        catch (Exception ex)
-        {
-            Hint("! 发送失败: " + ex.Message);
-        }
+            try
+            {
+                lock (_portLock)
+                {
+                    if (!_port.IsOpen) return;
+                    _port.Write(bytes, 0, bytes.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+                try { this.Invoke(new Action(() => Hint("! 发送失败: " + ex.Message))); } catch { }
+            }
+        });
     }
 
     #endregion
@@ -709,7 +747,7 @@ public class MainForm : Form
             var s = SkinPresets.Skins.Find(x => x.Name == cfg.SkinName);
             if (s != null) _skin = s;
         }
-        if (cfg.KeyMap != null && cfg.KeyMap.Count > 0) _keyMap = cfg.KeyMap;
+        // 映射固定，不读取配置文件中的 KeyMap
         RefreshMappingUI();
         ApplySkin(_skin); // 应用已保存皮肤配色
     }
@@ -721,7 +759,7 @@ public class MainForm : Form
             Port = _cboPort.Text,
             Baud = int.TryParse(_cboBaud.Text, out var b) ? b : 115200,
             SkinName = _skin.Name,
-            KeyMap = _keyMap
+            KeyMap = null // 映射固定，不再持久化
         });
     }
 

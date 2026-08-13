@@ -19,6 +19,7 @@ extern const lv_img_dsc_t icon_nes;
 extern const lv_img_dsc_t icon_image;
 extern const lv_img_dsc_t icon_about;
 extern const lv_img_dsc_t icon_folder;
+extern const lv_img_dsc_t icon_txt;
 
 #ifdef __cplusplus
 }

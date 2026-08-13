@@ -1,15 +1,6 @@
 {
-  "Port": "COM1",
+  "Port": "COM6",
   "Baud": 115200,
   "SkinName": "\u9ED8\u8BA4\u00B7\u84DD",
-  "KeyMap": {
-    "W": "up",
-    "S": "down",
-    "A": "left",
-    "D": "right",
-    "J": "a",
-    "K": "b",
-    "LShiftKey": "select",
-    "Return": "start"
-  }
+  "KeyMap": null
 }

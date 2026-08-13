@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "D:\\data\\workspace\\NesPadTool\\NesPadTool.csproj": {}
+    "E:\\cnb\\git\\Mcu_Project_Design_By_Agent\\008.stm32h743_lvgl_mos\\tools\\NesPadTool.csproj": {}
   },
   "projects": {
-    "D:\\data\\workspace\\NesPadTool\\NesPadTool.csproj": {
+    "E:\\cnb\\git\\Mcu_Project_Design_By_Agent\\008.stm32h743_lvgl_mos\\tools\\NesPadTool.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\data\\workspace\\NesPadTool\\NesPadTool.csproj",
+        "projectUniqueName": "E:\\cnb\\git\\Mcu_Project_Design_By_Agent\\008.stm32h743_lvgl_mos\\tools\\NesPadTool.csproj",
         "projectName": "NesPadTool",
-        "projectPath": "D:\\data\\workspace\\NesPadTool\\NesPadTool.csproj",
-        "packagesPath": "C:\\Users\\lx176\\.nuget\\packages\\",
-        "outputPath": "D:\\data\\workspace\\NesPadTool\\obj\\",
+        "projectPath": "E:\\cnb\\git\\Mcu_Project_Design_By_Agent\\008.stm32h743_lvgl_mos\\tools\\NesPadTool.csproj",
+        "packagesPath": "C:\\Users\\zc110\\.nuget\\packages\\",
+        "outputPath": "E:\\cnb\\git\\Mcu_Project_Design_By_Agent\\008.stm32h743_lvgl_mos\\tools\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\lx176\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\zc110\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [

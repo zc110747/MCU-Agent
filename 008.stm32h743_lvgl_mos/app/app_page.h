@@ -96,6 +96,7 @@ const app_page_t *page_sysinfo_get(void);
 const app_page_t *page_keytest_get(void);
 const app_page_t *page_nes_get(void);
 const app_page_t *page_image_get(void);
+const app_page_t *page_txt_get(void);
 const app_page_t *page_about_get(void);
 
 /*----------------------------------------------------------------------------
@@ -123,6 +124,23 @@ void        page_image_request_show(int index);
 int         page_image_is_viewing(void);
 void        page_image_close(void);
 void        page_image_info(char *out, int out_size);
+
+/*----------------------------------------------------------------------------
+ *  TXT reader hooks used by the console parser
+ *--------------------------------------------------------------------------*/
+
+int         page_txt_count(void);
+const char *page_txt_name(int index);
+const char *page_txt_dir(void);
+void        page_txt_rescan(void);
+int         page_txt_seed(const char *name);   /* debug: write a multi-page fixture to the card */
+void        page_txt_request_open(int index);
+void        page_txt_cddir(const char *sub);   /* debug: jump list into a sub-dir */
+int         page_txt_is_reading(void);
+int         page_txt_browser_sel(void);         /* debug: current list highlight index */
+void        page_txt_browser_name(char *out, int out_size); /* debug: its UTF-8 name */
+void        page_txt_close(void);
+void        page_txt_info(char *out, int out_size);
 
 /*----------------------------------------------------------------------------
  *  Small shared UI helpers (implemented in app_menu.c)

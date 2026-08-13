@@ -1,54 +1,51 @@
 # STM32H743 NES 模拟器工程 — 长期记忆
 
 ## 项目定位
-STM32H743ZIT6 + LVGL v8 菜单框架 + 纯 C NES 模拟器核心。板载**无实体按键**，所有 UI 输入来自 USART1(ST-Link VCP)/USB CDC 文本命令。固件标识 `H743-NES v1.0.0`。
+STM32H743ZIT6 + LVGL v8 菜单框架 + 纯 C NES 模拟器核心。板载**无实体按键**，所有 UI 输入来自 USART1(ST-Link VCP)/USB CDC 文本命令。固件 `H743-NES v1.0.0`。
 
-## 硬件（核对要点）
-- HSE 25MHz 无源晶振（`HSE_VALUE=25000000`）
-- ST7789 240x240 OLED，SPI6（PG13 SCK/PG14 MOSI/PG8 CS/PG15 DC/PG12 BL）
-- SD 卡 SDMMC1，盘符 `1:`，中文字库 `1:/SYSTEM/FONT/`
-- USART1 PA9/PA10（115200）；USB OTG_FS PA11/PA12（TinyUSB CDC）
-- 已剔除：GPS/温湿度/气压/FM/VS1053/外扩SRAM；NES 无 APU（不发声）
+## 硬件
+HSE 25MHz 无源晶振；ST7789 240x240 OLED(SPI6 PG13/14/8/15/12)；SD 卡 SDMMC1 盘符 `1:`，中文字库 `1:/SYSTEM/FONT/`；USART1 PA9/10(115200)、USB OTG_FS PA11/12(TinyUSB CDC)。无 APU（NES 不发声）。
 
 ## 构建链
-CMake+Ninja+arm-none-eabi-gcc；OpenOCD+ST-Link+Cortex-Debug。Debug(-Og) 默认，Release(-O2) 实机游玩必需（NES 解释型 6502 在 -Og 跑不满 60fps）。链接 `-specs=nano.specs`，printf 走强 `_write` 双串口。源码统一 UTF-8 + `-fexec-charset=UTF-8`。
+CMake+Ninja+arm-none-eabi-gcc 15.3；OpenOCD+ST-Link。Debug(-Og) 默认，Release(-O2) 实机必需。链接 `-specs=nano.specs`，printf 走强 `_write` 双串口。UTF-8 + `-fexec-charset=UTF-8`。
 
-## 内存布局
-机器态(~82KB)→.dtcm 0x20000000；ROM(≤256KB)→.ram_d2 0x30000000。Release 实测：DTCM 62.82%、RAM_D2 88.89%、FLASH 22.85%（启用 CP936 中文字符表后 ff.c/ffunicode.c 增大）。
+## 内存/缓存（DCache 开，MPU）
+- RAM_D1 AXI-SRAM 0x24000000(512K)：`.data/.bss/heap/stack`+SD 扇区缓冲（栈堆在此）。
+- DTCM 0x20000000(128K) **与** RAM_D2 0x30000000(288K)：**运行时动态内存池**（`bsp/sram_pool.c`，边界标记空闲链表分配器，8B 头+8B 尾+coalescing），链接期零占用。平时为空；NES 打开页面时 `nes_open()` 从 DTCM 分配 ~82KB 机器态(`nes_t`)、从 RAM_D2 分配 ≤286KB ROM 镜像（缓冲区已撑满 RAM_D2；原 256KiB 上限会拒掉 256KiB 级卡带如魂斗罗，其 `.nes` 文件=256KiB 数据+16B iNES 头=262160B），`nes_close()` 退出时释放归还，**供相机等后续应用复用**。NES 数据仅 CPU 访问、无 DMA，故 RAM_D2 缓存一致性无虞（MPU 现状不变）。`status` 命令有 `sram dtcm:`/`sram d2:` 实时空闲量。
+- RAM_D3 0x38000000(64K)：USB DMA 缓冲(non-cacheable)。
+- MPU：Region0/1(RAM_D1/RAM_D2) write-back 可缓存；Region2(RAM_D3,64K) non-cacheable(USB DMA)；DTCM 不配。
+- `main()` 先 `SCB_EnableICache()` 后 `SCB_EnableDCache()`；`status` 有 `cache : I+D` 行。
+- 安全依据：SDMMC=poll+FIFO、SPI6=CPU阻塞——两者无 DMA 写 AXI-SRAM；NES 态在 DTCM(非缓存)；只有 USB OTG DMA 需 non-cacheable/维护（见下）。
+
+## 已修复缺陷（按时间）
+**1. USB 缓存一致性死机（2026-08-12）** — DCache 开后，OTG DMA 直接读写的 USB 缓冲落在 write-back 区→CPU/DMA 不一致→BusFault(CFSR=0x8200, BFAR=0x00100028)。修复两路互补：① `.usb_ram` 段放 RAM_D3 + `CFG_TUSB_MEM_SECTION`(注意是 TUSB 非 TUD) + MPU Region2 non-cacheable；② `bsp/tusb_config.h` 加 `#define CFG_TUD_MEM_DCACHE_ENABLE 1` 让 TinyUSB 自动 clean/invalidate CDC 数据缓冲(rx_ff_buf/tx_ff_buf)。单搬描述符不够，CDC 数据缓冲靠②才彻底。压测 `scripts/stress_usb.py` 7+分钟无死机。
+
+**2. 页头时钟悬空指针死机（2026-08-13，本次）** — 症状：打开任意页再退回主菜单，运行“切换一会”后整板死机。根因：`app_menu.c` 的 `app_menu_tick()` 每整分钟更新页头“HH:MM”时钟标签 `s_hdr_clock_page`；该标签在 `ui_header()` 中创建、页面退出(`lv_obj_clean(s_page_root)`)时被释放，但 `s_hdr_clock_page` 指针**未置 NULL**→分钟翻越时 `lv_label_set_text` 解引用已释放的 LVGL 对象→**精确 BusFault**(CFSR=0x00008200 PRECISERR+BFARVALID, BFAR=0x98915ac5 野指针, HFSR=0x40000000)。与 TXT 无关，但用户正是在切换 TXT 时暴露。修复：在 `app_menu_back()` 与 `app_menu_open_index()` 两处页面拆卸点（clean 之后）置 `s_hdr_clock_page = NULL`；无页头的页(全屏 NES)因此保持 NULL 而安全。重构 Release 0错0警，烧录 Verified OK。`scripts/stress_txt.py` 加“开页→退回菜单→空闲 75s 跨分钟边界”回归段，COM6/COM9 均 PASS。
+
+**3. NES 静态内存→动态内存池（2026-08-13）** — 需求：DTCM(~82KB 机器态)与 RAM_D2(≤256KB ROM 镜像)原本作为 `nes_main.c` 链接期静态变量永久占用，要为后续相机应用让出内存。改为 `bsp/sram_pool.c` 边界标记空闲链表分配器（DTCM/RAM_D2 两区，prologue+epilogue+coalescing），`nes_open()`/`nes_close()` 挂接 NES 页面开/关（`page_nes.c` 的 `nes_enter()`/`nes_exit()`），分配失败有 `load_rom_named()` 守卫兜底。`g_nes` 去掉 const 以便运行时赋值。链接脚本删除 `.dtcm`/`.ram_d2` NOLOAD 段→链接期两区 0 占用。Release 构建 0 错 0 警、烧录 Verified OK。
+
+**4. 边界标记分配器 off-by-8 开销越界损坏（2026-08-13，压测发现）** — 为验证动态池做随机碎片压测（`sram stress` 命令 + `scripts/stress_sram.py`，首版即暴露）。**根因**：`sram_alloc` 只收 `size + BLK_META(8)` 开销，但块布局是「payload=头+8、footer 在 size−8」，可用实际只有 `size−16`；当 `size+8` 恰为 16 对齐（size≡8 mod16）时，用户末 8 字节**写穿 footer**→头/尾不一致、邻居合并错乱→`sram_check` 报 `integrity BAD` 且泄漏逐轮累积。固定大小 NES 分配（82K/256K）永不触发，随机大小必现。**修复**：`sram_alloc` 改收 `size + 2*BLK_META(16)`；`sram_free_bytes`/`sram_check` 的可用量改 `blk_size − 2*BLK_META`；`sram_stress_test` 起始采 `empty_free` 作回收目标、且**无论中途是否损坏都先 sweep 释放自身块**再返回（避免早退泄漏），返回码 2=中途损坏/3=扫完后仍损坏/4=未完全回收。修复后 Release 0错0警、烧录 Verified OK；压测 25 轮 NES 开/关 + 10 轮双区随机碎片(各 800 次) 全 PASS，全程 `integrity ok`、退出精确回基线。注意：修复后空闲基线变为 DTCM 131024/131072、D2 294864/294912（比旧记 131040/294880 少 16B/区，因每空闲块多计 8B 头/尾开销——属正确结果）。
+
+**5. NES ROM 缓冲撑满 RAM_D2（2026-08-13，本次）** — 需求：魂斗罗报「内存过大」打不开。根因：`NES_ROM_MAX=256KiB` 钉死 ROM 缓冲，而 256KiB 级卡带（如标准 UNROM 魂斗罗）的 `.nes` 文件=256KiB 数据+16B iNES 头=262160B，超出 256KiB 上限→`too large`。**修复**：`third_party/nes/nes.h` 的 `NES_ROM_MAX` 由 `256*1024` 改为 `286*1024`(292864B)，即把 ROM 缓冲从「钉死 256KiB」改为「撑满整个 RAM_D2（288KiB 中可用约 286KiB）」，机器态仍留 DTCM。链接期 DTCM/RAM_D2 仍 0 占用（`nes_open()` 运行时 `sram_alloc(SRAM_REGION_D2, NES_ROM_MAX, 4U)`）。Release 0错0警、烧录 Verified OK。**真机验证**：魂斗罗不再报 too large，D2 成功分配 286KiB（空闲 ~294864→1992B）。但暴露第二问题——该「魂斗罗.NES」实际是 **mapper 23(VRC2/VRC4)** 镜像（prg=8/chr=16，非标准 UNROM），核心未实现→`unsupported mapper`，待用户决定：实现 mapper23 或换标准 mapper2 ROM。
+
+**6. 实现 mapper 23（VRC2/VRC4，2026-08-13，本次）** — 需求：魂斗罗(J)（KON-RC826, KONAMI-VRC-2=VRC2b, submapper 3）`.nes`=262160B、mapper 23，核心未实现→`unsupported mapper`。修复：在 `third_party/nes/nes_mapper.c` 按 VRC4 仿真 mapper 23——`vrc_apply_prg()`(4×8KB PRG 窗口：$E000 钉最后 bank、$A000=vrc_prg1、$8000/$C000 由 $9002 M 位交换、受控于 vrc_prg0)、8×1KB CHR 窗口(`vrc_chr[8]` 9bit)、mirroring($9000 MM)、`$F00x` IRQ(latch/control/ack + $F003 拷 A→E)；寄存器 lane 由 A0(stride1)/A2(stride4) 选低/高 4bit 半字节。`nes_internal.h` 的 `mapper_t` 加 vrc_prg0/prg1/chr[8]/swap/stride/mode/prescaler/irq_latch/irq_counter；`nes_mapper_clock_irq(cycles)` 每 CPU 周期推进 prescaler(341/−3) 或 cycle-mode 直推计数器（仅 E 位有效）。`nes_main.c` 的 `run_cpu()` 每指令按 CPU 周期调用之；`nes_mapper_name()` 加 "VRC2/VRC4"。stride 默认 1（VRC2b/VRC4f），因 iNES1.0 不标子变体，VRC4e 未覆盖。Release 0错0警、烧录 Verified OK。**真机验证**：魂斗罗(J) `rom load 3`→`mapper 23 (VRC2/VRC4)`、`frames 153`、`fps 41`、`sram d2 1992/294912`；`rom stop` 后响应正常；Super Mario(mapper0) 回归 `fps 42` 无碍。`scripts/verify_contra.py` 改写支持 mapper23 + fps 检查。
 
 ## 模块关键事实
-- `app/app_cmd.c`：唯一输入设备，行缓冲≤96B，回 `OK `/`ERR ` 一行；命令见 README §5。
-- 虚拟按键名：up/down/left/right/a/b/select/start/ok/back/menu。
-- NES ROM：`1:/NES` 主、`1:` 回退；支持 iNES Mapper 0/1/2/3/4/7（NROM/MMC1/UNROM/CNROM/MMC3/AxROM），≤256KB。
-- 显示：256x240 裁左右各 8 列→240x240；带状缓冲每 30 行刷一次。
-- 全屏 NES 页暂停 LVGL（`app_menu_is_full_screen()`），直接刷 SPI6。
-
-## 验收/测试
-`scripts/serial_test.py`（pyserial）：--ports/--list/--play N/--interactive/--port。覆盖 basics/navigation/keys/nes/errors。默认 COM19。
-
-## PC 上位机工具（NesPadTool，C#/WinForms）
-- 用户偏好：**PC 上位机用 C#/WinForms 实现**（非 Python/tkinter）。参考既有 C# 工具 `串口工具`(D:/data/workspace/串口工具) 与 `记账工具`(D:/data/workspace/记账工具) 的风格。
-- 工程：`D:/data/workspace/NesPadTool/`（net9.0-windows + WinForms + System.IO.Ports 9.0.0）。用途：串口控制菜单/NES + NES 虚拟手柄 + 按键映射，替代手敲命令。
-- 复用范式：串口工具的 `SerialPort`(Dtr/Rts + 扫描定时器 + UTF-8 收发 + `\r\n`)、记账工具的 `AppConfig`(JSON 存程序目录) + `Skin`(record+预设) + `StyleButton(role)`/`ApplySkin`(统一配色=图标一致)。
-- 关键设计：鼠标点按与物理键**共用 `SetKeyPressed()` 单一高亮入口**（图标显示一致）；物理键 `Form_KeyDown` 用 `_heldPhysical` 去重防 auto-repeat；「学习」模式重绑物理键（保持 1:1）；配置（串口 port/baud+皮肤+映射）落盘 `nespad.config.json`。
-- 虚拟键指令：`down/up <up/down/left/right/a/b/select/start>`、`release`、`open nes`、`rom list/load/stop/info`、`status`(与固件 `app_cmd.c` 对齐)；默认映射 WASD=方向、JK=A/B、左Shift=Select、Enter=Start。
-- 验证：`dotnet build/publish -c Release` **0 错误 0 警告**；产物 `bin/Release/net9.0-windows/publish/NesPadTool.exe`。运行 `run.bat` 或 `dotnet run -c Release`；选 COM19(ST-Link VCP)/COM4(USB CDC)，115200。
-- 注：早期曾实现 Python/tkinter 版（`tools/pc_gui/`）但已被放弃，改走 C#。Python 版通信已真机验证但 GUI 未实拉，保留仅供参考。
-
-## 实机验证（2026-08-11，ST-Link V2 已连本机）
-- 烧录器：ST-Link V2（V2J38M27，VID:PID 0483:374B），OpenOCD 0.12.0 直连识别，无需额外驱动。
-- 烧录命令：`openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"` → Programming/Verified OK。
-- 控制台双通道均验证：COM19=STLink VCP（USART1 PA9/PA10）；COM4=USB CDC（PA11/PA12，TinyUSB，"uart+usb"）。两者共用 app_cmd 解析器。
-- `status` 实测：sysclk 480MHz、clock HSE 25MHz（外部晶振锁定）、view=menu。
-- Python 自测 **34/34 PASS**（`serial_test.py`，basics/navigation/keys/nes/errors）；新增 `scripts/verify_features.py` 专门验证中文名显示 + SELECT 退出（3/3 PASS）。
-- **NES 实战已跑通**：ROM 放 SD 卡根目录 `1:`（非 `1:/NES`，回退扫描生效），`rom list` 找到 4 个 `.NES`（中文名现已正确显示：超级玛丽/导弹坦克/快打旋风中文无敌版/魂斗罗）。`rom load 0` 加载 40976B / **mapper 0 (NROM)**，`rom info` 实测 **fps 31**，`status` 显示 `view: nes (fullscreen)`，`rom stop` 优雅退出（442 frames）。Release@480MHz 实测 31fps，高于预估 ≥20。
+- `app/app_cmd.c`：唯一输入，行缓冲≤96B，回 `OK `/`ERR `；命令见 README §5。
+- 虚拟键：up/down/left/right/a/b/select/start/ok/back/menu。
+- NES ROM：`1:/NES` 主、`1:` 回退；Mapper 0/1/2/3/4/7/23(≤286KB, RAM_D2 撑满)；实机验证 Mapper0(NROM) 与 Mapper23(Contra J, VRC2b) fps~41。
+- **动态内存池**(`bsp/sram_pool.c`)：边界标记空闲链表分配器，DTCM/RAM_D2 两区，`sram_alloc(region,size,align)`(开销收 `2*BLK_META=16B`)/`sram_free`/`sram_free_bytes`/`sram_total_bytes`/`sram_check(region,&ok)`(头尾一致+邻接+覆盖校验)/`sram_stress_test(region,iters,seed)`(xorshift 随机分配释放+扫完校验完全回收)。`nes_open()`/`nes_close()` 在 NES 页面开/关时分配/释放机器态(DTCM)与 ROM 镜像(RAM_D2)，退出即归还供相机等复用。`app_main.c` 启动 `sram_pool_init()`；`status` 上报 `sram dtcm:`/`sram d2:`；控制台 `sram info/check/alloc/free/stress` 供调试压测。
+- 显示：256x240 裁左右各 8 列→240x240；全屏 NES 页暂停 LVGL 直接刷 SPI6。
+- `sd_browser`(共享 SD 浏览器，静态单例 `s_b`)：`sd_browser_create()` 末参 `filter(name,is_dir)`(NULL=不过滤)；仅文件被过滤，目录/“..”始终显示。NES/图片传 NULL；TXT 传 `txt_filter` 只列 `*.txt`。
+- **TXT 阅读器**(`app/page_txt.c`, cmd=`txt`, icon=`icon_txt`)：整文件读 SD 入 RAM(raw 32KB 上限)→GBK→UTF-8(UTF-8 BOM 快路径不转码，超 32KB 截断)→用 LVGL `_lv_txt_get_next_line`(`misc/lv_txt.h`，返回 uint32_t 字节偏移，非指针)按面板宽 224px 分页、每页 8 行，UP/DOWN 翻页。控制台 `txt list/open/close/info/seed`(`seed` 写 80 行多页样例便于压测)。`page_txt_seed()` 调试用。
+- 调试/自测脚本：`scripts/stress_txt.py`(开/翻/关循环+burst+fuzz+跨分钟回归+死锁时 OpenOCD/gdb 抓现场)、`scripts/serial_test.py`(51 项，含 `test_txt`)、`scripts/stress_usb.py`、`scripts/verify_features.py`。
 
 ## 已知限制
-- 无 APU：NES 不发声。
-- 中文 UTF-8 / GBK 文件名显示（2026-08-11 修复）：
-  - FatFs `FF_CODE_PAGE` 必须为 **936**（原为 437，会把中文 LFN 转 CP437 丢字符 → f_open 命中失败、串口/屏全乱码）。`fno.fname` 现返回 GBK（保留中文、保 `f_open` 命中）。**切勿改回 437。**
-  - 串口 `rom list` 经 `bsp/gbk_conv.c` 转 UTF-8（`bsp/gbk_unicode_tbl.c` 由 `tools/gen_gbk_table.py` 离线生成，23940 项/21791 映射，~48KB Flash）。
-  - OLED：`lv_font_gbk_16` 字体驱动做 **UTF-8→Unicode→GBK 字形** 映射，故 `page_nes.c` 的 `build_browser` 必须先把 GBK 名 `gbk_to_utf8()` 转 UTF-8 再喂 `lv_label_set_text`（直接喂 GBK 字节会乱码——即原 bug #1）。
-- NES 退出键（2026-08-11 新增）：运行中按 **SELECT / BACK / MENU** 任一均退出游戏回 ROM 浏览器；浏览器中按 **SELECT** 退出 NES 页回主菜单。SELECT 已从 NES 手柄映射移除（设计取舍：SELECT 专用作“退出”，游戏中 SELECT 按钮不再可用）。
-- 仅验证 Mapper 0 (NROM)，其余 Mapper 1/2/3/4/7 尚未实机跑（代码已支持）。
-- 显示/SPI 刷新观感需用户在真机肉眼确认（已用 `rom info` fps=31 量化证明模拟器在跑）。
+- NES 无 APU（不发声）。
+- FatFs `FF_CODE_PAGE` 必须 **936**（曾误用 437 致中文 LFN 丢失/乱码）；`fno.fname` 返回 GBK，OLED 字体做 UTF-8→Unicode→GBK 映射，故喂 `lv_label_set_text` 前须 `gbk_to_utf8()`。**勿改回 437。**
+- 实机验证 NES Mapper 0(NROM) 与 Mapper 23(VRC2/VRC4, Contra J)；Mapper1/2/3/4/7 代码支持未实跑。
+- 部分名为「魂斗罗/Contra」的 `.nes` 实为 **mapper 23(VRC2/VRC4)** 镜像（128KB PRG+128KB CHR）；**已实现 mapper 23**（VRC4 仿真，stride-1 覆盖 VRC2b/VRC4f）。Contra(J)=VRC2b 实机验证通过(~41fps)。iNES1.0 不记录子变体，VRC4e(stride-4) 卡带暂未覆盖。
+- 显示/SPI 观感需真机肉眼确认。
+
+## 实机验证（烧录器 ST-Link V2，OpenOCD 直连）
+`openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"` → Verified OK。双通道 COM6(ST-Link VCP)/COM9(USB CDC) 共用解析器。`serial_test.py` 51/51 PASS（2026-08-13）。NES 实战 mapper0 fps~41(Release@480MHz)。

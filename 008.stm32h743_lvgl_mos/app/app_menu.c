@@ -409,6 +409,10 @@ int app_menu_open_index(int index)
     page = s_pages[index];
 
     lv_obj_clean(s_page_root);
+    /* Old page header (and its clock label) is gone; the new page's on_enter()
+     * re-creates it via ui_header() if it has a header.  Null now so a page
+     * without a header (e.g. full-screen NES) cannot leave a stale pointer. */
+    s_hdr_clock_page = NULL;
     lv_obj_clear_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_menu_root, LV_OBJ_FLAG_HIDDEN);
 
@@ -465,6 +469,11 @@ void app_menu_back(void)
     }
 
     lv_obj_clean(s_page_root);
+    /* The page header (and its "HH:MM" clock label) is destroyed here, so drop
+     * our cached pointer.  Otherwise app_menu_tick() would keep calling
+     * lv_label_set_text() on a freed LVGL object every time the minute rolls
+     * over -> precise BusFault (dangling pointer).  See 2026-08-13 freeze. */
+    s_hdr_clock_page = NULL;
     lv_obj_add_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_menu_root, LV_OBJ_FLAG_HIDDEN);
 

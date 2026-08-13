@@ -51,7 +51,7 @@ stm32_nes_emulator/
 │   └── disk_interface.c # FatFs diskio 桩（USB 桩返回 RES_NOTRDY）
 ├── Drivers/             # HAL + CMSIS
 ├── third_party/         # 第三方：fatfs / lvgl / tinyusb / nes
-│   ├── nes/             # NES 核心：6502 + PPU + Mapper(0/1/2/3/4/7)，纯 C
+│   ├── nes/             # NES 核心：6502 + PPU + Mapper(0/1/2/3/4/7/23)，纯 C
 │   ├── lvgl/            # LVGL v8（LV_COLOR_16_SWAP=0，仅 GBK 字体可用）
 │   ├── tinyusb/         # TinyUSB 0.21.0（手选 dwc2 源）
 │   └── fatfs/           # FatFs
@@ -65,12 +65,13 @@ stm32_nes_emulator/
 ```
 
 ### 内存布局要点
-- **机器状态**（约 82 KB，含 6502/ PPU 上下文）放入 `.dtcm`（`0x20000000`，128 KB 紧耦合）。
-- **ROM 镜像**（≤ 256 KB）放入 `.ram_d2`（`0x30000000`，288 KB）。
-- 构建产物实测内存占用（Release）：DTCM **62.82%**、RAM_D2 **88.89%**、FLASH **约 24.7%**（启用 CP936 中文字符表后 `ff.c` / `ffunicode.c` 体积增大）。
+- **DTCM / RAM_D2 由运行时内存池动态管理，链接期零占用**。这两个 SRAM 区不再通过链接脚本放置静态变量，而是在 `bsp/sram_pool.c` 中以边界标记（boundary-tag）空闲链表分配器统一管理，供按需分配/释放。
+- **NES 模拟器仅在打开页面时占用这两块内存**：`nes_open()` 从 DTCM 分配约 82 KB 机器态（`nes_t`，含 6502/PPU 上下文）、从 RAM_D2 分配 ≤ 286 KB ROM 镜像（缓冲区已撑满 RAM_D2，原先钉死的 256 KiB 上限会拒掉 256 KiB 级卡带如魂斗罗，因其 `.nes` 文件为 256 KiB 数据 + 16 B iNES 头 = 262160 B）；`nes_close()` 在退出页面时释放归还内存池。新块与前后空闲块合并（coalescing），开/关循环不产生碎片。
+- **退出后内存立即归还**，可被其它应用（如后续相机）复用，因此这两个区平时显示为空（链接期 DTCM=0B、RAM_D2=0B）。
+- 构建产物实测内存占用（Release）：RAM_D1 **约 71.29%**、FLASH **约 17.23%**（启用 CP936 中文字符表后 `ff.c` / `ffunicode.c` 体积增大）。DTCM / RAM_D2 仅在 NES 运行期被占用，可通过 `status` 命令实时查看 `sram dtcm:` / `sram d2:` 空闲量。
 
 ### 菜单与全屏
-- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`nes → image → clock → sysinfo → keytest → about`。
+- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`nes → image → txt → clock → sysinfo → keytest → about`。
 - NES 页面标记 `full_screen` / `wants_display`：进入后主循环**暂停 LVGL**，直接刷 SPI6；退出后恢复 LVGL 节拍，避免两套刷新打架。
 - **开机默认进入时钟页（钟表界面）**：`application_init` 在 `app_menu_init()` 后调用 `app_menu_open_cmd("clock")` 直接打开时钟页；时钟页 `on_key = NULL`，按 `BACK` / `B` / `MENU` 经默认处理返回主菜单，其余功能不变。
 
@@ -161,6 +162,13 @@ openocd -f openocd.cfg -c "program build/nes_h743.elf verify reset exit"
 | `rom load <index>` | 加载并启动指定 ROM（加载在页面 tick 中异步进行，不阻塞控制台） |
 | `rom stop` | 退出模拟器回到菜单 |
 | `rom info` | 模拟器状态：mapper 号/名、帧数、fps、pad 掩码 |
+| `txt list` | 列出卡上 `*.txt` 文件 |
+| `txt open <index>` | 打开并阅读指定文本（按 240×240 屏幕分页） |
+| `txt close` | 离开阅读器，回到文件列表（**高亮停留在刚读的文件**，不跳回第一条） |
+| `txt info` | 阅读器状态：文件名 / 编码 / 字节数 / 当前页 |
+| `txt sel` | 调试：当前文件列表高亮项（索引 + 文件名） |
+| `txt seed [SUB/]NAME.TXT` | 调试：写多页样例到卡（可带子目录，如 `TESTDIR/SAMPLE.TXT`） |
+| `txt cddir <sub>` | 调试：把文件列表直接跳进某子目录 |
 | `time` | 读取 RTC |
 | `time <YYYY-MM-DD> <hh:mm:ss>` | 设置 RTC |
 | `echo on\|off` | 开关本地回显 |
@@ -186,7 +194,7 @@ ok back menu                # 菜单导航（别名 u 等见 bsp_key.c）
 1. 主目录 **`1:/NES`**
 2. 回退目录 **`1:`**（卡根）
 
-将 `.nes` 文件拷贝到 SD 卡的 `NES/` 目录，重启或执行 `rom list` 即可看到。支持 **iNES** 格式，单文件 ≤ 256 KB（ROM 缓冲区占满 RAM_D2）。
+将 `.nes` 文件拷贝到 SD 卡的 `NES/` 目录，重启或执行 `rom list` 即可看到。支持 **iNES** 格式，单文件 ≤ **286 KB**（运行时从 RAM_D2 动态分配 ROM 镜像缓冲区，撑满整块 RAM_D2；退出 NES 页面即释放，不长期占用）。注意：286 KB 只是缓冲区上限，文件能否真正运行还取决于其 **Mapper** 是否被实现（见下表）。
 
 **支持的 Mapper**（由 `nes_mapper_name()` 报告）：
 
@@ -194,13 +202,27 @@ ok back menu                # 菜单导航（别名 u 等见 bsp_key.c）
 | --- | --- | --- | --- |
 | 0 | NROM | 4 | MMC3 |
 | 1 | MMC1 | 7 | AxROM |
-| 2 | UNROM | | |
+| 2 | UNROM | 23 | VRC2/VRC4 |
 | 3 | CNROM | | |
 
 > 不支持的 mapper 会在加载时被拒绝并打印原因（`not an iNES image` / `too large` / `unsupported mapper`）。
+>
+> 部分名为「魂斗罗 / Contra」的 `.nes` 其实是 **mapper 23（VRC2/VRC4）** 镜像（128 KB PRG + 128 KB CHR），并非标准的 UNROM(mapper 2) 魂斗罗。当前核心已**实现 mapper 23**（按 VRC4 仿真，覆盖 VRC2b/VRC4f 的 stride-1 寻址）；实机验证 Contra(J, VRC2b) 可加载并以 ~41fps 正常运行。注意 iNES 1.0 不记录 VRC 子变体，极少数 VRC4e(stride-4) 卡带（如 Boku Dracula-kun / Tiny Toon J）可能需翻转 stride，暂未覆盖。
 
 ### 显示适配
 NES 画面 256×240，面板 240×240：左右各裁掉 **8 列**（取中间 240 列），上下以静态带状缓冲（每 `NES_BAND_LINES=30` 行刷新一次）搬运到 ST7789 显存。
+
+---
+
+## 6.1 文本阅读器（TXT）
+
+菜单卡片「文本阅读器」读取 SD 卡上的 `.txt` 文件，**不整屏直开**，而是按 240×240 屏幕大小**分页**显示，靠方向键翻页阅读：
+
+- 进入后先列出卡上所有 `*.txt`（目录仍可进入，子目录里的 .txt 也能找到）；`A / OK / START` 打开，`SELECT` 退回主菜单。
+- 阅读界面每页约 8 行（按面板宽度自动折行），`↑` 上一页、`↓ / A / OK / START` 下一页，`B / SELECT / BACK` 返回文件列表。
+- 文件读入 RAM 后分页（上限 32 KB，超出部分在页脚提示「仅显示前 32KB」）。
+- 编码：默认按 **GBK** 转 UTF-8 显示（与本工程卡上文件名一致）；若文件带 **UTF-8 BOM（EF BB BF）** 则直接按 UTF-8 显示，避免乱码。
+- 串口命令：`txt list` / `txt open <index>` / `txt close` / `txt info`（与 `rom`/`img` 同构，加载在页面 tick 中异步完成）。
 
 ---
 

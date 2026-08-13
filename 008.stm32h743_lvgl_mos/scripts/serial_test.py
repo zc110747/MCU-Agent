@@ -290,6 +290,51 @@ def test_image(r, show_index=None):
     r.check("back to menu", "menu")
 
 
+def test_txt(r):
+    """TXT reader console path: list, seed if needed, open, page, close, errors."""
+    print("\n== txt ==")
+
+    lines = r.check("txt list", "txt list", show=True, timeout=6.0)
+    count = 0
+    for line in lines:
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[0].isdigit():
+            count += 1
+
+    if count == 0:
+        r.check("txt seed", "txt seed SEED.TXT", timeout=8.0)
+        lines = r.check("txt list", "txt list", show=True, timeout=6.0)
+        count = sum(1 for l in lines
+                    if len(l.split(None, 1)) == 2 and l.split(None, 1)[0].isdigit())
+
+    if count == 0:
+        print("       (no .txt files on the card and seeding failed)")
+        return
+
+    r.check("txt open 0", "txt open 0", timeout=8.0)
+    time.sleep(1.0)                       # load happens in the page tick
+    info = r.check("txt info", "txt info", show=True)
+    reading = any("reading" in l for l in info)
+    if reading:
+        print("[PASS] txt reader entered reading state")
+        r.passed += 1
+    else:
+        print("[FAIL] txt reader did not enter reading state")
+        r.failed += 1
+
+    # Paging must not wedge the console.
+    r.check("key down", "key down", timeout=4.0)
+    r.check("txt info", "txt info", timeout=4.0)
+    r.check("key up", "key up", timeout=4.0)
+    r.check("txt info", "txt info", timeout=4.0)
+
+    r.check("txt close", "txt close", timeout=4.0)
+    r.check("back to menu", "menu", timeout=4.0)
+
+    # Error path: out-of-range index must be rejected, not wedged.
+    r.check("txt open 99", "txt open 99", expect="ERR", timeout=4.0)
+
+
 def test_errors(r):
     """The parser must reject nonsense instead of wedging."""
     print("\n== error handling ==")
@@ -400,6 +445,7 @@ def main():
         test_keys(r)
         test_nes(r, play_seconds=args.seconds)
         test_image(r)
+        test_txt(r)
         test_errors(r)
         return r.summary()
     finally:

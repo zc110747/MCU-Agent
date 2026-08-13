@@ -32,6 +32,7 @@
 #include "app_cmd.h"
 #include "bsp_console.h"
 #include "bsp_key.h"
+#include "sram_pool.h"
 #include "drv_usb_cdc.h"
 #include "drv_spi_oled.h"
 #include "drv_oled_text.h"
@@ -159,6 +160,7 @@ static void register_pages(void)
 {
     app_menu_register(page_nes_get());
     app_menu_register(page_image_get());
+    app_menu_register(page_txt_get());
     app_menu_register(page_clock_get());
     app_menu_register(page_sysinfo_get());
     app_menu_register(page_keytest_get());
@@ -177,6 +179,10 @@ void application_init(void)
      *    with no cable plugged in - not fatal, the UART carries on). ---------*/
     bsp_console_init();
     bsp_key_init();
+
+    /* Carve the DTCM / RAM_D2 banks into the runtime pool now, before any
+     * page opens.  The NES emulator (and, later, a camera) draw from here. */
+    sram_pool_init();
 
     printf("\r\n");
     printf("========================================\r\n");

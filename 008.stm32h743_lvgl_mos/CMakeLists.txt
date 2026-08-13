@@ -185,6 +185,7 @@ set(PROJECT_SRCS
   bsp/drv_sdio.c
   bsp/drv_rtc.c
   bsp/disk_interface.c
+  bsp/sram_pool.c
   # BSP: LVGL glue - display flush, SD-backed GBK font, Unicode->GBK table
   bsp/lv_port_disp.c
   bsp/lv_font_gbk.c
@@ -206,6 +207,7 @@ set(PROJECT_SRCS
   app/page_nes.c
   app/img_decode.c
   app/page_image.c
+  app/page_txt.c
   app/app_cmd.c
 )
 

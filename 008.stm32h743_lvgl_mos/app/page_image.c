@@ -241,7 +241,7 @@ static void open_browser(lv_obj_t *root)
 {
     s_browser = sd_browser_create(root, IMG_DIR, "图片查看器",
                                   IMG_ROWS_VISIBLE, IMG_ROW_H,
-                                  on_pick, NULL);
+                                  on_pick, NULL, NULL);
 }
 
 /*----------------------------------------------------------------------------

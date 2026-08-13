@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WorkBuddy")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5d8feb28fdcfee3ad6e1f3dcd68902b274ab62fe")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b50a7cb402e4f5fe96680d3a0a479ef2f8bd88f1")]
 [assembly: System.Reflection.AssemblyProductAttribute("NesPadTool")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NES 虚拟手柄工具")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -39,6 +39,7 @@ struct sd_browser
 
     sd_select_cb on_select;
     void        *ctx;
+    int        (*filter)(const char *name, int is_dir);
 };
 
 /* Only one picker is ever on screen at a time, so a single static instance is
@@ -157,6 +158,13 @@ static void scan(sd_browser_t *b)
             }
             if ((fno.fattrib & AM_DIR) == 0U)
             {
+                /* Files only: skip when a filter says so (directories always
+                 * pass, so the user can still navigate into folders). */
+                if ((b->filter != NULL) &&
+                    (b->filter(fno.fname, 0) == 0))
+                {
+                    continue;
+                }
                 (void)entry_add(b, fno.fname, 0, NULL);
             }
         }
@@ -287,7 +295,8 @@ static void layout_list(sd_browser_t *b)
 sd_browser_t *sd_browser_create(lv_obj_t *root, const char *path,
                                 const char *title,
                                 int rows_visible, int row_h,
-                                sd_select_cb on_select, void *ctx)
+                                sd_select_cb on_select, void *ctx,
+                                int (*filter)(const char *name, int is_dir))
 {
     if (s_used != 0)
     {
@@ -303,6 +312,7 @@ sd_browser_t *sd_browser_create(lv_obj_t *root, const char *path,
     s_b.row_h        = row_h;
     s_b.on_select    = on_select;
     s_b.ctx          = ctx;
+    s_b.filter       = filter;
     (void)strncpy(s_b.path, path, sizeof(s_b.path) - 1U);
     s_b.path[sizeof(s_b.path) - 1U] = '\0';
     (void)strncpy(s_b.title, (title != NULL) ? title : "",
@@ -338,6 +348,36 @@ void sd_browser_refresh(sd_browser_t *b)
     layout_list(b);
 }
 
+/* Move the highlight to `index` (clamped to the list) and scroll it into view.
+ * Used to resume a re-created browser on the file the user was just reading
+ * instead of snapping back to the top. */
+void sd_browser_set_sel(sd_browser_t *b, int index)
+{
+    if ((b == NULL) || (s_used == 0) || (b->count == 0))
+    {
+        return;
+    }
+    if (index < 0)
+    {
+        index = 0;
+    }
+    if (index >= b->count)
+    {
+        index = b->count - 1;
+    }
+
+    if (index != b->sel)
+    {
+        highlight(b, b->sel, 0);
+        b->sel = index;
+        highlight(b, b->sel, 1);
+    }
+    if (b->rows[b->sel] != NULL)
+    {
+        lv_obj_scroll_to_view(b->rows[b->sel], LV_ANIM_OFF);
+    }
+}
+
 /* Enter a subdirectory (path is always rebuilt without a trailing slash). */
 static void browser_enter(sd_browser_t *b, const char *sub)
 {
@@ -359,9 +399,30 @@ static void browser_up(sd_browser_t *b)
     {
         return;                                 /* already at the root */
     }
+
+    /* Remember the sub-directory we are leaving so we can re-highlight it in
+     * the parent list - otherwise the highlight snaps back to the first row and
+     * the user loses their place. */
+    char sub[SB_NAME];
+    (void)strncpy(sub, sl + 1, sizeof(sub) - 1U);
+    sub[sizeof(sub) - 1U] = '\0';
+
     *sl = '\0';
+    if (b->path[0] == '\0')
+    {
+        (void)strcpy(b->path, "1:");
+    }
     scan(b);
     layout_list(b);
+
+    for (int i = 0; i < b->count; i++)
+    {
+        if ((b->is_dir[i] != 0) && (strcmp(b->names[i], sub) == 0))
+        {
+            sd_browser_set_sel(b, i);
+            break;
+        }
+    }
 }
 
 int sd_browser_key(sd_browser_t *b, key_id_t id, key_edge_t edge)
@@ -410,9 +471,12 @@ int sd_browser_key(sd_browser_t *b, key_id_t id, key_edge_t edge)
         return 1;
 
     case KEY_SELECT:
-        /* Inside a sub-directory SELECT climbs one level (returns to the
-         * parent) instead of tearing down the whole application; at the root
-         * it is passed back to the page, which exits to the main menu. */
+    case KEY_B:
+    case KEY_BACK:
+        /* Inside a sub-directory SELECT / B / BACK climb one level (back to the
+         * parent, re-highlighting the folder we came from) instead of tearing
+         * down the whole application; at the root they fall through to the page,
+         * which exits to the main menu. */
         if (strcmp(b->path, "1:") != 0)
         {
             browser_up(b);
@@ -431,6 +495,11 @@ int sd_browser_key(sd_browser_t *b, key_id_t id, key_edge_t edge)
 int sd_browser_count(sd_browser_t *b)
 {
     return ((b != NULL) && (s_used != 0)) ? b->count : 0;
+}
+
+int sd_browser_get_sel(sd_browser_t *b)
+{
+    return ((b != NULL) && (s_used != 0)) ? b->sel : -1;
 }
 
 const char *sd_browser_name_gbk(sd_browser_t *b, int i)

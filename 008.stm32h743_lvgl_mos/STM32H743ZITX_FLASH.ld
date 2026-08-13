@@ -6,13 +6,15 @@
 **
 **  Memory notes
 **  ------------
-**  The main RAM region is deliberately mapped to AXI-SRAM (D1, 0x24000000)
-**  instead of DTCM (0x20000000):  the SDMMC1 internal DMA (IDMA) cannot
-**  access DTCM, so any FatFs / SD sector buffer living there would silently
-**  fail.  AXI-SRAM is reachable by every master, so .data/.bss/heap/stack all
-**  go there and SD transfers "just work".
-**
-**  DTCM is still exported as a separate region for latency critical data.
+**  The main RAM region is AXI-SRAM (D1, 0x24000000):  .data/.bss/heap/stack
+**  and the SD sector buffers all live here.  DTCM (0x20000000, 128 kB) and
+**  RAM_D2 (0x30000000, 288 kB) are NOT placed by the linker - they are carved
+**  at runtime by bsp/sram_pool.c and handed out only while an app needs them
+**  (the NES emulator takes the machine state in DTCM and the ROM image in D2;
+**  both are freed on close so a camera or similar can use them otherwise).
+**  With D-Cache enabled (see main.c MPU_Config) the AXI-SRAM and RAM_D2 banks
+**  are write-back cache regions; RAM_D3 (SRAM4, 0x38000000) holds the USB DMA
+**  buffers and is mapped NON-CACHEABLE by MPU Region 2.
 ******************************************************************************
 */
 
@@ -154,23 +156,23 @@ SECTIONS
     . = ALIGN(8);
   } >RAM_D1
 
-  /* Optional: objects explicitly placed in other RAM domains via
-     __attribute__((section(".dtcm"))) / (".ram_d2")               */
-  .dtcm (NOLOAD) :
-  {
-    . = ALIGN(4);
-    *(.dtcm)
-    *(.dtcm*)
-    . = ALIGN(4);
-  } >DTCMRAM
+  /* DTCM (0x20000000) and RAM_D2 (0x30000000) are managed at runtime by
+     bsp/sram_pool.c and must NOT appear here, otherwise the linker would
+     reserve them as empty NOLOAD sections.  See the "Memory notes" above. */
 
-  .ram_d2 (NOLOAD) :
+  /* USB / tinyusb DMA buffers.  The OTG internal DMA writes here directly,
+     so this block is mapped NON-CACHEABLE by MPU Region 2 in main.c.  It must
+     NOT sit in a write-back cached region or the CPU and DMA disagree on the
+     buffer contents and the USB stack eventually corrupts itself (the
+     "USB dies after some traffic" failure).  SRAM4 (D3) is spare, so it goes
+     here.  See bsp/tusb_config.h (CFG_TUD_MEM_SECTION). */
+  .usb_ram (NOLOAD) :
   {
     . = ALIGN(4);
-    *(.ram_d2)
-    *(.ram_d2*)
+    *(.usb_ram)
+    *(.usb_ram*)
     . = ALIGN(4);
-  } >RAM_D2
+  } >RAM_D3
 
   /DISCARD/ :
   {

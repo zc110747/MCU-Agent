@@ -32,12 +32,14 @@
 #include "drv_rtc.h"
 #include "main.h"
 #include "nes.h"
+#include "sram_pool.h"
 #include "gbk_conv.h"   /* GBK(8.3 short names on the card) -> UTF-8 for the console */
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #define CMD_LINE_MAX        96U
 #define CMD_ARG_MAX         6U
@@ -210,9 +212,19 @@ static void cmd_help(void)
     reply("img show <index>     decode and display an image");
     reply("img close            leave the viewer");
     reply("img info             viewer state");
+    reply("txt list             list *.txt on the card");
+    reply("txt open <index>     open a .txt and start reading");
+    reply("txt close            leave the reader");
+    reply("txt info             reader state");
+    reply("txt seed [name]      write a multi-page test fixture to the card");
     reply("time                 read the RTC");
     reply("time <Y-M-D> <h:m:s> set the RTC");
     reply("echo on|off          local echo of typed characters");
+    reply("sram info            per-region free bytes + integrity");
+    reply("sram check [dtcm|d2] verify allocator invariants");
+    reply("sram alloc <r> <sz>  allocate from the pool (debug)");
+    reply("sram free  <r> <addr> free a block returned by alloc");
+    reply("sram stress <r> <n> [seed] randomized fragmentation test");
     reply("reset                reboot the MCU");
     reply("--------------------------------------------------");
 
@@ -256,6 +268,15 @@ static void cmd_status(void)
     reply("clock  : %s",
           (g_clock_source == CLOCK_SRC_HSE_XTAL) ? "HSE 25MHz" : "HSI (fallback)");
     reply("console: uart%s", bsp_console_usb_ready() ? "+usb" : " only");
+    reply("cache  : %s%s",
+          (SCB->CCR & SCB_CCR_IC_Msk) ? "I" : "off",
+          (SCB->CCR & SCB_CCR_DC_Msk) ? "+D" : "");
+    reply("sram  dtcm: %u/%u B free",
+          (unsigned)sram_free_bytes(SRAM_REGION_DTCM),
+          (unsigned)sram_total_bytes(SRAM_REGION_DTCM));
+    reply("sram  d2  : %u/%u B free",
+          (unsigned)sram_free_bytes(SRAM_REGION_D2),
+          (unsigned)sram_total_bytes(SRAM_REGION_D2));
     reply("view   : %s%s",
           (page != NULL) ? page->cmd : "menu",
           app_menu_is_full_screen() ? " (fullscreen)" : "");
@@ -268,6 +289,9 @@ static void cmd_status(void)
     reply("image  : %s, files %d",
           page_image_is_viewing() ? "viewing" : "idle",
           page_image_count());
+    reply("txt    : %s, files %d",
+          page_txt_is_reading() ? "reading" : "idle",
+          page_txt_count());
 
     ok("status");
 }
@@ -544,6 +568,134 @@ static void cmd_img(uint32_t argc, char *argv[])
     err("img: unknown sub-command %s", argv[1]);
 }
 
+static void cmd_txt(uint32_t argc, char *argv[])
+{
+    if (argc < 2U)
+    {
+        err("txt needs list|open|close|info");
+        return;
+    }
+
+    if (str_ieq(argv[1], "list"))
+    {
+        int n;
+        int i;
+
+        page_txt_rescan();
+        n = page_txt_count();
+
+        reply("dir: %s", page_txt_dir());
+        for (i = 0; i < n; i++)
+        {
+            char utf8[160];
+            gbk_to_utf8(page_txt_name(i), utf8, (int)sizeof(utf8));
+            reply("%2d %s", i, utf8);
+        }
+
+        ok("txt list %d", n);
+        return;
+    }
+
+    if (str_ieq(argv[1], "open"))
+    {
+        int index;
+
+        if (argc < 3U)
+        {
+            err("txt open needs an index");
+            return;
+        }
+
+        index = atoi(argv[2]);
+
+        if ((index < 0) || (index >= page_txt_count()))
+        {
+            err("txt index out of range (have %d)", page_txt_count());
+            return;
+        }
+
+        /* Open the page (so the reader view exists) and queue the load for the
+         * page tick - the same pattern as "rom load" / "img show". */
+        if (app_menu_open_cmd("txt") != 0)
+        {
+            err("cannot open the txt page");
+            return;
+        }
+
+        page_txt_request_open(index);
+        ok("txt open %d %s", index, page_txt_name(index));
+        return;
+    }
+
+    if (str_ieq(argv[1], "close"))
+    {
+        page_txt_close();
+        ok("txt close");
+        return;
+    }
+
+    if (str_ieq(argv[1], "seed"))
+    {
+        const char *nm = (argc >= 3U) ? argv[2] : "SEED.TXT";
+
+        if (page_txt_seed(nm) == 0)
+        {
+            ok("txt seed %s", nm);
+        }
+        else
+        {
+            err("txt seed failed (card write error?)");
+        }
+        return;
+    }
+
+    if (str_ieq(argv[1], "cddir"))
+    {
+        if (argc < 3U)
+        {
+            err("txt cddir needs a sub-directory");
+            return;
+        }
+        page_txt_cddir(argv[2]);
+        ok("txt cddir %s", argv[2]);
+        return;
+    }
+
+    if (str_ieq(argv[1], "info"))
+    {
+        char line[200];
+
+        page_txt_info(line, (int)sizeof(line));
+
+        reply("state  : %s", page_txt_is_reading() ? "reading" : "idle");
+        reply("files  : %d", page_txt_count());
+        reply("file   : %s", line);
+        ok("txt info");
+        return;
+    }
+
+    if (str_ieq(argv[1], "sel"))
+    {
+        int idx = page_txt_browser_sel();
+
+        if (idx < 0)
+        {
+            reply("sel    : n/a (not in the file list)");
+        }
+        else
+        {
+            char nm[200];
+
+            page_txt_browser_name(nm, (int)sizeof(nm));
+            reply("sel    : %d (%s)", idx, nm);
+        }
+        ok("txt sel");
+        return;
+    }
+
+    err("txt: unknown sub-command %s", argv[1]);
+}
+
 static void cmd_time(uint32_t argc, char *argv[])
 {
     rtc_datetime_t dt;
@@ -597,6 +749,162 @@ static void cmd_time(uint32_t argc, char *argv[])
 
         ok("time set");
     }
+}
+
+/*----------------------------------------------------------------------------
+ *  sram - dynamic pool debugging / stress
+ *--------------------------------------------------------------------------*/
+
+static int sram_parse_region(const char *s, sram_region_t *out)
+{
+    char buf[8];
+    int  i = 0;
+
+    while ((*s != '\0') && (i < (int)sizeof(buf) - 1) && (*s != ' '))
+    {
+        char c = *s;
+        if ((c >= 'A') && (c <= 'Z')) { c = (char)(c + 32); }
+        buf[i++] = c;
+        s++;
+    }
+    buf[i] = '\0';
+
+    if (str_ieq(buf, "dtcm") || str_ieq(buf, "0"))  { *out = SRAM_REGION_DTCM; return 1; }
+    if (str_ieq(buf, "d2")   || str_ieq(buf, "1"))  { *out = SRAM_REGION_D2;   return 1; }
+    return 0;
+}
+
+static const char *sram_region_name(sram_region_t r)
+{
+    return (r == SRAM_REGION_DTCM) ? "dtcm" : "d2";
+}
+
+static void cmd_sram(uint32_t argc, char *argv[])
+{
+    if (argc < 2U)
+    {
+        err("sram needs info|check|alloc|free|stress");
+        return;
+    }
+
+    str_lower(argv[1]);
+
+    if (str_ieq(argv[1], "info"))
+    {
+        for (int r = 0; r < (int)SRAM_REGION_COUNT; r++)
+        {
+            int      okf  = 1;
+            size_t   f    = sram_check((sram_region_t)r, &okf);
+            uint32_t tot  = (uint32_t)sram_total_bytes((sram_region_t)r);
+            reply("%-5s free %u/%u B, integrity %s",
+                  sram_region_name((sram_region_t)r),
+                  (unsigned)f, tot, okf ? "ok" : "BAD");
+        }
+        ok("sram info");
+        return;
+    }
+
+    if (str_ieq(argv[1], "check"))
+    {
+        sram_region_t reg = SRAM_REGION_D2;
+        if (argc >= 3U)
+        {
+            if (!sram_parse_region(argv[2], &reg))
+            {
+                err("sram check: bad region");
+                return;
+            }
+        }
+        int    okf = 1;
+        size_t f   = sram_check(reg, &okf);
+        ok("sram check %s free %u integrity %s",
+           sram_region_name(reg), (unsigned)f, okf ? "ok" : "BAD");
+        return;
+    }
+
+    if (str_ieq(argv[1], "alloc"))
+    {
+        sram_region_t reg;
+        uint32_t      sz;
+
+        if (argc < 4U)
+        {
+            err("sram alloc <dtcm|d2> <size>");
+            return;
+        }
+        if (!sram_parse_region(argv[2], &reg))
+        {
+            err("sram alloc: bad region");
+            return;
+        }
+        sz = (uint32_t)strtoul(argv[3], NULL, 0);
+        void *p = sram_alloc(reg, sz, 8U);
+        if (p != NULL)
+        {
+            ok("sram alloc %08lX", (unsigned long)(uintptr_t)p);
+        }
+        else
+        {
+            err("sram alloc failed (size %u)", (unsigned)sz);
+        }
+        return;
+    }
+
+    if (str_ieq(argv[1], "free"))
+    {
+        sram_region_t reg;
+        void         *p;
+
+        if (argc < 4U)
+        {
+            err("sram free <dtcm|d2> <addr>");
+            return;
+        }
+        if (!sram_parse_region(argv[2], &reg))
+        {
+            err("sram free: bad region");
+            return;
+        }
+        p = (void *)(uintptr_t)strtoul(argv[3], NULL, 0);
+        sram_free(reg, p);
+        ok("sram free");
+        return;
+    }
+
+    if (str_ieq(argv[1], "stress"))
+    {
+        sram_region_t reg;
+        uint32_t      iters;
+        uint32_t      seed = 0U;
+
+        if (argc < 4U)
+        {
+            err("sram stress <dtcm|d2> <iters> [seed]");
+            return;
+        }
+        if (!sram_parse_region(argv[2], &reg))
+        {
+            err("sram stress: bad region");
+            return;
+        }
+        iters = (uint32_t)strtoul(argv[3], NULL, 0);
+        if (argc >= 5U)
+        {
+            seed = (uint32_t)strtoul(argv[4], NULL, 0);
+        }
+        int rc = sram_stress_test(reg, iters, seed);
+        if (rc == 0)
+        {
+            ok("sram stress PASS iters %u", (unsigned)iters);
+        }
+        else
+        {
+            err("sram stress FAIL code %d iters %u", rc, (unsigned)iters);
+        }
+        return;
+    }
+
+    err("sram: unknown sub-command %s", argv[1]);
 }
 
 /**
@@ -676,9 +984,17 @@ static void dispatch(char *line)
     {
         cmd_img(argc, argv);
     }
+    else if (str_ieq(argv[0], "txt"))
+    {
+        cmd_txt(argc, argv);
+    }
     else if (str_ieq(argv[0], "time"))
     {
         cmd_time(argc, argv);
+    }
+    else if (str_ieq(argv[0], "sram"))
+    {
+        cmd_sram(argc, argv);
     }
     else if (str_ieq(argv[0], "echo"))
     {

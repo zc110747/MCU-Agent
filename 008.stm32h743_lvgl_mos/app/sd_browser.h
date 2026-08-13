@@ -29,11 +29,17 @@ typedef void (*sd_select_cb)(int index,
                              void *ctx);
 
 /* Scan `path` (e.g. "1:") for files and build an LVGL list into `root`.
- * Returns the browser handle, or NULL on out-of-memory. */
+ * Returns the browser handle, or NULL on out-of-memory.
+ *
+ * `filter` (may be NULL) is called for every *file* entry; returning 0 skips
+ * that entry.  Directories and the synthetic ".." entry are never filtered, so
+ * a page can still descend into folders to find the files it cares about.  This
+ * lets the TXT reader show only *.txt while reusing the same list widget. */
 sd_browser_t *sd_browser_create(lv_obj_t *root, const char *path,
                                 const char *title,
                                 int rows_visible, int row_h,
-                                sd_select_cb on_select, void *ctx);
+                                sd_select_cb on_select, void *ctx,
+                                int (*filter)(const char *name, int is_dir));
 
 /* Tear down (frees the handle; the page cleans `root` on exit). */
 void sd_browser_destroy(sd_browser_t *b);
@@ -41,12 +47,18 @@ void sd_browser_destroy(sd_browser_t *b);
 /* Re-scan the directory and rebuild the list in place. */
 void sd_browser_refresh(sd_browser_t *b);
 
+/* Move the highlight to `index` (clamped) and scroll it into view.  Lets a
+ * re-created browser resume on a specific entry - e.g. the file the TXT reader
+ * just opened - rather than always snapping back to the first row. */
+void sd_browser_set_sel(sd_browser_t *b, int index);
+
 /* Handle a key.  Returns 1 if consumed (UP/DOWN navigate, A/OK/START select).
  * SELECT / BACK are intentionally NOT consumed here - the owning page decides
  * what "back" means. */
 int  sd_browser_key(sd_browser_t *b, key_id_t id, key_edge_t edge);
 
 int         sd_browser_count(sd_browser_t *b);
+int         sd_browser_get_sel(sd_browser_t *b);   /* current highlight index */
 const char *sd_browser_name_gbk(sd_browser_t *b, int i);
 const char *sd_browser_name_utf8(sd_browser_t *b, int i);
 
