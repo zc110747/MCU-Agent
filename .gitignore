@@ -75,3 +75,4 @@ Testing/
 
 **/Release/*
 **/Debug/*
+**/obj/*

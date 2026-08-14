@@ -158,12 +158,12 @@ static void show_fault(const char *l1, const char *l2, const char *l3)
   */
 static void register_pages(void)
 {
-    app_menu_register(page_nes_get());
-    app_menu_register(page_image_get());
-    app_menu_register(page_txt_get());
     app_menu_register(page_clock_get());
-    app_menu_register(page_sysinfo_get());
+    app_menu_register(page_txt_get());
+    app_menu_register(page_image_get());
+    app_menu_register(page_nes_get());
     app_menu_register(page_keytest_get());
+    app_menu_register(page_sysinfo_get());
     app_menu_register(page_about_get());
 }
 

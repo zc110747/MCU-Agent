@@ -37,7 +37,7 @@ stm32_nes_emulator/
 │   ├── app_main.c/h     # 启动顺序 + 主循环（application_init/run）
 │   ├── app_menu.c/h     # 页面注册表 + 导航状态机
 │   ├── app_page.h       # 页面描述符（4 回调：create/tick/key/handle）
-│   ├── app_pages.c      # 注册顺序即菜单顺序
+│   ├── app_pages.c      # 页面描述符实现（getter），注册顺序见 app_main.c
 │   ├── app_cmd.c/h      # 行缓冲控制台解析器（本板唯一输入设备）
 │   └── page_nes.c       # NES 页面：ROM 浏览器 + 全屏模拟器
 ├── bsp/                 # 板级支持包：驱动 + 控制台 + 虚拟按键
@@ -68,10 +68,10 @@ stm32_nes_emulator/
 - **DTCM / RAM_D2 由运行时内存池动态管理，链接期零占用**。这两个 SRAM 区不再通过链接脚本放置静态变量，而是在 `bsp/sram_pool.c` 中以边界标记（boundary-tag）空闲链表分配器统一管理，供按需分配/释放。
 - **NES 模拟器仅在打开页面时占用这两块内存**：`nes_open()` 从 DTCM 分配约 82 KB 机器态（`nes_t`，含 6502/PPU 上下文）、从 RAM_D2 分配 ≤ 286 KB ROM 镜像（缓冲区已撑满 RAM_D2，原先钉死的 256 KiB 上限会拒掉 256 KiB 级卡带如魂斗罗，因其 `.nes` 文件为 256 KiB 数据 + 16 B iNES 头 = 262160 B）；`nes_close()` 在退出页面时释放归还内存池。新块与前后空闲块合并（coalescing），开/关循环不产生碎片。
 - **退出后内存立即归还**，可被其它应用（如后续相机）复用，因此这两个区平时显示为空（链接期 DTCM=0B、RAM_D2=0B）。
-- 构建产物实测内存占用（Release）：RAM_D1 **约 71.29%**、FLASH **约 17.23%**（启用 CP936 中文字符表后 `ff.c` / `ffunicode.c` 体积增大）。DTCM / RAM_D2 仅在 NES 运行期被占用，可通过 `status` 命令实时查看 `sram dtcm:` / `sram d2:` 空闲量。
+- 构建产物实测内存占用（Release）：RAM_D1 **71.29%**、FLASH **17.40%**（详见 [第 12 节 资源占用](#12-资源占用)）。DTCM / RAM_D2 仅在 NES 运行期被占用，可通过 `status` 命令实时查看 `sram dtcm:` / `sram d2:` 空闲量。
 
 ### 菜单与全屏
-- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`nes → image → txt → clock → sysinfo → keytest → about`。
+- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`clock → txt → image → nes → keytest → sysinfo → about`。
 - NES 页面标记 `full_screen` / `wants_display`：进入后主循环**暂停 LVGL**，直接刷 SPI6；退出后恢复 LVGL 节拍，避免两套刷新打架。
 - **开机默认进入时钟页（钟表界面）**：`application_init` 在 `app_menu_init()` 后调用 `app_menu_open_cmd("clock")` 直接打开时钟页；时钟页 `on_key = NULL`，按 `BACK` / `B` / `MENU` 经默认处理返回主菜单，其余功能不变。
 
@@ -367,3 +367,54 @@ python scripts/serial_test.py --port COM19 --interactive
 - 编译最多 `ninja -j4`（用户要求，避免 CPU 风扇转速过高）。
 - 实机烧录：`openocd -f openocd.cfg -c "init" -c "program build/nes_h743.elf verify reset exit"`（ST-Link V2；COM19 = USART1 VCP，COM4 = USB CDC，共用 `app_cmd` 解析器）。
 - 串口自测 **38/38 PASS**（`scripts/serial_test.py`：NES 31 fps、mapper 0、中文名正确）；`scripts/verify_features.py` 专项验证中文名 + SELECT 退出 **3/3 PASS**。
+
+---
+
+## 12. 资源占用（2026-08-14 Release 实测）
+
+以下数据取自 `build-release/nes_h743.map`（链接器汇总）与 `arm-none-eabi-size` 模块分解，固件 `H743-NES v1.0.0`，菜单 7 页注册（clock / txt / image / nes / keytest / sysinfo / about）。
+
+### 12.1 链接器内存区域汇总
+
+**Release（-O2，实机运行版本）：**
+
+| 区域 | 占用 | 容量 | 占比 | 说明 |
+| --- | --- | --- | --- | --- |
+| FLASH | 364 892 B | 2 MB | **17.40%** | `.text` 209 092 + `.rodata` 154 660 + `.data` 448 + 向量表/其它 |
+| RAM_D1 (AXI-SRAM) | 373 752 B | 512 KB | **71.29%** | `.data` + `.bss` + LVGL 堆 + 栈 + SD 扇区缓冲，栈堆在此 |
+| RAM_D2 | 0 B | 288 KB | 0.00% | 链接期零占用；NES 运行期动态分配 ≤286 KB ROM 镜像 |
+| DTCM | 0 B | 128 KB | 0.00% | 链接期零占用；NES 运行期动态分配 ~82 KB 机器态 |
+| RAM_D3 | 96 B | 64 KB | 0.15% | USB DMA 缓冲（non-cacheable） |
+
+**Debug（-Og，仅供调试）：** FLASH 360 564 B（17.19%）、RAM_D1 365 KB（71.29%）；DTCM / RAM_D2 同样为零。Debug 帧率不达标，实机游玩请用 Release。
+
+`text/data/bss` 汇总：Release `364424 / 456 / 373400`，Debug `360100 / 456 / 373408`。
+
+### 12.2 模块分解（Release，链接后实际占用）
+
+按 map 文件最终输出区统计（含各段 gc-sections 后的真实贡献）：
+
+| 模块 | FLASH (B) | FLASH 占比 | RAM (B) | 说明 |
+| --- | ---: | ---: | ---: | --- |
+| LVGL v8 | 110 856 | 30.4% | 41 982 | 控件库 + 显示驱动 + 内部堆 |
+| 字库/GBK | 107 856 | 29.6% | 8 293 | `lv_font_gbk` + GBK↔Unicode 映射表（~48 KB rodata）+ 字模缓存 |
+| 应用层 app | 52 609 | 14.4% | 254 300 | 菜单/页面/命令解析；RAM 大头：`img_decode` 图像解码缓冲 128 KB + `page_txt` 文本缓冲 ~104 KB |
+| HAL 驱动 | 22 121 | 6.1% | 9 | STM32H7xx HAL |
+| 其它/系统 | 14 883 | 4.1% | 447 | libc/nano、运行时 |
+| LCD/OLED 驱动 | 13 407 | 3.7% | 32 308 | SPI6 + ST7789 + 文本渲染 |
+| USB CDC | 13 213 | 3.6% | 2 275 | TinyUSB + 描述符 |
+| NES 核心 | 12 920 | 3.5% | 16 009 | 6502 + PPU + Mapper(0/1/2/3/4/7/23)，运行期再动态分配 DTCM/RAM_D2 |
+| FatFs | 10 075 | 2.8% | 522 | 含 CP936 中文字符表（体积增大来源） |
+| BSP 其它 | 3 277 | 0.9% | 684 | 控制台、虚拟按键、SRAM 池 |
+| CMSIS/启动 | 1 816 | 0.5% | 422 | 启动文件 + 系统初始化 |
+| SD 驱动 | 1 056 | 0.3% | 1 | SDMMC1 |
+| **合计** | **364 089** | 100% | 357 252 | 与链接器汇总差 ~800 B（fill/对齐） |
+
+> 注：RAM 合计 357 252 B 为 `.data` + `.bss`；链接器报 RAM_D1 373 752 B 的差额 ~16.5 KB 为链接脚本预留的栈（Stack）+ LVGL 堆（`LV_MEM_SIZE`）等区域。
+
+### 12.3 关键资源观察
+
+- **FLASH 余量约 1.7 MB**（82.6%），后续新增功能（如相机应用）的主要瓶颈在 RAM 而非 Flash。
+- **RAM_D1 已用 71%**，剩余 ~138 KB；`.bss` 大头来自应用层静态缓冲（`img_decode` 图像解码 128 KB、`page_txt` 文本 ~104 KB、NES 页 15.7 KB）、LVGL 堆 40 KB 与显示缓冲 28.8 KB。若需扩容可调整静态缓冲策略（如图像解码缓冲改走 RAM_D2 动态池，`img_decode`/`page_txt` 均为链接期静态占用，是后续优化点）。
+- **DTCM + RAM_D2 链接期 0 占用**，仅在 NES 打开时动态占用（~82 KB + ≤286 KB），退出即归还 —— 这是为后续相机等应用预留的空间。
+- NES 运行期（ROM 加载后）RAM_D2 空闲低至 ~2 KB（魂斗罗 286 KiB 镜像）；`status` 命令实时可见 `sram dtcm:` / `sram d2:`。
