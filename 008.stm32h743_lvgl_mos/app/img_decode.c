@@ -310,6 +310,15 @@ static int decode_jpeg(FIL *fp, img_info_t *info, const char **reason)
         return -1;
     }
 
+    /* jd_prepare() saves and restores jd->swap (a TJpgDec extension that
+     * controls RGB565 byte order).  The struct is otherwise zero-initialised
+     * inside jd_prepare, but swap is left at whatever was on the stack.
+     * If it happens to be non-zero, TJpgDec swaps high/low bytes of every
+     * RGB565 pixel, producing garbled colours on the ST7789 (which expects
+     * standard, non-swapped RGB565 via SPI 16-bit mode — the same layout
+     * the BMP path and the NES palette use).  Pin it to zero explicitly. */
+    jd.swap = 0U;
+
     /* Borrow the shared SRAM pool for TJpgDec's work area.  RAM_D2 is the
      * first choice (it has ~286 kB free while this page is active); DTCM is
      * the fallback.  The block is released on every exit path below. */

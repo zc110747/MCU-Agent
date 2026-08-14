@@ -30,6 +30,8 @@ CMake+Ninja+arm-none-eabi-gcc 15.3；OpenOCD+ST-Link。Debug(-Og) 默认，Relea
 
 **6. 实现 mapper 23（VRC2/VRC4，2026-08-13，本次）** — 需求：魂斗罗(J)（KON-RC826, KONAMI-VRC-2=VRC2b, submapper 3）`.nes`=262160B、mapper 23，核心未实现→`unsupported mapper`。修复：在 `third_party/nes/nes_mapper.c` 按 VRC4 仿真 mapper 23——`vrc_apply_prg()`(4×8KB PRG 窗口：$E000 钉最后 bank、$A000=vrc_prg1、$8000/$C000 由 $9002 M 位交换、受控于 vrc_prg0)、8×1KB CHR 窗口(`vrc_chr[8]` 9bit)、mirroring($9000 MM)、`$F00x` IRQ(latch/control/ack + $F003 拷 A→E)；寄存器 lane 由 A0(stride1)/A2(stride4) 选低/高 4bit 半字节。`nes_internal.h` 的 `mapper_t` 加 vrc_prg0/prg1/chr[8]/swap/stride/mode/prescaler/irq_latch/irq_counter；`nes_mapper_clock_irq(cycles)` 每 CPU 周期推进 prescaler(341/−3) 或 cycle-mode 直推计数器（仅 E 位有效）。`nes_main.c` 的 `run_cpu()` 每指令按 CPU 周期调用之；`nes_mapper_name()` 加 "VRC2/VRC4"。stride 默认 1（VRC2b/VRC4f），因 iNES1.0 不标子变体，VRC4e 未覆盖。Release 0错0警、烧录 Verified OK。**真机验证**：魂斗罗(J) `rom load 3`→`mapper 23 (VRC2/VRC4)`、`frames 153`、`fps 41`、`sram d2 1992/294912`；`rom stop` 后响应正常；Super Mario(mapper0) 回归 `fps 42` 无碍。`scripts/verify_contra.py` 改写支持 mapper23 + fps 检查。
 
+**7. 图片查看器 JPEG「涂抹」（2026-08-14，本次）** — 症状：图片查看器 JPEG 显示涂抹（其它功能正常）。根因：TJpgDec（`third_party/tjpgd`，`JD_FORMAT=1` 直出 RGB565）的 `outfunc` 按 `jd->swap` 决定 RGB565 字节序；`jd_prepare()` 会 **保存并恢复** `jd->swap`（不清零），而 `app/img_decode.c` 的 `decode_jpeg()` 里 `JDEC jd;` 是**未初始化栈变量**，`jd.swap` 保留栈垃圾，Release(-O2) 栈布局下恰非零即字节交换 → ST7789(SPI6 16 位模式 MSB 先发) R/B 错乱=涂抹。BMP 用 `rgb565()`、NES 用标准 RGB565 → 不受影响，印证「其它功能正常」。修复：`decode_jpeg()` 在 `jd_prepare()` 前显式 `jd.swap = 0U;`。主机侧回归 `tests/test_jpg_rgb565.c` 证明 swap=0 输出与 NES/BMP 逐位一致、swap=1=字节交换（涂抹）。Release 0错0警构。压测脚本 `scripts/stress_img.py`（30 轮 cap→img decode→show→close，校验 SRAM 完整回收）真机 **PASS**：30/30 轮、SRAM_D2 delta=0 零泄漏、控制台存活无死机（COM6，uptime>9min、cache I+D）。
+
 ## 模块关键事实
 - `app/app_cmd.c`：唯一输入，行缓冲≤96B，回 `OK `/`ERR `；命令见 README §5。
 - 虚拟键：up/down/left/right/a/b/select/start/ok/back/menu。
@@ -51,4 +53,4 @@ CMake+Ninja+arm-none-eabi-gcc 15.3；OpenOCD+ST-Link。Debug(-Og) 默认，Relea
 - 显示/SPI 观感需真机肉眼确认。
 
 ## 实机验证（烧录器 ST-Link V2，OpenOCD 直连）
-`openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"` → Verified OK。双通道 COM6(ST-Link VCP)/COM9(USB CDC) 共用解析器（本机实测为 COM19/COM4，同一块带 OV5640 板）。`serial_test.py` 51/51 PASS（2026-08-13）。NES 实战 mapper0 fps~41(Release@480MHz)。`scripts/verify_cap.py` 真机 ALL CHECKS PASSED（2026-08-14：cap 存 `1:/catch/HH-MM-SS-NNN.jpg`、`cap head` 见 `FF D8 FF E0 00 10 JFIF…`、连续多次无泄漏/无死机）。
+`openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"` → Verified OK。双通道 COM6(ST-Link VCP)/COM9(USB CDC) 共用解析器（本机实测为 COM19/COM4，同一块带 OV5640 板）。`serial_test.py` 51/51 PASS（2026-08-13）。NES 实战 mapper0 fps~41(Release@480MHz)。`scripts/verify_cap.py` 真机 ALL CHECKS PASSED（2026-08-14：cap 存 `1:/catch/HH-MM-SS-NNN.jpg`、`cap head` 见 `FF D8 FF E0 00 10 JFIF…`、连续多次无泄漏/无死机）。图片查看器涂抹修复后 `scripts/stress_img.py` 真机 **PASS**（30/30 轮、SRAM_D2 零泄漏、cache I+D 下稳定运行>9min）。
