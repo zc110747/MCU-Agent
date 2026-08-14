@@ -28,7 +28,7 @@
 ✅ 005.实现基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)  
 ✅ 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)  
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
-✅ 008.基于lvgl实现有菜单的综合应用(nes模拟器、图片查看、文本阅读器)
+✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)
 
 ### 具体项目效果和提示词说明
 
@@ -97,8 +97,21 @@
 
 🚀 [008.基于lvgl实现有菜单的综合应用(nes模拟器、图片查看、文本阅读器)](./008.stm32h743_lvgl_mos/README.md)
 
-**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现 - 98%  
-**个人参与**: 仿真环境、提示词、oled驱动 - 2%
+![image](./document/image/008-01.jpg)
+
+![image](./document/image/008-02.jpg)
+
+![image](./document/image/008-03.jpg)
+
+![image](./document/image/008-04.jpg)
+
+![image](./document/image/008-05.jpg)
+
+
+提示词内容：[项目提示词](./008.stm32h743_lvgl_mos/prompter.md)
+
+**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现 - 95%  
+**个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动 - 5%
 
 ## 开发经验总结
 

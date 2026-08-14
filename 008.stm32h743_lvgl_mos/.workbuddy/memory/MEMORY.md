@@ -38,14 +38,17 @@ CMake+Ninja+arm-none-eabi-gcc 15.3；OpenOCD+ST-Link。Debug(-Og) 默认，Relea
 - 显示：256x240 裁左右各 8 列→240x240；全屏 NES 页暂停 LVGL 直接刷 SPI6。
 - `sd_browser`(共享 SD 浏览器，静态单例 `s_b`)：`sd_browser_create()` 末参 `filter(name,is_dir)`(NULL=不过滤)；仅文件被过滤，目录/“..”始终显示。NES/图片传 NULL；TXT 传 `txt_filter` 只列 `*.txt`。
 - **TXT 阅读器**(`app/page_txt.c`, cmd=`txt`, icon=`icon_txt`)：整文件读 SD 入 RAM(raw 32KB 上限)→GBK→UTF-8(UTF-8 BOM 快路径不转码，超 32KB 截断)→用 LVGL `_lv_txt_get_next_line`(`misc/lv_txt.h`，返回 uint32_t 字节偏移，非指针)按面板宽 224px 分页、每页 8 行，UP/DOWN 翻页。控制台 `txt list/open/close/info/seed`(`seed` 写 80 行多页样例便于压测)。`page_txt_seed()` 调试用。
-- 调试/自测脚本：`scripts/stress_txt.py`(开/翻/关循环+burst+fuzz+跨分钟回归+死锁时 OpenOCD/gdb 抓现场)、`scripts/serial_test.py`(51 项，含 `test_txt`)、`scripts/stress_usb.py`、`scripts/verify_features.py`。
+- **屏幕截图 cap**（`bsp/jpeg_enc.c` 软件 baseline JPEG 编码器 + `bsp/screen_cap.c/.h`）：`screen_cap_capture()` 把 `LCD_GetFrameBuffer()`(240×240 RGB565 阴影帧缓冲) 编码为 JPEG 存 `1:/catch/HH-MM-SS-NNN.jpg`（RTC 时分秒 + 3 位随机数，`f_mkdir` 自动建目录，同名 `_k` 后缀去重）；JPEG 缓冲 80KB 从 `sram_pool`(DTCM 优先/D2 兜底) 运行时分配释放。`app/app_cmd.c` 的 `cmd_cap` 支持 `cap`/`cap shot`/`cap now`/`cap list`/`cap head [name]`（`CAP_DIR "1:/catch"` 在 `screen_cap.h` 导出）。上位机 `tools/NesPadTool` 的「截图保存 (cap)」按钮发 `cap`。实机 `cap head` 首字节 `FF D8 FF E0 00 10 JFIF…` 确认 JPEG 有效；NES 全屏页经 `LCD_CopyBuffer` 镜像故也能截实时帧。
+- **图片查看器**(`app/img_decode.c` + `app/page_image.c`, cmd=`img`, icon=`icon_image`)：BMP(24/32bit) + JPEG(baseline) 解码到 240×240 RGB565 帧(`s_fb`, RAM_D1 .bss 112.5KB)，经 `img_blit()`(= `LCD_CopyBuffer` 分带推屏)显示；与 NES 页互斥。JPEG 走 ChaN TJpgDec(`third_party/tjpgd`)，`tjpgdcnf.h` 设 `JD_FASTDECODE=2`(最坏需求 9644B)。`decode_jpeg()` 的 TJpgDec 工作区**不再用静态 8KB**(曾因 <9644B 致所有 JPEG 报 JDR_MEM1/2「内存不足」)，改为运行时从 `sram_pool` 取 **32KB**(先 RAM_D2、失败退 DTCM)，所有出口统一释放。`app/app_cmd.c` 有 `img list`/`img show <idx>`/`img decode <path>`(无 UI 头端解码，调试用)/`img close`/`img info`。实机 `img decode 1:/catch/HH-MM-SS-NNN.jpg` 对本机 4:4:4 截图返回 `OK img decode JPEG 240x240`(此前必「内存不足」)，`sram d2` 分配后回满基线。
+- 调试/自测脚本：`scripts/stress_txt.py`(开/翻/关循环+burst+fuzz+跨分钟回归+死锁时 OpenOCD/gdb 抓现场)、`scripts/serial_test.py`(51 项，含 `test_txt`)、`scripts/stress_usb.py`、`scripts/verify_features.py`、`scripts/verify_cap.py`(截图一键验收)、`scripts/verify_camera.py`(相机一键验收)、`scripts/verify_img.py`(图片查看器「内存不足」修复验收：cap 4:4:4 → img decode 成功 + sram d2 回满)。
 
 ## 已知限制
 - NES 无 APU（不发声）。
 - FatFs `FF_CODE_PAGE` 必须 **936**（曾误用 437 致中文 LFN 丢失/乱码）；`fno.fname` 返回 GBK，OLED 字体做 UTF-8→Unicode→GBK 映射，故喂 `lv_label_set_text` 前须 `gbk_to_utf8()`。**勿改回 437。**
+  - ⚠️ **现状不一致**：2026-08-14 实查 `third_party/FatFs/ffconf.h` 当前确为 `#define FF_CODE_PAGE 437`（与「必须 936」要求矛盾），中文 SD 文件名可能乱码。截图(cap)功能用 ASCII 文件名不受影响，故未改动该文件；**待用户确认是否改回 936**。
 - 实机验证 NES Mapper 0(NROM) 与 Mapper 23(VRC2/VRC4, Contra J)；Mapper1/2/3/4/7 代码支持未实跑。
 - 部分名为「魂斗罗/Contra」的 `.nes` 实为 **mapper 23(VRC2/VRC4)** 镜像（128KB PRG+128KB CHR）；**已实现 mapper 23**（VRC4 仿真，stride-1 覆盖 VRC2b/VRC4f）。Contra(J)=VRC2b 实机验证通过(~41fps)。iNES1.0 不记录子变体，VRC4e(stride-4) 卡带暂未覆盖。
 - 显示/SPI 观感需真机肉眼确认。
 
 ## 实机验证（烧录器 ST-Link V2，OpenOCD 直连）
-`openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"` → Verified OK。双通道 COM6(ST-Link VCP)/COM9(USB CDC) 共用解析器。`serial_test.py` 51/51 PASS（2026-08-13）。NES 实战 mapper0 fps~41(Release@480MHz)。
+`openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"` → Verified OK。双通道 COM6(ST-Link VCP)/COM9(USB CDC) 共用解析器（本机实测为 COM19/COM4，同一块带 OV5640 板）。`serial_test.py` 51/51 PASS（2026-08-13）。NES 实战 mapper0 fps~41(Release@480MHz)。`scripts/verify_cap.py` 真机 ALL CHECKS PASSED（2026-08-14：cap 存 `1:/catch/HH-MM-SS-NNN.jpg`、`cap head` 见 `FF D8 FF E0 00 10 JFIF…`、连续多次无泄漏/无死机）。

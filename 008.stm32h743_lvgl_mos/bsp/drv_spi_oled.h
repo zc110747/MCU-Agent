@@ -89,6 +89,12 @@ void LCD_Clear(void);
 void LCD_Fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint32_t Color);
 void LCD_CopyBuffer(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *DataBuff);
 
+/* Screenshot ---------------------------------------------------------------*/
+/** @brief  Pointer to the 240x240 RGB565 shadow framebuffer (panel mirror). */
+const uint16_t *LCD_GetFrameBuffer(void);
+/** @brief  Panel resolution in pixels (240 x 240). */
+void LCD_GetResolution(int *w, int *h);
+
 /* Text ----------------------------------------------------------------------*/
 void LCD_DisplayText(uint16_t x, uint16_t y, char *pText);
 void LCD_DisplayNumber(uint16_t x, uint16_t y, int32_t number, uint8_t len);

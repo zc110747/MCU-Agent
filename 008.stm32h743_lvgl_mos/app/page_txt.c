@@ -21,13 +21,20 @@
   *  and keeps the rendered frame small and cheap - one LVGL label per page, no
   *  per-character scroll bookkeeping.
   *
-  *  Encoding
-  *  --------
-  *  Card filenames are GBK (FF_CODE_PAGE = 936).  File *contents* follow no
-  *  hard rule, so we assume GBK and transcode to UTF-8 with the same
-  *  gbk_to_utf8() the rest of the firmware uses; a UTF-8 BOM (EF BB BF) is
-  *  detected and honoured (no transcoding) so UTF-8 .txt files are not mangled.
-  *
+ *  Encoding
+ *  --------
+ *  Card filenames are GBK (FF_CODE_PAGE = 936).  File *contents* follow no
+ *  hard rule, so open_file() now auto-detects the encoding:
+ *    - a UTF-8 BOM (EF BB BF)      -> used verbatim as UTF-8;
+ *    - otherwise, if the buffer is well-formed UTF-8 (utf8_is_valid(), which
+ *      also covers pure ASCII) -> used verbatim.  This is what makes the
+ *      common "UTF-8 without BOM" Chinese .txt (Notepad / most editors) display
+ *      correctly instead of being mangled by a GBK transcode;
+ *    - anything that is not valid UTF-8 -> assumed GBK and transcoded with the
+ *      same gbk_to_utf8() the rest of the firmware uses.
+ *  In every case s_utf8 ends up valid UTF-8 for the OLED font driver, which
+ *  decodes UTF-8 -> Unicode -> GBK glyph.
+ *
   *  The whole file is read into a RAM buffer (capped) and paginated in place.
   *  The cap is generous for an SD-card reader on an H7 with ~250 KB of AXI-SRAM
   *  still free; files larger than the cap load their first chunk only, and the
@@ -230,7 +237,15 @@ static int open_file(const char *dir_gbk, const char *name_gbk)
      * GBK never contains 0x00 in a valid sequence, so this is safe. */
     s_raw[read] = 0U;
 
-    /* UTF-8 BOM => already UTF-8; otherwise assume GBK and transcode. */
+    /* Encoding detection, in order of confidence:
+     *   1. A UTF-8 BOM (EF BB BF) => already UTF-8; use verbatim.
+     *   2. Otherwise probe the buffer: a well-formed UTF-8 stream (which
+     *      includes pure ASCII) is passed through as-is; this catches the
+     *      common "UTF-8 without BOM" Chinese .txt that Notepad / editors
+     *      produce, which the old code wrongly ran through the GBK transcoder.
+     *   3. Anything that is not valid UTF-8 is assumed GBK and transcoded.
+     * Whichever path we take, the result in s_utf8 is always valid UTF-8 for
+     * the OLED font driver (which decodes UTF-8 -> Unicode -> GBK glyph). */
     if ((read >= 3U) && (s_raw[0] == 0xEFU) &&
         (s_raw[1] == 0xBBU) && (s_raw[2] == 0xBFU))
     {
@@ -239,6 +254,12 @@ static int open_file(const char *dir_gbk, const char *name_gbk)
         s_is_utf8 = 1;
         (void)memcpy((void *)s_utf8, s_raw + skip, (size_t)(read - skip));
         s_utf8[read - skip] = '\0';
+    }
+    else if (utf8_is_valid(s_raw, read) != 0)
+    {
+        s_is_utf8 = 1;
+        (void)memcpy((void *)s_utf8, s_raw, (size_t)read);
+        s_utf8[read] = '\0';
     }
     else
     {
@@ -826,4 +847,22 @@ void page_txt_info(char *out, int out_size)
                    (unsigned long)s_utf8_len,
                    s_page + 1,
                    s_truncated ? " (截断)" : "");
+}
+
+/* For verification: report the detected encoding of the currently loaded file. */
+int page_txt_is_utf8(void)
+{
+    return s_is_utf8;
+}
+
+/* For verification: the transcoded (UTF-8) text buffer of the loaded file. */
+const char *page_txt_utf8(void)
+{
+    return (const char *)s_utf8;
+}
+
+/* For verification: byte length of the transcoded buffer. */
+uint32_t page_txt_utf8_len(void)
+{
+    return s_utf8_len;
 }

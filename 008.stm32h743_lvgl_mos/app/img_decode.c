@@ -6,6 +6,7 @@
   */
 #include "img_decode.h"
 #include "drv_spi_oled.h"
+#include "sram_pool.h"
 #include "ff.h"
 #include "tjpgd.h"
 #include <stdio.h>
@@ -26,10 +27,16 @@ static uint16_t s_fb[IMG_W * IMG_H];
 #define BMP_LINE_MAX    8192
 static uint8_t  s_line[BMP_LINE_MAX];
 
-/* TJpgDec work pool.  ChaN quotes ~3.1 kB for a 3-component image; 8 kB leaves
- * room for 4:4:4 sampling and the JD_FASTDECODE=1 shift register tables. */
-#define JPEG_POOL_SZ    8192
-static uint8_t  s_pool[JPEG_POOL_SZ];
+/* TJpgDec work pool.  tjpgdcnf.h sets JD_FASTDECODE=2, whose worst case is
+ * 9644 bytes (3500 + 6144 for the two fast huffman LUTs); our own `cap`
+ * captures are 4:4:4 / 3-component JPEGs that exercise the full 6 kB LUT, so
+ * the old fixed 8 kB static buffer was too small and every such file failed
+ * with JDR_MEM1/JDR_MEM2 ("内存不足").  The pool is now taken from the shared
+ * SRAM arena (RAM_D2, ~286 kB free whenever the image viewer is the active
+ * page - NES is a different, mutually exclusive page) at decode time and
+ * handed back on exit.  32 kB gives 3x headroom over the documented worst
+ * case, even for pathological multi-table JPEGs. */
+#define IMG_JPEG_POOL   (32u * 1024u)
 
 /*----------------------------------------------------------------------------
  *  Helpers
@@ -287,12 +294,15 @@ static const char *jpg_reason(JRESULT res)
 
 static int decode_jpeg(FIL *fp, img_info_t *info, const char **reason)
 {
-    JDEC      jd;
-    jpg_ctx_t ctx;
-    JRESULT   res;
-    uint8_t   scale = 0U;
-    int       out_w;
-    int       out_h;
+    JDEC         jd;
+    jpg_ctx_t    ctx;
+    JRESULT      res;
+    sram_region_t region = SRAM_REGION_D2;
+    void        *pool   = NULL;
+    uint8_t      scale  = 0U;
+    int          out_w;
+    int          out_h;
+    int          rc     = -1;
 
     if (f_lseek(fp, 0U) != FR_OK)
     {
@@ -300,15 +310,30 @@ static int decode_jpeg(FIL *fp, img_info_t *info, const char **reason)
         return -1;
     }
 
+    /* Borrow the shared SRAM pool for TJpgDec's work area.  RAM_D2 is the
+     * first choice (it has ~286 kB free while this page is active); DTCM is
+     * the fallback.  The block is released on every exit path below. */
+    pool = sram_alloc(region, IMG_JPEG_POOL, 4U);
+    if (pool == NULL)
+    {
+        region = SRAM_REGION_DTCM;
+        pool   = sram_alloc(region, IMG_JPEG_POOL, 4U);
+    }
+    if (pool == NULL)
+    {
+        *reason = "内存不足";
+        return -1;
+    }
+
     ctx.fp = fp;
     ctx.ox = 0;
     ctx.oy = 0;
 
-    res = jd_prepare(&jd, jpg_in, s_pool, sizeof(s_pool), &ctx);
+    res = jd_prepare(&jd, jpg_in, pool, (size_t)IMG_JPEG_POOL, &ctx);
     if (res != JDR_OK)
     {
         *reason = jpg_reason(res);
-        return -1;
+        goto done;
     }
 
     /* TJpgDec descales by 1, 1/2, 1/4 or 1/8 only.  Take the first step that
@@ -333,7 +358,7 @@ static int decode_jpeg(FIL *fp, img_info_t *info, const char **reason)
     if (res != JDR_OK)
     {
         *reason = jpg_reason(res);
-        return -1;
+        goto done;
     }
 
     info->src_w     = (int)jd.width;
@@ -342,8 +367,11 @@ static int decode_jpeg(FIL *fp, img_info_t *info, const char **reason)
     info->out_h     = (out_h > IMG_H) ? IMG_H : out_h;
     info->scale_num = (out_w * 100) / (int)jd.width;
     info->format    = "JPEG";
+    rc              = 0;
 
-    return 0;
+done:
+    sram_free(region, pool);
+    return rc;
 }
 
 /*----------------------------------------------------------------------------

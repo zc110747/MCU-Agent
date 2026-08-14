@@ -194,7 +194,7 @@ public class MainForm : Form
 
     private Panel BuildQuickPanel()
     {
-        var p = new Panel { Width = 278, Height = 196, BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(6) };
+        var p = new Panel { Width = 278, Height = 232, BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(6) };
         var title = new Label { Text = "快捷指令", Dock = DockStyle.Top, Height = 22, Font = new Font(Font, FontStyle.Bold) };
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, Padding = new Padding(2) };
@@ -218,6 +218,18 @@ public class MainForm : Form
         AddCmd("状态", "neutral", NesKeys.Cmd.Status);
         AddCmd("释放全部", "neutral", NesKeys.Release());
 
+        // 截图保存：独占一行整宽突出，发送 cap 指令，固件把当前 OLED 页面存成 JPEG 到 1:/catch/
+        var btnCap = new Button
+        {
+            Dock = DockStyle.Bottom,
+            Height = 34,
+            Text = "截图保存 (cap)",
+            Font = new Font(Font, FontStyle.Bold)
+        };
+        btnCap.Click += (_, _) => { SendLine(NesKeys.Cmd.Capture); this.ActiveControl = null; };
+        StyleButton(btnCap, "success");
+
+        p.Controls.Add(btnCap);
         p.Controls.Add(grid);
         p.Controls.Add(title);
         return p;

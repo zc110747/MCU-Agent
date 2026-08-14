@@ -113,3 +113,88 @@ int gbk_to_utf8(const char *gbk, char *out, int out_size)
     out[o] = '\0';
     return o;
 }
+
+int utf8_is_valid(const uint8_t *buf, uint32_t len)
+{
+    uint32_t i = 0U;
+
+    if (buf == NULL)
+    {
+        return 0;
+    }
+
+    while (i < len)
+    {
+        uint8_t  b    = buf[i];
+        uint32_t need;        /* number of continuation bytes expected */
+        uint32_t min_cp;      /* minimum code point (overlong guard)  */
+        uint32_t cp   = 0U;
+        uint32_t k;
+
+        if (b < 0x80U)
+        {
+            i++;
+            continue;
+        }
+        else if ((b & 0xE0U) == 0xC0U)      /* 110xxxxx : 2-byte */
+        {
+            if (b < 0xC2U)                  /* 0xC0/0xC1 are overlong */
+            {
+                return 0;
+            }
+            need   = 1U;
+            min_cp = 0x80U;
+        }
+        else if ((b & 0xF0U) == 0xE0U)      /* 1110xxxx : 3-byte */
+        {
+            need   = 2U;
+            min_cp = 0x800U;
+        }
+        else if ((b & 0xF8U) == 0xF0U)      /* 11110xxx : 4-byte */
+        {
+            if (b > 0xF4U)                  /* > U+10FFFF is invalid */
+            {
+                return 0;
+            }
+            need   = 3U;
+            min_cp = 0x10000U;
+        }
+        else                                 /* 0x80..0xBF lone, or 0xF8..0xFF */
+        {
+            return 0;
+        }
+
+        /* Not enough bytes left for the full sequence.  Tolerate only when it
+         * is the very tail of the buffer (a truncated read); there is nothing
+         * more to validate past it. */
+        if (i + need >= len)
+        {
+            return 1;
+        }
+
+        cp = (uint32_t)(b & ((0x7FU >> need) & 0x7FU));
+        for (k = 1U; k <= need; k++)
+        {
+            uint8_t c = buf[i + k];
+
+            if ((c & 0xC0U) != 0x80U)       /* not a continuation byte */
+            {
+                return 0;
+            }
+            cp = (cp << 6) | (uint32_t)(c & 0x3FU);
+        }
+
+        if (cp < min_cp)                     /* overlong encoding */
+        {
+            return 0;
+        }
+        if ((cp >= 0xD800U) && (cp <= 0xDFFFU)) /* surrogate halves */
+        {
+            return 0;
+        }
+
+        i += need + 1U;
+    }
+
+    return 1;
+}

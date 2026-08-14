@@ -18,6 +18,9 @@ LVGL 菜单 + NES 模拟器固件（`app_cmd.c` 串口协议）使用，把 PC �
   配色），且**鼠标点按与物理键盘按下共用同一高亮态**——视觉完全统一。
 - **NES 虚拟手柄**：方向键 + A/B + Select/Start，鼠标按住=`down`，松开=`up`。
 - **快捷指令**：打开 NES 页 / ROM 列表 / 加载 ROM0 / 停止 / 状态 / 释放全部。
+- **截图保存**：点「截图保存 (cap)」把**当前 OLED 页面**截成 JPEG，存到 SD 卡
+  `1:/catch/HH-MM-SS-NNN.jpg`（`HH-MM-SS` 为 RTC 时-分-秒，`NNN` 为 3 位随机数；
+  若文件名已存在则加 `_k` 后缀去重，避免覆盖）。
 - **设备回显**：实时显示固件返回的 `OK` / `ERR`。
 
 ## 构建与运行
@@ -47,7 +50,9 @@ dotnet publish -c Release
    波特率 `115200`，点「打开串口」。
 3. 点「打开 NES 页」→「ROM 列表」→「加载 ROM0」即可开始游戏。
 4. 在手柄区**鼠标点按**按钮，或直接**敲击键盘映射键**控制；「释放全部」可解除卡住的按键。
-5. 「按键映射」面板里点某键的「学习」，再按一个物理键即可重新绑定；「恢复默认映射」复位。
+5. 想保存当前画面时点「截图保存 (cap)」，固件会把 OLED 当前页面存成 JPEG 到
+   SD 卡 `1:/catch/`；之后可用 `cap list` 查看、`cap head <name>` 校验文件头（应为 `FF D8 ... FF D9`）。
+6. 「按键映射」面板里点某键的「学习」，再按一个物理键即可重新绑定；「恢复默认映射」复位。
 
 ## 串口协议（与固件 `app_cmd.c` 对齐）
 
@@ -62,6 +67,9 @@ dotnet publish -c Release
 | `open nes` | 打开 NES 页 |
 | `rom list` / `rom load <n>` / `rom stop` / `rom info` | ROM 管理 |
 | `status` / `menu` | 状态 / 返回菜单 |
+| `cap` / `cap shot` / `cap now` | 截取当前 OLED 页面 → JPEG，存 `1:/catch/HH-MM-SS-NNN.jpg` |
+| `cap list` | 列出 `1:/catch/` 下已保存的截图 |
+| `cap head [name]` | 打印某个截图文件首 32 字节（确认 `FF D8 … FF D9`） |
 
 ## 文件结构
 

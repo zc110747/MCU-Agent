@@ -40,5 +40,8 @@ public static class NesKeys
         public static string RomInfo => "rom info";
         public static string Status => "status";
         public static string Menu => "menu";
+
+        /// <summary>截取当前 OLED 页面为 JPEG 存到 SD 卡 1:/catch/（固件 screen_cap.c）。</summary>
+        public static string Capture => "cap";
     }
 }

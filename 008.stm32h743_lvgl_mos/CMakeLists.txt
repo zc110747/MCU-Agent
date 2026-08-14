@@ -186,6 +186,9 @@ set(PROJECT_SRCS
   bsp/drv_rtc.c
   bsp/disk_interface.c
   bsp/sram_pool.c
+  # BSP: software baseline JPEG encoder + OLED screenshot capture
+  bsp/jpeg_enc.c
+  bsp/screen_cap.c
   # BSP: LVGL glue - display flush, SD-backed GBK font, Unicode->GBK table
   bsp/lv_port_disp.c
   bsp/lv_font_gbk.c

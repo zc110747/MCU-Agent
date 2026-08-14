@@ -35,6 +35,9 @@
 #include "sram_pool.h"
 #include "drv_camera.h" /* g_cam_* counters + page_camera_* hooks */
 #include "gbk_conv.h"   /* GBK(8.3 short names on the card) -> UTF-8 for the console */
+#include "screen_cap.h"  /* screenshot capture to 1:/catch */
+#include "img_decode.h"  /* img_decode_file / img_info_t for `img decode` */
+#include "ff.h"          /* FatFs: f_opendir / f_readdir / f_open for cap list/head */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -211,6 +214,7 @@ static void cmd_help(void)
     reply("rom info             emulator state");
     reply("img list             list *.bmp / *.jpg on the card");
     reply("img show <index>     decode and display an image");
+    reply("img decode <path>    decode a file and report the result (no UI)");
     reply("img close            leave the viewer");
     reply("img info             viewer state");
     reply("txt list             list *.txt on the card");
@@ -224,6 +228,9 @@ static void cmd_help(void)
     reply("time                 read the RTC");
     reply("time <Y-M-D> <h:m:s> set the RTC");
     reply("echo on|off          local echo of typed characters");
+    reply("cap                  screenshot the OLED to 1:/catch/HH-MM-SS-NNN.jpg");
+    reply("cap list             list captured JPEGs");
+    reply("cap head [name]      dump first 32 bytes (FFD8..) of a capture");
     reply("sram info            per-region free bytes + integrity");
     reply("sram check [dtcm|d2] verify allocator invariants");
     reply("sram alloc <r> <sz>  allocate from the pool (debug)");
@@ -562,6 +569,32 @@ static void cmd_img(uint32_t argc, char *argv[])
         return;
     }
 
+    if (str_ieq(argv[1], "decode"))
+    {
+        img_info_t  info;
+        const char *why = "未知错误";
+
+        if (argc < 3U)
+        {
+            err("img decode needs a path");
+            return;
+        }
+
+        /* Headless decode (no UI): proves the decoder can allocate its work
+         * pool and parse the file.  Handy for "why won't X open?" without the
+         * on-screen browser - and for regression testing the memory fix. */
+        if (img_decode_file(argv[2], &info, &why) != 0)
+        {
+            err("img decode failed: %s", why);
+            return;
+        }
+
+        ok("img decode %s %dx%d -> %dx%d %lu B",
+           info.format, info.src_w, info.src_h,
+           info.out_w, info.out_h, (unsigned long)info.bytes);
+        return;
+    }
+
     if (str_ieq(argv[1], "info"))
     {
         char line[200];
@@ -582,7 +615,7 @@ static void cmd_txt(uint32_t argc, char *argv[])
 {
     if (argc < 2U)
     {
-        err("txt needs list|open|close|info");
+        err("txt needs list|open|close|info|dump");
         return;
     }
 
@@ -700,6 +733,43 @@ static void cmd_txt(uint32_t argc, char *argv[])
             reply("sel    : %d (%s)", idx, nm);
         }
         ok("txt sel");
+        return;
+    }
+
+    if (str_ieq(argv[1], "dump"))
+    {
+        if (page_txt_is_reading() == 0)
+        {
+            err("txt dump: no file loaded (use 'txt open N' first)");
+            return;
+        }
+
+        {
+            const char *p   = page_txt_utf8();
+            uint32_t    n   = page_txt_utf8_len();
+            uint32_t    off = 0U;
+            int         row;
+
+            reply("enc : %s", page_txt_is_utf8() ? "utf8" : "gbk");
+            reply("len : %lu B", (unsigned long)n);
+
+            /* Hex dump the first 64 bytes so the encoding can be verified over
+             * the serial line even though the OLED pixels cannot be read. */
+            for (row = 0; (off < n) && (row < 4); row++)
+            {
+                char  hex[64];
+                int   hi = 0;
+                uint32_t end = (off + 16U <= n) ? (off + 16U) : n;
+
+                for (; off < end; off++)
+                {
+                    hi += snprintf(hex + hi, (size_t)(sizeof(hex) - (size_t)hi),
+                                   "%02X ", (uint8_t)p[off]);
+                }
+                reply("%s", hex);
+            }
+        }
+        ok("txt dump");
         return;
     }
 
@@ -963,6 +1033,132 @@ static void cmd_sram(uint32_t argc, char *argv[])
     err("sram: unknown sub-command %s", argv[1]);
 }
 
+/*----------------------------------------------------------------------------
+ *  cap - screenshot the current OLED page
+ *--------------------------------------------------------------------------*/
+static void cmd_cap(uint32_t argc, char *argv[])
+{
+    if (argc < 2U)
+    {
+        char path[96];
+        int  rc = screen_cap_capture(path, (int)sizeof(path));
+        if (rc == 0)
+        {
+            ok("cap saved %s", path);
+        }
+        else
+        {
+            err("cap failed (code %d)", rc);
+        }
+        return;
+    }
+
+    str_lower(argv[1]);
+
+    if (str_ieq(argv[1], "shot") || str_ieq(argv[1], "now"))
+    {
+        char path[96];
+        int  rc = screen_cap_capture(path, (int)sizeof(path));
+        if (rc == 0)
+        {
+            ok("cap saved %s", path);
+        }
+        else
+        {
+            err("cap failed (code %d)", rc);
+        }
+        return;
+    }
+
+    if (str_ieq(argv[1], "list"))
+    {
+        DIR     dir;
+        FILINFO fno;
+
+        FRESULT fr = f_opendir(&dir, CAP_DIR);
+        if (fr != FR_OK)
+        {
+            err("cap list: cannot open %s", CAP_DIR);
+            return;
+        }
+
+        uint32_t n = 0U;
+        while (f_readdir(&dir, &fno) == FR_OK)
+        {
+            if (fno.fname[0] == 0)
+            {
+                break;                      /* end of directory */
+            }
+            if (fno.fattrib & AM_DIR)
+            {
+                continue;
+            }
+            reply("  %s  %lu B", fno.fname, (unsigned long)fno.fsize);
+            n++;
+        }
+        f_closedir(&dir);
+        ok("cap list %lu", (unsigned long)n);
+        return;
+    }
+
+    if (str_ieq(argv[1], "head"))
+    {
+        /* CAP_DIR (8) + '/' + up to FF_MAX_LFN (255) + NUL -> 264 worst case */
+        char path[288];
+
+        if (argc >= 3U)
+        {
+            (void)snprintf(path, sizeof(path), "%s/%s", CAP_DIR, argv[2]);
+        }
+        else
+        {
+            /* no name given: use the first file in the directory */
+            DIR     dir;
+            FILINFO fno;
+            path[0] = '\0';
+            if (f_opendir(&dir, CAP_DIR) == FR_OK)
+            {
+                if ((f_readdir(&dir, &fno) == FR_OK) && (fno.fname[0] != 0))
+                {
+                    (void)snprintf(path, sizeof(path), "%s/%s", CAP_DIR, fno.fname);
+                }
+                f_closedir(&dir);
+            }
+        }
+
+        if (path[0] == '\0')
+        {
+            err("cap head: no file");
+            return;
+        }
+
+        FIL  fil;
+        if (f_open(&fil, path, FA_READ) != FR_OK)
+        {
+            err("cap head: open failed");
+            return;
+        }
+        uint8_t buf[32];
+        UINT    br = 0U;
+        f_read(&fil, buf, sizeof(buf), &br);
+        f_close(&fil);
+
+        char hex[96];
+        int  hi = 0;
+        for (UINT i = 0; (i < br) && (hi < (int)sizeof(hex) - 4); i++)
+        {
+            hi += (int)snprintf(hex + hi, (size_t)(sizeof(hex) - (size_t)hi),
+                                "%02X ", (unsigned)buf[i]);
+        }
+        reply("head %s:", path);
+        reply("  %s", hex);
+        ok("cap head %lu B", (unsigned long)br);
+        return;
+    }
+
+    err("cap: unknown sub-command %s", argv[1]);
+}
+
 /**
   * @brief  Execute one complete line.
   */
@@ -1055,6 +1251,10 @@ static void dispatch(char *line)
     else if (str_ieq(argv[0], "sram"))
     {
         cmd_sram(argc, argv);
+    }
+    else if (str_ieq(argv[0], "cap"))
+    {
+        cmd_cap(argc, argv);
     }
     else if (str_ieq(argv[0], "echo"))
     {

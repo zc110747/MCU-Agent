@@ -71,7 +71,7 @@ stm32_nes_emulator/
 - 构建产物实测内存占用（Release）：RAM_D1 **71.29%**、FLASH **17.40%**（详见 [第 12 节 资源占用](#12-资源占用)）。DTCM / RAM_D2 仅在 NES 运行期被占用，可通过 `status` 命令实时查看 `sram dtcm:` / `sram d2:` 空闲量。
 
 ### 菜单与全屏
-- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`clock → txt → image → nes → keytest → sysinfo → about`。
+- 页面以 **const 描述符 + 4 个回调**（create / tick / key / handle）注册，`register_pages()` 顺序即菜单顺序：`clock → **camera** → txt → image → nes → keytest → sysinfo → about`（共 8 页，相机位于第 2 位）。
 - NES 页面标记 `full_screen` / `wants_display`：进入后主循环**暂停 LVGL**，直接刷 SPI6；退出后恢复 LVGL 节拍，避免两套刷新打架。
 - **开机默认进入时钟页（钟表界面）**：`application_init` 在 `app_menu_init()` 后调用 `app_menu_open_cmd("clock")` 直接打开时钟页；时钟页 `on_key = NULL`，按 `BACK` / `B` / `MENU` 经默认处理返回主菜单，其余功能不变。
 
@@ -169,6 +169,10 @@ openocd -f openocd.cfg -c "program build/nes_h743.elf verify reset exit"
 | `txt sel` | 调试：当前文件列表高亮项（索引 + 文件名） |
 | `txt seed [SUB/]NAME.TXT` | 调试：写多页样例到卡（可带子目录，如 `TESTDIR/SAMPLE.TXT`） |
 | `txt cddir <sub>` | 调试：把文件列表直接跳进某子目录 |
+| `txt dump` | 调试：打印当前文件编码 / 字节数 / 前 64 字节 hex（验证 UTF-8/GBK 解码） |
+| `cam open` | 打开相机页面并启动实时预览（192×192 居中，四周 24px 黑边；占用 RAM_D2 三缓冲） |
+| `cam stop` | 停止预览并释放缓冲，返回菜单（缓冲来自共享 SRAM 池，退出即归还供 NES 等复用） |
+| `cam info` | 相机状态：`live Nfps` / `frames` 累计帧 / `overruns` 撕裂计数（0 表示无割裂） |
 | `time` | 读取 RTC |
 | `time <YYYY-MM-DD> <hh:mm:ss>` | 设置 RTC |
 | `echo on\|off` | 开关本地回显 |
@@ -221,7 +225,7 @@ NES 画面 256×240，面板 240×240：左右各裁掉 **8 列**（取中间 24
 - 进入后先列出卡上所有 `*.txt`（目录仍可进入，子目录里的 .txt 也能找到）；`A / OK / START` 打开，`SELECT` 退回主菜单。
 - 阅读界面每页约 8 行（按面板宽度自动折行），`↑` 上一页、`↓ / A / OK / START` 下一页，`B / SELECT / BACK` 返回文件列表。
 - 文件读入 RAM 后分页（上限 32 KB，超出部分在页脚提示「仅显示前 32KB」）。
-- 编码：默认按 **GBK** 转 UTF-8 显示（与本工程卡上文件名一致）；若文件带 **UTF-8 BOM（EF BB BF）** 则直接按 UTF-8 显示，避免乱码。
+- 编码：**自动识别**。优先判定 UTF-8 BOM（EF BB BF）；否则用 `bsp/gbk_conv.c` 的 `utf8_is_valid()` 严格校验整段是否为合法 UTF-8——合法（含无 BOM 的 UTF-8 中文文件，如根目录 `prompter.txt`）按 UTF-8 直传，否则按 **GBK** 转 UTF-8 显示（与本工程卡上文件名一致）。GBK 文件因含非法 UTF-8 序列仍走转码，回归无忧。实机验证见 [第 13 节](#13-实践流程与提示词总结)。
 - 串口命令：`txt list` / `txt open <index>` / `txt close` / `txt info`（与 `rom`/`img` 同构，加载在页面 tick 中异步完成）。
 
 ---
@@ -372,7 +376,7 @@ python scripts/serial_test.py --port COM19 --interactive
 
 ## 12. 资源占用（2026-08-14 Release 实测）
 
-以下数据取自 `build-release/nes_h743.map`（链接器汇总）与 `arm-none-eabi-size` 模块分解，固件 `H743-NES v1.0.0`，菜单 7 页注册（clock / txt / image / nes / keytest / sysinfo / about）。
+以下数据取自 `build-release/nes_h743.map`（链接器汇总）与 `arm-none-eabi-size` 模块分解，固件 `H743-NES v1.0.0`，菜单 8 页注册（clock / **camera** / txt / image / nes / keytest / sysinfo / about）。加入相机应用后的最新实测基线见 [第 13.5 节](#135-最新资源基线含相机)。
 
 ### 12.1 链接器内存区域汇总
 
@@ -418,3 +422,118 @@ python scripts/serial_test.py --port COM19 --interactive
 - **RAM_D1 已用 71%**，剩余 ~138 KB；`.bss` 大头来自应用层静态缓冲（`img_decode` 图像解码 128 KB、`page_txt` 文本 ~104 KB、NES 页 15.7 KB）、LVGL 堆 40 KB 与显示缓冲 28.8 KB。若需扩容可调整静态缓冲策略（如图像解码缓冲改走 RAM_D2 动态池，`img_decode`/`page_txt` 均为链接期静态占用，是后续优化点）。
 - **DTCM + RAM_D2 链接期 0 占用**，仅在 NES 打开时动态占用（~82 KB + ≤286 KB），退出即归还 —— 这是为后续相机等应用预留的空间。
 - NES 运行期（ROM 加载后）RAM_D2 空闲低至 ~2 KB（魂斗罗 286 KiB 镜像）；`status` 命令实时可见 `sram dtcm:` / `sram d2:`。
+
+---
+
+## 13. 实践流程与提示词总结
+
+> 本节汇总本工程（**#008 STM32H743 LVGL 菜单 + NES 模拟器 + 相机应用**）从 NES 核心移植、相机接入到一键验收的完整实践脉络，以及**驱动每一步实现的用户提示词（prompt）与对应落地结果**，便于复盘、交接与二次开发。
+>
+> 背景：本工程源自 #005（DCMI+OV5640 驱动），在 #002（TinyUSB UVC OV5640 真机验证板）上确认传感器正常；NES 核心、菜单框架、RAM 布局等在前序会话已落地（见 [第 11 节](#11-关键实现约束与踩坑务必保留)）。
+
+### 13.1 项目演进总览
+
+| 阶段 | 用户提示词（摘要） | 关键改动 | 验收结果 |
+| --- | --- | --- | --- |
+| NES 内存改动态池 | （前序）DTCM/RAM_D2 静态占用 → `sram_pool` 运行时分配 | `bsp/sram_pool.c` 边界标记分配器；`nes_open/close` 挂接页面开/关 | Release 0 错 0 警；退出即归还 |
+| 实现 mapper 23 | （前序）魂斗罗(J) 为 VRC2/VRC4 | `nes_mapper.c` VRC4 仿真 | Contra(J) ~41fps 实机通过 |
+| 相机接入移植 | 「继续」 | `page_camera.c` + 三缓冲 + `cam` 命令 + CMake | Debug/Release 0 错 0 警，Verified OK |
+| 真机修复 | 「摄像头存在的，用 #002 测试是正常的」 | 对齐 #002：I2C 时序/上拉、DCMI DMA 流/突发、AF 固件非致命 | 出图 43fps，overruns 0 |
+| 一键验收 | 「进行一键验收」 | `scripts/verify_camera.py` | 30/30 PASS |
+| 192×192 + OSD | 「尺寸改 192x192，空白加 CAMERA/FPS 标识」 | `CAM_WIDTH/HEIGHT=192`、`cam_draw_osd()` | 30/30 PASS |
+| 去 OSD + B 退出 | 「背景纯黑去文字；B 不能退出需修复」 | 删 OSD；`cam_key` 加 `KEY_B` | 36/36 PASS |
+| 菜单排序 | 「相机放在菜单栏第二个」 | `register_pages()` 把相机移到第 2 | 串口 `pages` 确认第 2 位 |
+| TXT 中文 | 「测试不支持中文显示，用 prompter.txt，进行支持」 | `utf8_is_valid()` + 自动识别 | 主机判别全 OK；真机 prompter.txt 正确解码 |
+
+### 13.2 用户提示词逐条对应实现
+
+下面按时间顺序列出**原始提示词**、其意图解读、落地文件改动与验收结论。
+
+---
+
+#### ① 相机接入总指令
+- **提示词**：「继续」（在已加载 #26–#32 移植上下文后）
+- **意图**：把 #005 的 DCMI+OV5640 驱动移植到 #008，去掉 AI 检测，做成纯相机 APP（规格 96×96 居中）。两个硬约束：① 摄像头缓冲与 NES 共享 `sram_pool`(RAM_D2)，进入申请/退出释放、三缓冲；② 更新后务必测试整系统不死机、视频无割裂、退出后 NES 正常。
+- **改动**：`bsp/drv_camera_ov5640.{c,h}` / `bsp/drv_camera.{c,h}`（驱动）、`app/page_camera.c`（三缓冲：双 DMA 缓冲 + 快照帧，CLI 握手防撕裂，DMA ISR 帧完成 `SCB_InvalidateDCache_by_Addr` 后 memcpy）、`app/app_cmd.c`（`cam` 命令）、`CMakeLists.txt`（加源）、`Core/Src/{stm32h7xx_hal_msp,stm32h7xx_it}.c`（DCMI/I2C4 初始化）。
+- **验收**：Debug + Release 均 0 错 0 警，`nes_h743.elf` Verified OK。
+
+#### ② 真机缺陷澄清
+- **提示词**：「摄像头存在的，使用 `D:\user_project\git\Mcu_Project_Design_By_Agent\002.stm32h743_tinyusb_uvc_ov5640` 测试是正常的」
+- **意图**：`ov5640 init failed` 不是缺传感器，而是 #008 端口相对 #002 有配置差异，需对齐真机验证值。
+- **根因 & 改动**（4 处对齐 #002）：
+  1. **I2C4 时序**：`hi2c4.Init.Timing` `0x20A09DEB` → `0xF0421E25U`（两板 D3PCLK1=120MHz，同值同 SCL）。
+  2. **I2C4 上拉**：PF14/PF15 `GPIO_NOPULL` → `GPIO_PULLUP`。
+  3. **DCMI DMA**：`DMA2_Stream7`+`MemBurst SINGLE` → `DMA2_Stream1`+`MemBurst INC4`+`VERY_HIGH`；同步 `stm32h7xx_it.c` 的 `DMA2_Stream1_IRQHandler`、`main.c` 的 `MX_DMA_Init`、MspDeInit。
+  4. **AF 固件下载非致命**：`dcmi_ov5640_download_firmware()` 失败原 `return RT_FAIL` 致整 init 失败；改为仅警告继续（AF 对 RGB565 流非必需）。
+- **验收**：`cam open` → `OV5640 detected (id=0x5640)` → `live 43fps, frames 递增, overruns 0`。
+
+#### ③ 一键验收
+- **提示词**：「进行一键验收」
+- **意图**：写一个脚本，对真机相机做自动化验收，覆盖共享池无泄漏/无撕裂/NES 后续正常。
+- **改动**：`scripts/verify_camera.py`（镜像 `serial_test.py` 的 `Console/Runner` 范式，自动选口、3× 相机开/关循环断言 `d2` 回基线 + `integrity ok`、NES 后续 49fps、全程 `status` 响应）。
+- **验收**：**30/30 checks passed**。
+
+#### ④ 尺寸与标识
+- **提示词**：「尺寸修改为 192x192，空白地方增加标识显示相机和帧率」
+- **改动**：`drv_camera.h` `CAM_WIDTH/HEIGHT` 96→192、`CAM_DISP_OFFSET` 72→24；`page_camera.c` 新增 `cam_draw_osd()`（上边距 `CAMERA`、下边距 `FPS xx`，用 `ASCII_Font16`）。
+- **验收**：30/30 PASS，192×192 下 ~43fps、overruns 0。
+- **说明**：OLED ASCII 字库不渲染 UTF-8，故 OSD 用英文 `CAMERA`/`FPS`（满足「标识显示相机」）。
+
+#### ⑤ 去 OSD + B 键退出
+- **提示词**：「1. 相机的背景色修改为黑色，不需要显示相机和帧率文字 2. 这个界面使用 select 可以退出，B 不能退出，需要修复」
+- **改动**：删 `cam_draw_osd()` 及 `CAM_OSD_*` 宏；`cam_key` 退出集合由 `{BACK,MENU,SELECT}` 增加 `KEY_B`（与 `page_image/nes/txt` 一致）。背景黑底本就由 `LCD_Clear()` 实现。
+- **验收**：**36/36 PASS**（新增 `test_key_exit`：`key b` 注入 → 相机页关闭、`sram d2` 回基线）。
+
+#### ⑥ 菜单排序
+- **提示词**：「相机放在菜单栏第二个」
+- **改动**：`app_main.c` `register_pages()` 把 `page_camera_get()` 由末尾移到 `page_clock_get()` 之后（注册顺序即菜单顺序）。
+- **验收**：Release 0 错 0 警；串口 `pages` 确认第 2 行 `1 camera 相机`。
+
+#### ⑦ TXT 中文支持
+- **提示词**：「文本阅读器，测试不支持中文显示，可以测试根目录下的 prompter.txt 文件进行测试，进行支持」
+- **根因**：`open_file()` 仅 UTF-8 BOM 直传，其余按 GBK 转码；`prompter.txt` 是无 BOM 的 UTF-8 中文文件 → 被错误转码成乱码。渲染链本身支持中文（`lv_gbk_map.c` 覆盖完整 CJK 区 0x4E00–0x9FA5）。
+- **改动**：
+  - `bsp/gbk_conv.{c,h}` 新增 `utf8_is_valid()`（严格校验，允许尾部被 32KB 截断的多字节序列）。
+  - `page_txt.c` `open_file()`：① BOM → UTF-8 直传；② `utf8_is_valid` 合法 → UTF-8 直传（覆盖无 BOM UTF-8）；③ 否则 → GBK 转码。
+  - 新增 `page_txt_is_utf8/utf8/utf8_len` 访问器 + `txt dump` 命令。
+- **验收**：主机侧判别测试（gcc 实跑 `gbk_conv.c`）6 例全 OK；真机 `txt open 5`（prompter.txt, 3872B）→ `utf8`、dump 解码为「# 提示语说明」「# 002. 基于tinyusb实现UVC摄像头」等合法 UTF-8 中文、`key down`×4 翻页正常、关闭后系统响应。
+
+### 13.3 控制台命令速查（最新完整）
+
+两块串口（USART1 VCP = COM19 / USB CDC = COM4）共用同一个解析器。完整清单见 [第 5 节](#5-串口--usb-控制台命令)，此处给出应用相关的速查：
+
+| 域 | 命令 | 说明 |
+| --- | --- | --- |
+| 系统 | `help` `status` `pages` `menu`/`back` `reset` | 帮助 / 状态(含 `sram dtcm:`/`sram d2:`) / 页面表 / 返回菜单 / 软复位 |
+| 导航 | `open <page\|idx>` `sel <idx>` `key <name> [ms]` `down/up <name>` `release` | 打开页面 / 移动高亮 / 点按 / 按住 / 释放 |
+| 相机 | `cam open` `cam stop` `cam info` | 开预览(192×192) / 停并释放 / 状态(live fps, frames, overruns) |
+| ROM | `rom list` `rom load <idx>` `rom stop` `rom info` | NES ROM 浏览/加载/退出/状态(mapper, fps) |
+| 文本 | `txt list` `txt open <idx>` `txt close` `txt info` `txt dump` `txt seed` | TXT 浏览/打开/关闭/状态/解码 dump/写样例 |
+| 时间 | `time` `time <YYYY-MM-DD> <hh:mm:ss>` | 读 / 写 RTC |
+
+### 13.4 烧录与排错经验
+
+- **实机请用 Release**：NES 为解释型 6502 + 扫描线 PPU，`-Og`(Debug) 帧率不达标，请 `cmake -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-release`。
+- **烧录**：
+  ```bash
+  openocd -f openocd.cfg -c "init" -c "program build-release/nes_h743.elf verify reset exit"
+  ```
+- **`LIBUSB_ERROR_ACCESS`（烧录被拒）排错**：往往是上一会话残留的 `openocd.exe` / `arm-none-eabi-gdb.exe` 仍占用 ST-Link 调试接口。先 `tasklist | grep -i openocd`，再 `taskkill /PID <id> /F` 结束后重烧即 Verified OK。（本工程 2026-08-14 相机修复烧录时即遇此，清孤儿进程后秒过。）
+- **双串口同板**：COM19（ST-Link VCP）与 COM4（USB CDC）是同一块相机板，共用解析器；选口优先 ST-Link VCP。
+- **三缓冲防撕裂**：DMA 双缓冲 + 快照帧，CLI 握手：`cam_tick` 置 `s_snap_req=1`，DMA ISR 帧完成 invalidate 缓存后 memcpy 到快照帧置 `s_snap_ready=1`，再 `LCD_CopyBuffer` 推屏；`overruns==0` 即无割裂。
+- **共享内存池**：相机三缓冲与 NES 机器态/ROM 镜像均来自 `sram_pool`(RAM_D2/DTCM)，进入申请、退出释放，开/关循环 `d2` 精确回基线、`sram check` 全 `integrity ok` → 无泄漏/无损坏。
+
+### 13.5 最新资源基线（含相机）
+
+固件 `H743-NES v1.0.0`，菜单 **8 页**（`clock / camera / txt / image / nes / keytest / sysinfo / about`），Release 实机实测：
+
+| 指标 | 数值 | 说明 |
+| --- | --- | --- |
+| FLASH | **18.47%** | 相机应用 + TXT 中文修复后（约 1.7 MB 余量） |
+| RAM_D1 (AXI-SRAM) | **71.35%** | `.data`+`.bss`+LVGL 堆+栈+SD 缓冲；剩余约 138 KB |
+| RAM_D2 / DTCM | 链接期 0B | 仅相机/NES 运行期动态占用，退出即归还 |
+| 相机预览 | 192×192 @ ~43fps, overruns 0 | 三缓冲 + 32 字节对齐 + DMA invalidate |
+| 共享池基线 | `sram d2 294872/294912` | 相机/NES 开/关循环精确回基线、`integrity ok` |
+| NES 后续回归 | ~49fps (Release -O2) | 占满 RAM_D2（1992B 空闲）后退出无泄漏 |
+
+> 注：第 12 节表格为 NES 阶段的历史基线（FLASH 17.40% / RAM_D1 71.29%，菜单 7 页），加入相机应用后以上表为准。

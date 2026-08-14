@@ -18,6 +18,54 @@ static pFONT   *LCD_AsciiFonts;     /* ASCII font currently selected    */
 static pFONT   *LCD_CHFonts;        /* Chinese font currently selected  */
 static uint16_t LCD_Buff[1024];     /* one glyph worth of RGB565 pixels */
 
+/* ---------------------------------------------------------------------------
+ * Shadow framebuffer
+ * ---------------------------------------------------------------------------
+ * The ST7789 is driven write-only (MOSI only, no read-back), so to "capture
+ * the current page" we keep a software mirror of the controller GRAM in
+ * RAM_D1.  Every pixel-pushing path (LCD_Clear / LCD_Fill / LCD_CopyBuffer
+ * / the two glyph renderers) writes both the panel and this buffer, so the
+ * buffer always holds exactly what is on screen.  Screenshot code reads it
+ * directly and feeds it to the JPEG encoder.
+ *
+ * The buffer is indexed by controller GRAM coordinates (0..239 each), which
+ * for the default portrait orientation (X/Y offset 0) are identical to the
+ * logical coordinates used by the draw calls.
+ * ------------------------------------------------------------------------- */
+static uint16_t g_lcd_fb[LCD_Width * LCD_Height];   /* 240x240 RGB565 = 112.5 KB */
+
+static void fb_fill_rect(int gx, int gy, int gw, int gh, uint16_t color)
+{
+    if (gw <= 0 || gh <= 0) return;
+    if (gx < 0) { gw += gx; gx = 0; }
+    if (gy < 0) { gh += gy; gy = 0; }
+    if (gx + gw > LCD_Width)  gw = LCD_Width  - gx;
+    if (gy + gh > LCD_Height) gh = LCD_Height - gy;
+    if (gw <= 0 || gh <= 0) return;
+    for (int y = 0; y < gh; y++)
+    {
+        uint16_t *row = &g_lcd_fb[(size_t)(gy + y) * LCD_Width + gx];
+        for (int x = 0; x < gw; x++) row[x] = color;
+    }
+}
+
+static void fb_copy_rect(int gx, int gy, int gw, int gh, const uint16_t *src)
+{
+    if (gw <= 0 || gh <= 0 || src == NULL) return;
+    for (int y = 0; y < gh; y++)
+    {
+        int fy = gy + y;
+        if (fy < 0 || fy >= LCD_Height) continue;
+        const uint16_t *srow = src + (size_t)y * (size_t)gw;
+        for (int x = 0; x < gw; x++)
+        {
+            int fx = gx + x;
+            if (fx < 0 || fx >= LCD_Width) continue;
+            g_lcd_fb[(size_t)fy * LCD_Width + fx] = srow[x];
+        }
+    }
+}
+
 static void oled_write_command(uint8_t lcd_command);
 static void oled_write_data_8bit(uint8_t lcd_data);
 static void oled_write_data_16bit(uint16_t lcd_data);
@@ -237,6 +285,11 @@ void LCD_Clear(void)
 
     LCD_SPI.Init.DataSize 	= SPI_DATASIZE_8BIT;
     HAL_SPI_Init(&LCD_SPI);
+
+    /* mirror the whole-panel clear into the shadow framebuffer */
+    fb_fill_rect(g_oled_info.X_Offset, g_oled_info.Y_Offset,
+                 (int)g_oled_info.Width, (int)g_oled_info.Height,
+                 g_oled_info.BackColor);
 }
 
 void LCD_SetTextFont(pFONT *fonts)
@@ -403,6 +456,10 @@ void LCD_Fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint32_t 
 
     LCD_SPI.Init.DataSize = SPI_DATASIZE_8BIT;
     HAL_SPI_Init(&LCD_SPI);
+
+    /* mirror the filled rectangle into the shadow framebuffer */
+    fb_fill_rect((int)x + g_oled_info.X_Offset, (int)y + g_oled_info.Y_Offset,
+                 (int)width, (int)height, rgb565);
 }
 
 void LCD_CopyBuffer(uint16_t x, uint16_t y,uint16_t width,uint16_t height,uint16_t *DataBuff)
@@ -420,7 +477,24 @@ void LCD_CopyBuffer(uint16_t x, uint16_t y,uint16_t width,uint16_t height,uint16
     // 改回8位数据宽度
     LCD_SPI.Init.DataSize 	= SPI_DATASIZE_8BIT;
     HAL_SPI_Init(&LCD_SPI);		
-	
+
+    /* mirror the copied rectangle into the shadow framebuffer */
+    fb_copy_rect((int)x + g_oled_info.X_Offset, (int)y + g_oled_info.Y_Offset,
+                 (int)width, (int)height, DataBuff);
+}
+
+/*---------------------------------------------------------------------------
+ *  Screenshot accessors
+ *-------------------------------------------------------------------------*/
+const uint16_t *LCD_GetFrameBuffer(void)
+{
+    return g_lcd_fb;
+}
+
+void LCD_GetResolution(int *w, int *h)
+{
+    if (w != NULL) *w = LCD_Width;
+    if (h != NULL) *h = LCD_Height;
 }
 
 //////////////////// internal function /////////////////////////
@@ -461,6 +535,10 @@ static void oled_display_char(uint16_t x, uint16_t y,uint8_t c)
     }		
     oled_set_address( x, y, x+LCD_AsciiFonts->Width-1, y+LCD_AsciiFonts->Height-1);
     oled_write_buffer(LCD_Buff,LCD_AsciiFonts->Width*LCD_AsciiFonts->Height);
+
+    /* mirror the glyph into the shadow framebuffer */
+    fb_copy_rect((int)x + g_oled_info.X_Offset, (int)y + g_oled_info.Y_Offset,
+                 (int)LCD_AsciiFonts->Width, (int)LCD_AsciiFonts->Height, LCD_Buff);
 }
 
 static uint8_t dzk[192] = {0};
@@ -525,6 +603,10 @@ static void oled_display_chinese(uint16_t x, uint16_t y, char *pText)
     }
     oled_set_address(x, y, x+LCD_CHFonts->Width-1, y+LCD_CHFonts->Height-1);
     oled_write_buffer(LCD_Buff, LCD_CHFonts->Width*LCD_CHFonts->Height);
+
+    /* mirror the glyph into the shadow framebuffer */
+    fb_copy_rect((int)x + g_oled_info.X_Offset, (int)y + g_oled_info.Y_Offset,
+                 (int)LCD_CHFonts->Width, (int)LCD_CHFonts->Height, LCD_Buff);
 }
 
 static void oled_write_command(uint8_t lcd_command)

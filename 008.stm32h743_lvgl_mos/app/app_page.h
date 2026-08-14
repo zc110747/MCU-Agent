@@ -143,6 +143,12 @@ void        page_txt_browser_name(char *out, int out_size); /* debug: its UTF-8 
 void        page_txt_close(void);
 void        page_txt_info(char *out, int out_size);
 
+/* Verification hooks: the loaded file's detected encoding and its transcoded
+ * (UTF-8) text buffer, used by the "txt dump" console command. */
+int         page_txt_is_utf8(void);
+const char *page_txt_utf8(void);
+uint32_t    page_txt_utf8_len(void);
+
 /*----------------------------------------------------------------------------
  *  Camera page hooks used by the console parser
  *--------------------------------------------------------------------------*/
