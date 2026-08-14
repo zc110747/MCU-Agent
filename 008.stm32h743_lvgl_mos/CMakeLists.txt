@@ -198,6 +198,9 @@ set(PROJECT_SRCS
   # BSP: GBK(8.3 names) -> UTF-8 transcoder for the serial console
   bsp/gbk_conv.c
   bsp/gbk_unicode_tbl.c
+  # BSP: OV5640 camera (DCMI + I2C4 SCCB) + 3-buffer capture driver
+  bsp/drv_camera_ov5640.c
+  bsp/drv_camera.c
   # Application: menu shell, pages, emulator front-end, console parser
   app/app_main.c
   app/app_menu.c
@@ -208,6 +211,7 @@ set(PROJECT_SRCS
   app/img_decode.c
   app/page_image.c
   app/page_txt.c
+  app/page_camera.c
   app/app_cmd.c
 )
 

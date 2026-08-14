@@ -33,6 +33,7 @@
 #include "main.h"
 #include "nes.h"
 #include "sram_pool.h"
+#include "drv_camera.h" /* g_cam_* counters + page_camera_* hooks */
 #include "gbk_conv.h"   /* GBK(8.3 short names on the card) -> UTF-8 for the console */
 
 #include <stdarg.h>
@@ -217,6 +218,9 @@ static void cmd_help(void)
     reply("txt close            leave the reader");
     reply("txt info             reader state");
     reply("txt seed [name]      write a multi-page test fixture to the card");
+    reply("cam open             open the 96x96 live preview page");
+    reply("cam stop             leave the camera page");
+    reply("cam info             preview state / fps / overruns");
     reply("time                 read the RTC");
     reply("time <Y-M-D> <h:m:s> set the RTC");
     reply("echo on|off          local echo of typed characters");
@@ -292,6 +296,12 @@ static void cmd_status(void)
     reply("txt    : %s, files %d",
           page_txt_is_reading() ? "reading" : "idle",
           page_txt_count());
+
+    {
+        char cam_buf[64];
+        page_camera_info(cam_buf, (int)sizeof(cam_buf));
+        reply("cam    : %s", cam_buf);
+    }
 
     ok("status");
 }
@@ -696,6 +706,52 @@ static void cmd_txt(uint32_t argc, char *argv[])
     err("txt: unknown sub-command %s", argv[1]);
 }
 
+static void cmd_cam(uint32_t argc, char *argv[])
+{
+    if (argc < 2U)
+    {
+        err("cam needs open|stop|info|state");
+        return;
+    }
+
+    str_lower(argv[1]);
+
+    if (str_ieq(argv[1], "open"))
+    {
+        /* The page owns the capture buffers (allocated from the shared
+         * sram_pool at on_enter and freed at on_exit), so we just navigate
+         * to it like any other full_screen page. */
+        if (app_menu_open_cmd("camera") != 0)
+        {
+            err("cannot open the camera page");
+            return;
+        }
+        ok("cam open");
+        return;
+    }
+
+    if (str_ieq(argv[1], "stop"))
+    {
+        page_camera_stop();
+        ok("cam stop");
+        return;
+    }
+
+    if (str_ieq(argv[1], "info") || str_ieq(argv[1], "state"))
+    {
+        char buf[96];
+        page_camera_info(buf, (int)sizeof(buf));
+        reply("state  : %s", buf);
+        reply("fps    : %lu", (unsigned long)g_cam_fps);
+        reply("frames : %lu", (unsigned long)g_cam_frames);
+        reply("overruns: %lu", (unsigned long)g_cam_overruns);
+        ok("cam info");
+        return;
+    }
+
+    err("cam: unknown sub-command %s", argv[1]);
+}
+
 static void cmd_time(uint32_t argc, char *argv[])
 {
     rtc_datetime_t dt;
@@ -987,6 +1043,10 @@ static void dispatch(char *line)
     else if (str_ieq(argv[0], "txt"))
     {
         cmd_txt(argc, argv);
+    }
+    else if (str_ieq(argv[0], "cam"))
+    {
+        cmd_cam(argc, argv);
     }
     else if (str_ieq(argv[0], "time"))
     {

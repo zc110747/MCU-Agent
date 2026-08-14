@@ -98,6 +98,7 @@ const app_page_t *page_nes_get(void);
 const app_page_t *page_image_get(void);
 const app_page_t *page_txt_get(void);
 const app_page_t *page_about_get(void);
+const app_page_t *page_camera_get(void);
 
 /*----------------------------------------------------------------------------
  *  NES page hooks used by the console parser
@@ -141,6 +142,15 @@ int         page_txt_browser_sel(void);         /* debug: current list highlight
 void        page_txt_browser_name(char *out, int out_size); /* debug: its UTF-8 name */
 void        page_txt_close(void);
 void        page_txt_info(char *out, int out_size);
+
+/*----------------------------------------------------------------------------
+ *  Camera page hooks used by the console parser
+ *--------------------------------------------------------------------------*/
+
+int         page_camera_is_open(void);
+int         page_camera_is_running(void);
+void        page_camera_stop(void);
+void        page_camera_info(char *out, int out_size);
 
 /*----------------------------------------------------------------------------
  *  Small shared UI helpers (implemented in app_menu.c)

@@ -104,3 +104,21 @@ void USART1_IRQHandler(void)
   *         USB glue; it is declared weak in the startup file, so the strong
   *         definition there wins and nothing is needed here.
   */
+
+/**
+  * @brief  DMA2 Stream1 global interrupt (DCMI double-buffer DMA).
+  * @note   Routes to the HAL DMA handler; drv_camera.c's
+  *         HAL_DCMI_FrameEventCallback() runs the snapshot handshake.
+  */
+void DMA2_Stream1_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&hdma_dcmi);
+}
+
+/**
+  * @brief  DCMI global interrupt (frame / error events).
+  */
+void DCMI_IRQHandler(void)
+{
+    HAL_DCMI_IRQHandler(&hdcmi);
+}

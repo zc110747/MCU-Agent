@@ -27,6 +27,9 @@
 SPI_HandleTypeDef  hspi6;
 UART_HandleTypeDef huart1;
 SD_HandleTypeDef   hsd1;
+DCMI_HandleTypeDef hdcmi;          /* OV5640 DCMI capture       */
+DMA_HandleTypeDef  hdma_dcmi;     /* DCMI double-buffer DMA    */
+I2C_HandleTypeDef  hi2c4;         /* OV5640 SCCB (I2C4)        */
 
 /* Which oscillator actually ended up driving PLL1 (see SystemClock_Config) */
 volatile ClockSource_t g_clock_source  = CLOCK_SRC_HSE_XTAL;
@@ -39,6 +42,9 @@ static void MX_GPIO_Init(void);
 static void MX_SPI6_Init(void);
 static void MX_SDMMC1_SD_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_DMA_Init(void);
+static void MX_DCMI_Init(void);
+static void MX_I2C4_Init(void);
 
 /**
   * @brief  Application entry point.
@@ -61,6 +67,14 @@ int main(void)
     MX_USART1_UART_Init();
     MX_SPI6_Init();
     MX_SDMMC1_SD_Init();
+
+    /* Camera plumbing: DMA2 clock + stream IRQ, then the DCMI and I2C4
+     * handles (clocks/GPIOs/NVIC).  The OV5640 itself is only powered up and
+     * the capture buffers allocated when the camera page opens - see
+     * drv_camera_open() - so all of this is just the peripheral scaffolding. */
+    MX_DMA_Init();
+    MX_DCMI_Init();
+    MX_I2C4_Init();
 
     /* 5. Application ---------------------------------------------------------*/
     application_init();
@@ -260,8 +274,10 @@ static void MX_GPIO_Init(void)
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
     __HAL_RCC_GPIOG_CLK_ENABLE();
     __HAL_RCC_GPIOH_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
 
     /* Start with LED off, backlight off, DC low */
     HAL_GPIO_WritePin(GPIOG, LED_Pin | LCD_BL_Pin | LCD_DC_Pin, GPIO_PIN_RESET);
@@ -271,6 +287,16 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Pull  = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+
+    /* Camera power-down: hold OV5640 in reset until the camera page opens.
+     * PF13 must be an output driving high (DCMI_PWDN_ON) at boot. */
+    HAL_GPIO_WritePin(DCMI_PWDN_GPIO_Port, DCMI_PWDN_Pin, GPIO_PIN_SET);
+
+    GPIO_InitStruct.Pin   = DCMI_PWDN_Pin;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    HAL_GPIO_Init(DCMI_PWDN_GPIO_Port, &GPIO_InitStruct);
 }
 
 /**
@@ -357,6 +383,68 @@ static void MX_USART1_UART_Init(void)
         Error_Handler();
     }
     if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+/**
+  * @brief  DMA2 clock + DMA2_Stream1 IRQ (the DCMI capture stream).
+  */
+static void MX_DMA_Init(void)
+{
+    __HAL_RCC_DMA2_CLK_ENABLE();
+
+    HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+}
+
+/**
+  * @brief  DCMI handle init (clocks/GPIOs/NVIC are set up in MSP).
+  */
+static void MX_DCMI_Init(void)
+{
+    hdcmi.Instance              = DCMI;
+    hdcmi.Init.SynchroMode      = DCMI_SYNCHRO_HARDWARE;
+    hdcmi.Init.PCKPolarity      = DCMI_PCKPOLARITY_RISING;
+    hdcmi.Init.VSPolarity       = DCMI_VSPOLARITY_LOW;
+    hdcmi.Init.HSPolarity       = DCMI_HSPOLARITY_LOW;
+    hdcmi.Init.CaptureRate      = DCMI_CR_ALL_FRAME;
+    hdcmi.Init.ExtendedDataMode = DCMI_EXTEND_DATA_8B;
+    hdcmi.Init.JPEGMode         = DCMI_JPEG_DISABLE;
+    hdcmi.Init.ByteSelectMode   = DCMI_BSM_ALL;
+    hdcmi.Init.ByteSelectStart  = DCMI_OEBS_ODD;
+    hdcmi.Init.LineSelectMode   = DCMI_LSM_ALL;
+    hdcmi.Init.LineSelectStart  = DCMI_OELS_ODD;
+    if (HAL_DCMI_Init(&hdcmi) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+/**
+  * @brief  I2C4 (SCCB) handle init.  OV5640 register access goes through here.
+  */
+static void MX_I2C4_Init(void)
+{
+    hi2c4.Instance              = I2C4;
+    hi2c4.Init.Timing           = 0xF0421E25U;   /* SCCB timing proven on the OV5640 board (matches #002) */
+    hi2c4.Init.OwnAddress1      = 0;
+    hi2c4.Init.AddressingMode   = I2C_ADDRESSINGMODE_7BIT;
+    hi2c4.Init.DualAddressMode  = I2C_DUALADDRESS_DISABLE;
+    hi2c4.Init.OwnAddress2      = 0;
+    hi2c4.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+    hi2c4.Init.GeneralCallMode  = I2C_GENERALCALL_DISABLE;
+    hi2c4.Init.NoStretchMode    = I2C_NOSTRETCH_DISABLE;
+    if (HAL_I2C_Init(&hi2c4) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if (HAL_I2CEx_ConfigAnalogFilter(&hi2c4, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if (HAL_I2CEx_ConfigDigitalFilter(&hi2c4, 0) != HAL_OK)
     {
         Error_Handler();
     }

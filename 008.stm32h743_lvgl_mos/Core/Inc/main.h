@@ -41,6 +41,9 @@ typedef enum
 extern SPI_HandleTypeDef  hspi6;
 extern UART_HandleTypeDef huart1;
 extern SD_HandleTypeDef   hsd1;
+extern DCMI_HandleTypeDef hdcmi;          /* OV5640 DCMI capture       */
+extern DMA_HandleTypeDef  hdma_dcmi;     /* DCMI double-buffer DMA    */
+extern I2C_HandleTypeDef  hi2c4;         /* OV5640 SCCB (I2C4)        */
 
 /* Clock source actually in use.
  * The board carries a 25 MHz PASSIVE crystal on OSC_IN(PH0)/OSC_OUT(PH1),
@@ -76,6 +79,23 @@ void SystemClock_Config(void);
 #define LCD_SCK_Pin         GPIO_PIN_13
 #define LCD_MOSI_Pin        GPIO_PIN_14
 #define LCD_SPI_GPIO_Port   GPIOG
+
+/* ---------------------------------------------------------------------------
+ * Camera (OV5640 over DCMI + I2C4/SCCB)
+ *   PF13 -> OV5640 PWDN  (high = powered down, low = running)
+ *   PF14 -> SCCB SCL
+ *   PF15 -> SCCB SDA
+ *   DCMI data/VSYNC/HSYNC/PCLK wired on PA/PC/PD/PE/PG (see HAL_DCMI_MspInit)
+ * ------------------------------------------------------------------------- */
+#define DCMI_PWDN_Pin       GPIO_PIN_13
+#define DCMI_PWDN_GPIO_Port GPIOF
+#define SCCB_SCL_Pin        GPIO_PIN_14
+#define SCCB_SCL_GPIO_Port  GPIOF
+#define SCCB_SDA_Pin        GPIO_PIN_15
+#define SCCB_SDA_GPIO_Port  GPIOF
+
+#define DCMI_PWDN_OFF()  HAL_GPIO_WritePin(DCMI_PWDN_GPIO_Port, DCMI_PWDN_Pin, GPIO_PIN_RESET)
+#define DCMI_PWDN_ON()   HAL_GPIO_WritePin(DCMI_PWDN_GPIO_Port, DCMI_PWDN_Pin, GPIO_PIN_SET)
 
 /* ---------------------------------------------------------------------------
  * Convenience macros
