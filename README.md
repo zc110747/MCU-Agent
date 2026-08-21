@@ -116,10 +116,12 @@
 
 🚀 [009.基于zephyr系统实现lvgl显示功能](./009.stm32h743_zephyr/README.md)
 
-**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发 - 90%  
+**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持 - 90%  
 **个人参与**: 仿真环境、提示词、oled驱动、功能引导 - 10%
 
 ![image](./document/image/009-01.jpg)
+
+![image](./document/image/009-02.jpg)
 
 提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
 
