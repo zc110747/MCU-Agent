@@ -72,7 +72,9 @@ Testing/
 
 **/Drivers
 **/third_party
+**/zephyr
 
 **/Release/*
 **/Debug/*
 **/obj/*
+

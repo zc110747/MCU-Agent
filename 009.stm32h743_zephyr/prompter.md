@@ -47,13 +47,10 @@
 
 ## 验收标准
 
-1. 调试仿真，确定在OLED上显示界面符合预期
+1. 实机调试仿真，确定在OLED上显示界面符合预期
 
 ## 附件
 
 注意: 驱动是裸机版本，自行移植支持zephyr，RTOS已经支持直接使用即可
 drv_oled_fonts.cdrv_oled_fonts.hdrv_oled_text.cdrv_oled_text.hdisk_interface.cdisk_interface.hdrv_sdio.cdrv_sdio.hdrv_spi_oled.cdrv_spi_oled.h# 基于zephyr和lvgl实现OLED显示功能
 
-构建STM32平台的vscode项目，基于SD卡驱动、中文GBK字库、第三方库zephyr和lvgl实现OLED显示功能
-
-项目生成后直接构建，仿真，异常时使用st-link进行单步调试解决。

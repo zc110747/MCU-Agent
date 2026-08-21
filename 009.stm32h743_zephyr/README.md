@@ -86,7 +86,7 @@ stm32_zephyr/                # 工程根目录（west 应用即根目录）
 └── build/                   # 构建产物（west build -d build）
 ```
 
-`Drivers/`（HAL）与 `third_party/`（zephyr、hal_stm32、cmsis、fatfs、lvgl）
+`Drivers/`（HAL）与 `zephyr/`（zephyr、hal_stm32、cmsis、fatfs、lvgl 模块）
 由 Zephyr 模块体系提供；裸机驱动仅 `drv_oled_*` 与 `lv_port_font` 被保留并
 移植，显示 / SD 控制器改用 Zephyr 原生驱动（`st7789v` 显示、`sdmmc_stm32`
 磁盘、`FatFs`）。
@@ -124,7 +124,7 @@ LVGL 把 UTF-8 文本解码成 Unicode 码点后，对每个字符调用自定�
 ## 5. 构建环境
 
 依赖：`arm-none-eabi-gcc`（gnuarmemb）、`cmake`、`ninja`、`west`、Python。
-Zephyr 版本 3.7.0（见 `west.yml`，模块位于 `third_party/zephyr`）。
+Zephyr 版本 3.7.0（见 `west.yml`，zephyr 与模块位于工程根目录 `zephyr/`）。
 
 ```bash
 # 设置环境（每次新 shell 都需要）
@@ -142,10 +142,12 @@ python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .
 #   build/zephyr/zephyr.hex
 ```
 
-> 注：`CMakeLists.txt` 通过 `Zephyr_DIR`（由 west 注入的 `ZEPHYR_BASE` 推导）
-> 定位 `ZephyrConfig.cmake`。若在 MSYS2/Git Bash 下手动 export `ZEPHYR_BASE`，
-> 务必使用 Windows 路径（`D:/...`）而非 POSIX 路径（`/d/...`），否则原生
-> cmake 无法解析。调试文件使用相对/生成路径，不含本机绝对路径。
+> 注：`CMakeLists.txt` 通过 `Zephyr_DIR` 推导定位 `ZephyrConfig.cmake`；
+> `ZEPHYR_BASE` 优先取环境变量（west 自动注入），未设置时回退到工程内
+> `zephyr/zephyr`（因此直接 `cmake` 调用也可构建）。若在 MSYS2/Git Bash 下
+> 手动 export `ZEPHYR_BASE`，务必使用 Windows 路径（`D:/...`）而非 POSIX
+> 路径（`/d/...`），否则原生 cmake 无法解析。调试文件使用相对/生成路径，
+> 不含本机绝对路径。
 
 ---
 
@@ -233,7 +235,7 @@ openocd -s <openocd>/share/openocd/scripts \
   `mipi_dbi_spi_reset → -ENOTSUP → SWRESET(0x01)` 分支；上游仅延时 5 ms，
   远小于 ST7789 复位时间（~120 ms），导致复位未完成前发送的初始化命令
   （含 SLPOUT）被面板忽略、显示停留在 sleep-in。已 patch
-  `third_party/.../display_st7789v.c`：SWRESET 后 `k_sleep(K_MSEC(120))`
+  `zephyr/.../display_st7789v.c`：SWRESET 后 `k_sleep(K_MSEC(120))`
   （与裸机上电 10 ms 后直接配置对齐）。注意：patch 在 `west update` 后
   可能被覆盖，重装模块后需重新应用。
 - 字库文件（`.FON` / `UNIGBK.BIN`）需由用户按第 2 节放入 SD 卡；缺失时

@@ -10,7 +10,8 @@
 
 带着这些疑问，我使用了不算太强的Vibe Coding产品，完成本系列的项目。
 
-⚠️注意：**项目中使用的Drivers和third_party目录为重复且占用空间较大，因此打包保存为support_tools/env_support_for_stm32h743.zip中，解压将内部内容放置在项目中才能进行编译**  
+⚠️注意：**项目中使用的Drivers和third_party目录为重复且占用空间较大，因此打包保存为support_tools/env_support_for_stm32h743.zip中，解压后放在具体工程项目中即可使用**
+⚠️注意：**RTOS环境zephyr的支持占用也十分巨大，已经打包为support_tools/env_support_for_zephyr.zip，解压后放在具体工程项目中即可使用**
 ⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝**  
 
 ## 项目说明
@@ -29,6 +30,7 @@
 ✅ 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)  
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)
+✅ 009.基于zephyr系统实现lvgl显示功能
 
 ### 具体项目效果和提示词说明
 
@@ -107,11 +109,19 @@
 
 ![image](./document/image/008-05.jpg)
 
-
 提示词内容：[项目提示词](./008.stm32h743_lvgl_mos/prompter.md)
 
 **AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现 - 95%  
 **个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动 - 5%
+
+🚀 [009.基于zephyr系统实现lvgl显示功能](./009.stm32h743_zephyr/README.md)
+
+**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发 - 90%  
+**个人参与**: 仿真环境、提示词、oled驱动、功能引导 - 10%
+
+![image](./document/image/009-01.jpg)
+
+提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
 
 ## 开发经验总结
 

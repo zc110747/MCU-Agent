@@ -8,13 +8,13 @@ manifest:
     path: .
   projects:
     - name: zephyr
-      path: third_party/zephyr/zephyr
+      path: zephyr/zephyr
       west-commands: scripts/west-commands.yml
     - name: hal_stm32
-      path: third_party/zephyr/modules/hal/stm32
+      path: zephyr/modules/hal/stm32
     - name: cmsis
-      path: third_party/zephyr/modules/hal/cmsis
+      path: zephyr/modules/hal/cmsis
     - name: fatfs
-      path: third_party/zephyr/modules/fs/fatfs
+      path: zephyr/modules/fs/fatfs
     - name: lvgl
-      path: third_party/zephyr/modules/lib/gui/lvgl
+      path: zephyr/modules/lib/gui/lvgl

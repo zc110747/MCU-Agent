@@ -2,5 +2,5 @@
 path = .
 
 [zephyr]
-base = third_party/zephyr/zephyr
+base = zephyr/zephyr
 
