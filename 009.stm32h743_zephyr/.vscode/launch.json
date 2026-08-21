@@ -8,13 +8,11 @@
             "servertype": "openocd",
             "cwd": "${workspaceFolder}",
             "executable": "${workspaceFolder}/build/zephyr/zephyr.elf",
-            "serverpath": "D:/Software/openocd/bin/openocd.exe",
-            "searchDir": [
-                "D:/Software/openocd/share/openocd/scripts"
-            ],
+            "serverpath": "openocd.exe",
             "configFiles": [
-                "tools/openocd.cfg"
+                "${workspaceFolder}/tools/openocd.cfg"
             ],
+            "gdbPath": "arm-none-eabi-gdb",
             "runToEntryPoint": "main",
             "showDevDebugOutput": "raw",
             "preLaunchTask": "build",
@@ -30,15 +28,13 @@
             "servertype": "openocd",
             "cwd": "${workspaceFolder}",
             "executable": "${workspaceFolder}/build/zephyr/zephyr.elf",
-            "serverpath": "D:/Software/openocd/bin/openocd.exe",
-            "searchDir": [
-                "D:/Software/openocd/share/openocd/scripts"
-            ],
+            "serverpath": "openocd.exe",
             "configFiles": [
-                "tools/openocd.cfg"
+                "${workspaceFolder}/tools/openocd.cfg"
             ],
             "runToEntryPoint": "main",
             "showDevDebugOutput": "raw",
+            "gdbPath": "arm-none-eabi-gdb",
             "preLaunchTask": "build",
             "interface": "swd",
             "device": "STM32H743ZI",

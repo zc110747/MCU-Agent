@@ -13,8 +13,13 @@ cmake_minimum_required(VERSION 3.20.0)
 # ZEPHYR_BASE resolution order:
 #   1. explicit environment variable (west build sets it automatically)
 #   2. vendored tree at <project>/zephyr/zephyr
+#
+# Normalize to forward slashes: west injects a Windows path with backslashes
+# (E:\...\zephyr\zephyr) into ZEPHYR_BASE, and Zephyr's
+# zephyr_package_search.cmake passes it to cmake_parse_arguments(), which
+# rejects "\c" as an invalid escape.
 if(DEFINED ENV{ZEPHYR_BASE})
-  set(ZEPHYR_BASE "$ENV{ZEPHYR_BASE}")
+  string(REPLACE "\\" "/" ZEPHYR_BASE "$ENV{ZEPHYR_BASE}")
 else()
   set(ZEPHYR_BASE "${CMAKE_CURRENT_SOURCE_DIR}/zephyr/zephyr")
 endif()
