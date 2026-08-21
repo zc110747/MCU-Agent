@@ -18,7 +18,7 @@
     "cortex-debug.enableTelemetry": false,
 
     // Sources are UTF-8 on disk; the compiler transcodes literals to GBK.
-    "files.encoding": "utf8",
+    "files.autoGuessEncoding": true,
     "[c]": {
         "editor.tabSize": 4,
         "editor.insertSpaces": true
