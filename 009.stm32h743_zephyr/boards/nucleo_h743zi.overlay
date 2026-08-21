@@ -1,0 +1,128 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Devicetree overlay for the OLED + SD demo on STM32H743 (nucleo_h743zi board).
+ *
+ * OLED  : ST7789 240x240, driven over SPI6 (PG13 SCK / PG14 MOSI / PG8 NSS-CS)
+ *         DC = PG15, BackLight = PG12 (GPIO, turned on by the app).
+ * SD    : SDMMC1 4-bit (PC8..PC11 / PC12 CLK / PD2 CMD).
+ * UART  : USART1 (PA9 TX / PA10 RX) used as Zephyr console / debug serial.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/stm32-pinctrl.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+
+/ {
+    chosen {
+        zephyr,console = &usart1;
+        zephyr,shell-uart = &usart1;
+        zephyr,display = &DISPLAY;
+    };
+
+    /* OLED backlight (active-high GPIO on PG12) */
+    oled_bl: oled_bl {
+        compatible = "gpio-leds";
+        bl_0: bl_0 {
+            gpios = <&gpiog 12 GPIO_ACTIVE_HIGH>;
+            label = "OLED_BL";
+        };
+    };
+
+    /* MIPI-DBI SPI wrapper around SPI6; the ST7789 hangs off it as a child */
+    mipi_dbi_oled: mipi_dbi_oled {
+        compatible = "zephyr,mipi-dbi-spi";
+        spi-dev = <&spi6>;
+        dc-gpios = <&gpiog 15 GPIO_ACTIVE_HIGH>;
+        write-only;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        DISPLAY: st7789v@0 {
+            compatible = "sitronix,st7789v";
+            reg = <0>;
+            label = "DISPLAY";
+            width = <240>;
+            height = <240>;
+            x-offset = <0>;
+            y-offset = <0>;
+            vcom = <0x19>;
+            gctrl = <0x35>;
+            vrhs = <0x12>;
+            vdvs = <0x20>;
+            mdac = <0x00>;
+            gamma = <0x01>;
+            colmod = <0x05>;
+            lcm = <0x2c>;
+            porch-param = [0c 0c 00 33 33];
+            cmd2en-param = [5a 69 02 01];
+            pwctrl1-param = [a4 a1];
+            pvgam-param = [D0 04 0D 11 13 2B 3F 54 4C 18 0D 0B 1F 23];
+            nvgam-param = [D0 04 0C 11 13 2C 3F 44 51 2F 1F 1F 20 23];
+            ram-param = [00 F0];
+            rgb-param = [CD 08 14];
+            mipi-mode = <MIPI_DBI_MODE_SPI_4WIRE>;
+            mipi-max-frequency = <DT_FREQ_M(20)>;
+        };
+    };
+};
+
+&usart1 {
+    pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+&spi6 {
+    pinctrl-0 = <&spi6_sck_pg13 &spi6_mosi_pg14>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpiog 8 GPIO_ACTIVE_LOW>;
+    status = "okay";
+};
+
+&sdmmc1 {
+    pinctrl-0 = <&sdmmc1_d0_pc8 &sdmmc1_d1_pc9
+                 &sdmmc1_d2_pc10 &sdmmc1_d3_pc11
+                 &sdmmc1_ck_pc12 &sdmmc1_cmd_pd2>;
+    pinctrl-names = "default";
+    bus-width = <4>;
+    idma;
+    status = "okay";
+    /* Card-detect is board specific; the driver will poll if omitted. */
+};
+
+/* ---------------------------------------------------------------------------
+ * Clock tree: the target board uses a 25 MHz passive crystal, NOT the Nucleo's
+ * 8 MHz ST-Link bypass clock.  Drop hse-bypass (crystal oscillator mode) and
+ * re-derive the PLL reference divider so the VCO stays at 960 MHz and SYSCLK
+ * (div-p) remains 480 MHz — only the HSE/ref divider changes.
+ *   pll : 25 / 5 * 192 / 2 = 480 MHz
+ *   pll2: 25 / 5 * 48  / 3 =  80 MHz (FDCAN, unchanged)
+ * -------------------------------------------------------------------------*/
+&clk_hse {
+    /delete-property/ hse-bypass;
+    clock-frequency = <DT_FREQ_M(25)>;
+};
+
+&pll {
+    div-m = <5>;
+    mul-n = <192>;
+    div-q = <20>;   /* PLL1Q = 960/20 = 48 MHz: SDMMC kernel clock (driver
+                       requires exactly 48 MHz under CLOCK_CHECK). */
+};
+
+&pll2 {
+    div-m = <5>;
+    mul-n = <48>;
+};
+
+/* The target board's user LED is PG7 (Nucleo's green_led is PB0).  Override
+ * the board LED so the app heartbeat drives the real LED.  Must match the
+ * existing child *node name* (led_0); using the label would create a new
+ * child instead of overriding it. */
+&leds {
+    led_0 {
+        gpios = <&gpiog 7 GPIO_ACTIVE_HIGH>;
+    };
+};

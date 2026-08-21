@@ -1,0 +1,6 @@
+[manifest]
+path = .
+
+[zephyr]
+base = third_party/zephyr/zephyr
+

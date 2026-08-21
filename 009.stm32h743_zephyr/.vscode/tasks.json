@@ -1,0 +1,57 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "ZEPHYR_TOOLCHAIN_VARIANT": "gnuarmemb",
+                    "GNUARMEMB_TOOLCHAIN_PATH": "D:/Software/tools/arm-none-eabi",
+                    "PATH": "D:/Software/tools/arm-none-eabi/bin;D:/Software/openocd/bin;${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "python -m west build -t clean -d build",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "ZEPHYR_TOOLCHAIN_VARIANT": "gnuarmemb",
+                    "GNUARMEMB_TOOLCHAIN_PATH": "D:/Software/tools/arm-none-eabi",
+                    "PATH": "D:/Software/tools/arm-none-eabi/bin;D:/Software/openocd/bin;${env:PATH}"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "flash",
+            "type": "shell",
+            "command": "D:/Software/openocd/bin/openocd.exe -s D:/Software/openocd/share/openocd/scripts -f tools/openocd.cfg -c \"program build/zephyr/zephyr.elf verify reset exit\"",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "flash-openocd",
+            "type": "shell",
+            "command": "D:/Software/openocd/bin/openocd.exe -s D:/Software/openocd/share/openocd/scripts -f tools/openocd.cfg -c \"program build/zephyr/zephyr.elf verify reset exit\"",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "build",
+            "problemMatcher": []
+        }
+    ]
+}

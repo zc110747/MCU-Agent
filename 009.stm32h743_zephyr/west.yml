@@ -1,0 +1,20 @@
+manifest:
+  remotes:
+    - name: zephyr
+      url-base: https://github.com/zephyrproject-rtos
+  defaults:
+    remote: zephyr
+  self:
+    path: .
+  projects:
+    - name: zephyr
+      path: third_party/zephyr/zephyr
+      west-commands: scripts/west-commands.yml
+    - name: hal_stm32
+      path: third_party/zephyr/modules/hal/stm32
+    - name: cmsis
+      path: third_party/zephyr/modules/hal/cmsis
+    - name: fatfs
+      path: third_party/zephyr/modules/fs/fatfs
+    - name: lvgl
+      path: third_party/zephyr/modules/lib/gui/lvgl
