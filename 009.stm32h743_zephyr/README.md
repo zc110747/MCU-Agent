@@ -149,6 +149,27 @@ python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .
 > 路径（`/d/...`），否则原生 cmake 无法解析。调试文件使用相对/生成路径，
 > 不含本机绝对路径。
 
+### 5.1 串口 Shell（命令控制台）
+
+调试串口（USART1 PA9/PA10，115200 8N1）同时是 Zephyr **Shell** 控制台
+（`CONFIG_SHELL=y`，后端绑定 dts `zephyr,shell-uart` chosen 节点）。启动后
+直接键入命令即可，支持 Tab 补全、上下键历史：
+
+| 命令 | 说明 |
+|---|---|
+| `help` | 列出全部命令（含下列自定义命令） |
+| `sys` | Zephyr/LVGL 版本、运行时间、主频、主栈大小 |
+| `font` | SD 卡 GBK 字库文件状态（UNIGBK.BIN + GBK12/16/24/32.FON） |
+| `lvmem` | LVGL 内部堆统计（total/free/biggest/used%/frag%） |
+| `echo <args>` | 参数解析示例（可移植模板） |
+| `kernel uptime` / `kernel threads` | Zephyr 内置：运行时间 / 线程列表 |
+| `device` | Zephyr 内置：设备树设备列表 |
+| `clear` / `history` | 清屏 / 命令历史 |
+
+自定义命令实现在 `app/shell_cmds.c`（纯 Zephyr shell API，`SHELL_CMD_REGISTER`
+注册，可整文件拷贝到任何 Zephyr 工程复用）。提示符在 `app/main.c` 中通过
+`shell_prompt_change()` 设为 `h743> `（需 `CONFIG_SHELL_PROMPT_CHANGE=y`）。
+
 ---
 
 ## 6. 下载与调试

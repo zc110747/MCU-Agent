@@ -22,12 +22,19 @@
 #include <zephyr/drivers/led.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/version.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/shell/shell_uart.h>
 #include <stdio.h>
 #include <lvgl.h>
 
 #include "drv_oled_text.h"
 #include "lv_port_font.h"
 #include "ui.h"
+
+/* LVGL heap lock owned by the stress tests (app/stress.c).  While a stress
+ * command holds it, the UI renderer below skips lv_timer_handler() so the
+ * LVGL heap is never touched from two threads at once. */
+extern struct k_sem g_lvgl_sem;
 
 /* LVGL display pump period. */
 #define LVGL_TICK_MS 5
@@ -70,6 +77,17 @@ int main(void)
         }
     }
 
+    /* 1c. Custom shell prompt (serial console is up by the time main runs;
+     * requires CONFIG_SHELL_PROMPT_CHANGE=y). */
+    {
+        const struct shell *sh = shell_backend_uart_get_ptr();
+
+        if (sh != NULL)
+        {
+            (void)shell_prompt_change(sh, "h743> ");
+        }
+    }
+
     /* 2. Mount SD + open font files. */
     if (lcd_driver_font_init() == RT_OK)
     {
@@ -105,7 +123,12 @@ int main(void)
     {
         uint32_t now = k_uptime_get_32();
 
-        lv_timer_handler();
+        /* Render only when no stress test owns the LVGL heap lock. */
+        if (k_sem_take(&g_lvgl_sem, K_NO_WAIT) == 0)
+        {
+            lv_timer_handler();
+            k_sem_give(&g_lvgl_sem);
+        }
 
         /* Heartbeat LED toggles every HEARTBEAT_MS. */
         if (device_is_ready(led_dev) && (now - last_hb) >= HEARTBEAT_MS)

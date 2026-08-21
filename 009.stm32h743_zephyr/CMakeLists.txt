@@ -30,6 +30,8 @@ project(zephyr_oled_lvgl)
 target_sources(app PRIVATE
     app/main.c
     app/ui.c
+    app/shell_cmds.c
+    app/stress.c
     bsp/drv_oled_text.c
     bsp/lv_port_font.c
     bsp/ascii_1608_table.c
