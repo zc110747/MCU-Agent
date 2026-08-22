@@ -18,9 +18,12 @@
 typedef int (*web_send_fn)(void *ctx, const void *data, int len);
 
 /* Handle one HTTP request. req/reqlen is the raw request text (start line
- * + headers + optional body). send/sctx carry the response out. */
+ * + headers + optional body). send/sctx carry the response out.
+ * keepalive != 0 uses "Connection: keep-alive" (so the transport can reuse
+ * the same connection for the next request); keepalive == 0 keeps the
+ * original "Connection: close" behaviour. */
 void web_serve(struct netconn *conn, web_send_fn send, void *sctx,
-               const char *req, int reqlen);
+               const char *req, int reqlen, int keepalive);
 
 /* I2C bus is shared by AP3216C/MPU9250 (and PCF8574); protect sensor reads
  * between the httpd and httpsd tasks. */

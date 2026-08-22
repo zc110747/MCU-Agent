@@ -171,7 +171,7 @@ static void http_server_thread(void *arg)
 
     if (reqlen > 0)
     {
-      web_serve(newconn, http_send, newconn, req, reqlen);
+      web_serve(newconn, http_send, newconn, req, reqlen, 0);
     }
 
     /* Graceful close: send FIN, then drain until the peer closes (or a

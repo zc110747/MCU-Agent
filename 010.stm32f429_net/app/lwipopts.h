@@ -123,7 +123,7 @@
 #define MEMP_NUM_ARP_QUEUE          10
 #define MEMP_NUM_SYS_TIMEOUT        24
 #define MEMP_NUM_NETBUF             8
-#define MEMP_NUM_NETCONN            8
+#define MEMP_NUM_NETCONN            12
 #define MEMP_NUM_TCPIP_MSG_API      8
 #define MEMP_NUM_TCPIP_MSG_INPKT    8
 
@@ -170,7 +170,7 @@
 /* PBUF */
 #define PBUF_LINK_HLEN              14
 #define PBUF_POOL_BUFSIZE          256
-#define PBUF_POOL_SIZE             64
+#define PBUF_POOL_SIZE             96
 #define ETH_PAD_SIZE               0
 
 /* ------------------------------------------------------------------ */

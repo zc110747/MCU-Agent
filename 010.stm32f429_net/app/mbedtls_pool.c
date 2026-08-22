@@ -10,8 +10,7 @@
   ******************************************************************************
   */
 #include <stdint.h>
-
-#define MBEDTLS_POOL_SIZE (32u * 1024u)
+#include "mbedtls_pool.h"
 
 uint8_t mbedtls_heap[MBEDTLS_POOL_SIZE]
   __attribute__((section(".mbedtls_pool"), aligned(8)));

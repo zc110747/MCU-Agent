@@ -51,12 +51,24 @@ static void fmt1(char *out, float v)
     sprintf(out, "%d.%d", i, f);
 }
 
-static void send_json(web_send_fn send, void *sctx, const char *json, int len)
+static void send_json(web_send_fn send, void *sctx, const char *json, int len,
+                       int keepalive)
 {
-  char hdr[96];
-  int n = snprintf(hdr, sizeof(hdr),
-                   "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                   "Content-Length: %d\r\nConnection: close\r\n\r\n", len);
+  char hdr[160];
+  int n;
+  if (keepalive)
+  {
+    n = snprintf(hdr, sizeof(hdr),
+                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                 "Content-Length: %d\r\nConnection: keep-alive\r\n"
+                 "Keep-Alive: timeout=60\r\n\r\n", len);
+  }
+  else
+  {
+    n = snprintf(hdr, sizeof(hdr),
+                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                 "Content-Length: %d\r\nConnection: close\r\n\r\n", len);
+  }
   send(sctx, hdr, n);
   send(sctx, json, len);
 }
@@ -65,7 +77,7 @@ static void send_json(web_send_fn send, void *sctx, const char *json, int len)
 /* API handlers                                                       */
 /* ------------------------------------------------------------------ */
 
-static void api_hardware(web_send_fn send, void *sctx)
+static void api_hardware(web_send_fn send, void *sctx, int keepalive)
 {
   hwinfo_static_t  sta;
   hwinfo_dynamic_t dyn;
@@ -94,16 +106,16 @@ static void api_hardware(web_send_fn send, void *sctx)
     f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8],
     (unsigned)dyn.led_on, (unsigned)dyn.beep_on);
 
-  send_json(send, sctx, j, n);
+  send_json(send, sctx, j, n, keepalive);
 }
 
-static void api_network_get(web_send_fn send, void *sctx)
+static void api_network_get(web_send_fn send, void *sctx, int keepalive)
 {
   char j[256];
   int n = snprintf(j, sizeof(j),
     "{\"ip\":\"%s\",\"mask\":\"%s\",\"gw\":\"%s\",\"mac\":\"%s\"}",
     g_netcfg.ip, g_netcfg.mask, g_netcfg.gw, g_netcfg.mac);
-  send_json(send, sctx, j, n);
+  send_json(send, sctx, j, n, keepalive);
 }
 
 /* extract "key":value; the key must be a complete JSON token (preceded by
@@ -153,7 +165,7 @@ static int json_get_str(const char *body, const char *key, char *out, int maxlen
   return 1;
 }
 
-static void api_control(const char *body, web_send_fn send, void *sctx)
+static void api_control(const char *body, web_send_fn send, void *sctx, int keepalive)
 {
   int v;
   if (json_get_int(body, "led", &v))
@@ -165,7 +177,7 @@ static void api_control(const char *body, web_send_fn send, void *sctx)
   {
     hwinfo_set_beep((uint8_t)(v ? 1 : 0));
   }
-  send_json(send, sctx, "{\"ok\":true}", 11);
+  send_json(send, sctx, "{\"ok\":true}", 11, keepalive);
 }
 
 static void api_network_set(const char *body, web_send_fn send, void *sctx)
@@ -197,12 +209,12 @@ static void api_network_set(const char *body, web_send_fn send, void *sctx)
    * (netif is configured once at boot from g_netcfg, and MAC via netconn). */
   netcfg_save(&g_netcfg);
 
-  send_json(send, sctx, "{\"ok\":true,\"apply\":\"reboot\"}", 27);
+  send_json(send, sctx, "{\"ok\":true,\"apply\":\"reboot\"}", 27, 0);
 }
 
 static void api_reset(web_send_fn send, void *sctx)
 {
-  send_json(send, sctx, "{\"ok\":true}", 11);
+  send_json(send, sctx, "{\"ok\":true}", 11, 0);   /* force close: we reboot */
   vTaskDelay(pdMS_TO_TICKS(100));      /* let the response flush */
   NVIC_SystemReset();
 }
@@ -212,9 +224,9 @@ static void api_reset(web_send_fn send, void *sctx)
 /* ------------------------------------------------------------------ */
 
 /* Serve a built-in asset by URL path. Returns 1 if sent, 0 if not found. */
-static int send_asset(web_send_fn send, void *sctx, const char *url)
+static int send_asset(web_send_fn send, void *sctx, const char *url, int keepalive)
 {
-  char hdr[128];
+  char hdr[160];
   int n;
 
   for (int i = 0; i < web_assets_count; i++)
@@ -224,10 +236,21 @@ static int send_asset(web_send_fn send, void *sctx, const char *url)
     {
       continue;
     }
-    n = snprintf(hdr, sizeof(hdr),
-                 "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
-                 "Content-Length: %u\r\nConnection: close\r\n\r\n",
-                 a->ctype, (unsigned)a->len);
+    if (keepalive)
+    {
+      n = snprintf(hdr, sizeof(hdr),
+                   "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+                   "Content-Length: %u\r\nConnection: keep-alive\r\n"
+                   "Keep-Alive: timeout=60\r\n\r\n",
+                   a->ctype, (unsigned)a->len);
+    }
+    else
+    {
+      n = snprintf(hdr, sizeof(hdr),
+                   "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+                   "Content-Length: %u\r\nConnection: close\r\n\r\n",
+                   a->ctype, (unsigned)a->len);
+    }
     send(sctx, hdr, n);
     send(sctx, (const char *)a->data, (int)a->len);
     return 1;
@@ -240,7 +263,7 @@ static int send_asset(web_send_fn send, void *sctx, const char *url)
 /* ------------------------------------------------------------------ */
 
 void web_serve(struct netconn *conn, web_send_fn send, void *sctx,
-               const char *req, int reqlen)
+               const char *req, int reqlen, int keepalive)
 {
   char method[8], path[192], body[512];
   const char *p, *e;
@@ -294,18 +317,18 @@ void web_serve(struct netconn *conn, web_send_fn send, void *sctx,
   {
     if (strcmp(path, "/api/hardware") == 0)
     {
-      api_hardware(send, sctx);
+      api_hardware(send, sctx, keepalive);
     }
     else if (strcmp(path, "/api/network") == 0)
     {
       if (strncmp(method, "POST", 4) == 0)
         api_network_set(body, send, sctx);
       else
-        api_network_get(send, sctx);
+        api_network_get(send, sctx, keepalive);
     }
     else if (strcmp(path, "/api/control") == 0)
     {
-      api_control(body, send, sctx);
+      api_control(body, send, sctx, keepalive);
     }
     else if (strcmp(path, "/api/reset") == 0)
     {
@@ -313,7 +336,7 @@ void web_serve(struct netconn *conn, web_send_fn send, void *sctx,
     }
     else
     {
-      send_json(send, sctx, "{\"error\":\"unknown\"}", 18);
+      send_json(send, sctx, "{\"error\":\"unknown\"}", 18, keepalive);
     }
     return;
   }
@@ -326,18 +349,30 @@ void web_serve(struct netconn *conn, web_send_fn send, void *sctx,
       url = "/index.html";
     }
 
-    if (send_asset(send, sctx, url))
+    if (send_asset(send, sctx, url, keepalive))
     {
       return;
     }
 
     /* fallback: built-in flash page */
     {
-      char hdr[128];
-      int n = snprintf(hdr, sizeof(hdr),
-                       "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
-                       "Content-Length: %u\r\nConnection: close\r\n\r\n",
-                       (unsigned)strlen(HTTP_PAGE));
+      char hdr[160];
+      int n;
+      if (keepalive)
+      {
+        n = snprintf(hdr, sizeof(hdr),
+                     "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
+                     "Content-Length: %u\r\nConnection: keep-alive\r\n"
+                     "Keep-Alive: timeout=60\r\n\r\n",
+                     (unsigned)strlen(HTTP_PAGE));
+      }
+      else
+      {
+        n = snprintf(hdr, sizeof(hdr),
+                     "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
+                     "Content-Length: %u\r\nConnection: close\r\n\r\n",
+                     (unsigned)strlen(HTTP_PAGE));
+      }
       send(sctx, hdr, n);
       send(sctx, HTTP_PAGE, (int)strlen(HTTP_PAGE));
     }
