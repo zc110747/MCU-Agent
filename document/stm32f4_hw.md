@@ -1,0 +1,47 @@
+# STM32F429IGT6 硬件配置
+
+## 系统
+
+- MCU: STM32F429IGT6
+- HSE: 25MHz (无源晶振)
+- LSE: 32.768kHz (无源晶振)
+
+## 外设配置
+
+### LED (GPIO)
+
+- LED0: PB1, 输出, 低电平点亮, 推挽, 上拉
+- LED1: PB0, 输出, 低电平点亮, 推挽, 上拉
+
+### USART
+
+- USART1_RX：PA10
+- USART1_TX：PA9
+
+### SDMMC (SD卡, 4-bit模式)
+
+- SDIO_SCK: PC12
+- SDIO_CMD: PD2
+- SDIO_D0: PC8
+- SDIO_D1: PC9
+- SDIO_D2: PC10
+- SDIO_D3: PC11
+
+### ETH(lan8720A，地址0，RMII接口)
+
+- ETH_MDC: PC1
+- ETH_RXD0: PC4
+- ETH_RXD1：PC5
+- ETH_REF_CLK: PA1
+- ETH_MDIO: PA2
+- ETH_CRS_DV: PA7
+- ETH_TX_EN: PB11
+- ETH_TXD0: PG13
+- ETH_TXD1: PG14
+- ETH_RESET: 对应i2c扩展芯片pcf8574T的P7，高电平正常工作
+
+### I2C(PCF8574T)
+
+- I2C_SDA：PH5
+- I2C_SCL: PH4
+- 扩展I/O P7：ETH_RESET，通过三极管控制，输出1时ETH_RESET为0，输出0时，ETH_RESET为1
