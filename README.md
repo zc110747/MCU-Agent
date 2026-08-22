@@ -34,6 +34,8 @@
 
 ### 具体项目效果和提示词说明
 
+#### 基于tinyusb实现USB混合设备(CDC+MSC)
+
 🚀 [001.基于tinyusb实现USB混合设备(CDC+MSC)](./001.stm32h743_tinyusb_cdc_msc/README.md)
 
 ![image](./document/image/001-01.jpg)
@@ -43,7 +45,15 @@
 **AI开发**：项目框架、tinyusb移植、复合设备 - 95%  
 **个人参与**: 仿真环境、提示词 - 5%  
 
-🚀 [002.基于tinyusb实现UVC摄像头(基于ov5640)](./002.stm32h743_tinyusb_uvc_ov5640/README.md)
+工作量：
+
+1. 实现USB底层驱动
+2. 移植tinyusb库，实现CDC、MSC应用
+3. 实现混合设备，完善相关接口
+
+#### 基于tinyusb实现UVC摄像头(ov5640)
+
+🚀 [002.基于tinyusb实现UVC摄像头(ov5640)](./002.stm32h743_tinyusb_uvc_ov5640/README.md)
 
 ![image](./document/image/002-01.jpg)
 
@@ -51,6 +61,14 @@
 
 **AI开发**：项目框架、tinyusb移植、UVC驱动实现 - 70%  
 **个人参与**: 仿真环境、提示词、OV5640驱动 - 30%  
+
+工作量：
+
+1. 集成ov5640驱动
+2. 移植tinyusb库，实现UVC应用
+3. 摄像头采集实现多缓冲机制，通过usb接口提交
+
+#### 使用lvgl实现oled显示(支持通过sd卡使用中文字库)
 
 🚀 [003.使用lvgl实现oled显示(支持通过sd卡使用中文字库)](./003.stm32h743_lvgl_oled/README.md)
 
@@ -61,6 +79,14 @@
 **AI开发**：项目框架、lvgl移植、sd卡/fatfs移植 - 90%  
 **个人参与**: 仿真环境、提示词、OLED驱动 - 10%  
 
+工作量：
+
+1. 实现sd卡驱动、fatfs移植、中文字库支持
+2. 移植lvgl，实现和sd卡字库联动
+3. 实现lvgl界面，包含中文显示
+
+#### 基于SD卡和OLED实现图片轮播功能
+
 🚀 [004.基于SD卡和OLED实现图片轮播功能](./004.stm32h743_sd_oled_img/README.md)
 
 ![image](./document/image/004-01.jpg)
@@ -70,7 +96,15 @@
 **AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持 - 90%  
 **个人参与**: 仿真环境、提示词、OLED驱动 - 10%
 
-🚀 [005.实现基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)](./005.stm32h743_person_detect/README.md)
+工作量：
+
+1. 实现sd卡驱动、fatfs移植、图片读取
+2. 移植jpg解析库，获得图像数据
+3. 将图像数据显示到界面上
+
+#### 基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)
+
+🚀 [005.基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)](./005.stm32h743_person_detect/README.md)
 
 ![image](./document/image/005-01.jpg)
 
@@ -79,7 +113,15 @@
 **AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示 - 95%  
 **个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动 - 5%
 
-🚀 [006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)](./006.stm32h743_face_detect/README.md)
+工作量：
+
+1. 集成ov5640驱动、oled驱动
+2. 移植CMSIS-NN框架支持，并获取人检测模型
+3. 多缓冲图像采集，经过模型框架处理，将整合数据输入到屏幕上
+
+#### 基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)
+
+🚀 [006.基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)](./006.stm32h743_face_detect/README.md)
 
 ![image](./document/image/006-01.jpg)
 
@@ -87,6 +129,14 @@
 
 **AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示 - 95%  
 **个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动 - 5%
+
+工作量：
+
+1. 集成ov5640驱动、oled驱动
+2. 移植CMSIS-NN框架支持，并在本地通过python训练人脸检测模型
+3. 多缓冲图像采集，经过模型框架处理，将整合数据输入到屏幕上
+
+#### 基于tinyusb实现CMSIS-DAP协议的调试器
 
 🚀 [007.基于tinyusb实现CMSIS-DAP协议的调试器](./007.stm32h743_cmsis_dap/README.md)
 
@@ -97,7 +147,15 @@
 **AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持 - 60%  
 **个人参与**: 仿真环境、提示词、jtag/swd接口处理(找到arm官方例程) - 40%
 
-🚀 [008.基于lvgl实现有菜单的综合应用(nes模拟器、图片查看、文本阅读器)](./008.stm32h743_lvgl_mos/README.md)
+工作量：
+
+1. tinyusb移植
+2. cmsis-dap协议移植支持
+3. 整合jtap/swd操作时序，实现完整功能并测试
+
+#### 基于lvgl实现的智能手表应用(nes模拟器、图片查看、文本阅读器)
+
+🚀 [008.基于lvgl实现的智能手表应用(nes模拟器、图片查看、文本阅读器)](./008.stm32h743_lvgl_mos/README.md)
 
 ![image](./document/image/008-01.jpg)
 
@@ -114,7 +172,18 @@
 **AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现 - 95%  
 **个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动 - 5%
 
-🚀 [009.基于zephyr系统实现lvgl显示功能](./009.stm32h743_zephyr/README.md)
+工作量：
+
+1. ov5640、oled、usb、sd卡底层驱动
+2. lvgl ui功能移植
+3. nes模拟器功能，上位机虚拟键盘
+4. 相机功能，摄像头多缓冲、oled显示
+5. 图片查看器，sd卡读取、解析图片
+6. 文本查看器，sd卡读取、字库解析，文本显示
+
+#### 基于zephyr实现lvgl功能界面
+
+🚀 [009.基于zephyr实现lvgl界面](./009.stm32h743_zephyr/README.md)
 
 **AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持 - 90%  
 **个人参与**: 仿真环境、提示词、oled驱动、功能引导 - 10%
