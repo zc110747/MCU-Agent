@@ -67,6 +67,8 @@
 
 ### EPPROM(24C02)
 
+地址：0x50
+
 - I2C_SDA：PH5
 - I2C_SCL: PH4
 

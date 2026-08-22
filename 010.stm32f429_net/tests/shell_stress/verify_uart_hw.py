@@ -162,6 +162,53 @@ def main():
     r = drain(ser, 0.8)
     check("overlong line (80) no crash + recover", "Commands:" in r, r[:40].replace("\n", " "))
 
+    # ---- net 指令组 (EEPROM 持久化, 重启生效) ----
+    # 显示当前 (pending) 值
+    send_line(ser, "net")
+    r = drain(ser)
+    check("net shows pending IP", "192.168.10.99" in r, "")
+    check("net shows 'applied after reboot' hint", "reboot" in r.lower(), "")
+
+    # 合法 ip -> "OK: saved"
+    send_line(ser, "net ip 192.168.10.55")
+    r = drain(ser)
+    check("net ip valid -> saved", "OK: saved" in r, r[:50].replace("\n", " "))
+    # 非法 ip -> 错误
+    send_line(ser, "net ip 999.1.1.1")
+    r = drain(ser)
+    check("net ip invalid (999.x) -> error", "ERR" in r, r[:50].replace("\n", " "))
+
+    # 合法 mask
+    send_line(ser, "net mask 255.255.255.0")
+    r = drain(ser)
+    check("net mask valid -> saved", "OK: saved" in r, "")
+    # 非法 mask (非连续)
+    send_line(ser, "net mask 255.0.255.0")
+    r = drain(ser)
+    check("net mask invalid (non-contiguous) -> error", "ERR" in r, r[:50].replace("\n", " "))
+
+    # 合法 gw
+    send_line(ser, "net gw 192.168.10.1")
+    r = drain(ser)
+    check("net gw valid -> saved", "OK: saved" in r, "")
+
+    # 合法 mac
+    send_line(ser, "net mac 22:11:22:00:22:11")
+    r = drain(ser)
+    check("net mac valid -> saved", "OK: saved" in r, "")
+    # mac random
+    send_line(ser, "net mac random")
+    r = drain(ser)
+    check("net mac random -> saved", "OK: saved" in r, r[:50].replace("\n", " "))
+    # 非法 mac
+    send_line(ser, "net mac ZZ:11:22:00:22:11")
+    r = drain(ser)
+    check("net mac invalid (ZZ) -> error", "ERR" in r, r[:50].replace("\n", " "))
+
+    # 恢复默认 IP, 避免真机网络被改导致后续 ping 不通
+    send_line(ser, "net ip 192.168.10.99")
+    drain(ser)
+
     ser.close()
 
     print("\n=== 真机串口验证汇总 ===")

@@ -80,7 +80,9 @@ int main(void)
   BSP_ETH_PHY_Reset();
   PRINT_LOG("ETH PHY (LAN8720) released from reset.\r\n");
 
-  /* Runtime netcfg defaults (in-RAM only; no SD persistence) */
+  /* Load network config from EEPROM (defaults first, then persisted block).
+   * netcfg_load() runs here, before MX_LWIP_Init()/hwinfo_init() so the
+   * booted netif and shared hardware info use the stored (or default) values. */
   web_serve_init();
 
   /* Sensors on I2C2 (AP3216C light/proximity + MPU9250 9-axis) */
@@ -112,7 +114,7 @@ int main(void)
    * scheduler starts. */
   hwinfo_init();
 
-  PRINT_LOG("FreeRTOS scheduler starting... (IP 192.168.10.99)\r\n");
+  PRINT_LOG("FreeRTOS scheduler starting... (IP %s)\r\n", g_netcfg.ip);
 
   /* Create the LED heartbeat task, then start the scheduler */
   xTaskCreate(led_task, "led", 128, NULL, tskIDLE_PRIORITY + 1, NULL);

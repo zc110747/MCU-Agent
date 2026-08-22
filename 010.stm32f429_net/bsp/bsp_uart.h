@@ -33,6 +33,13 @@ int  uart_write(const uint8_t *data, int len);
   */
 int  uart_getc(uint8_t *c);
 
+/**
+  * @brief  Block until the TX ring is fully drained by the USART1 ISR
+  *         (transmitter idle). Use before a reset/reboot so the last message
+  *         reaches the wire. Safe before the scheduler is up (spins).
+  */
+void uart_flush(void);
+
 /* USART1 interrupt service routine (defined in bsp_uart.c) forwards to this. */
 void BSP_UART_IRQHandler(void);
 

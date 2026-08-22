@@ -1,5 +1,6 @@
 #include "bsp_uart.h"
 #include "FreeRTOS.h"
+#include "task.h"
 #include "queue.h"
 #include <string.h>
 
@@ -125,6 +126,20 @@ int uart_getc(uint8_t *c)
   if (s_rx_queue == NULL) return 0;
   /* Non-blocking: timeout 0 returns immediately if the queue is empty. */
   return (xQueueReceive(s_rx_queue, c, 0) == pdTRUE) ? 1 : 0;
+}
+
+/* Block until the TX ring is fully drained by the USART1 ISR (transmitter
+ * idle). Used before a reset/reboot so the last message reaches the wire.
+ * Safe before the scheduler is up (just spins on the ring state). */
+void uart_flush(void)
+{
+  /* Wait until no bytes are pending and the transmitter has gone idle. */
+  while (g_tx_busy != 0 || g_tx_head != g_tx_tail)
+  {
+    /* If the scheduler is running, let the ISR make progress. */
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+      vTaskDelay(pdMS_TO_TICKS(1));
+  }
 }
 
 /* Real USART1 vector: overrides the weak Default_Handler in startup_stm32f429xx.s.

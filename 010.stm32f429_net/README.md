@@ -14,7 +14,8 @@
 | PHY | LAN8720A (RMII, addr 0)，复位由 PCF8574T(I2C 0x20) P7 控制 |
 | 串口 | USART1 PA9/PA10 @115200 (COM3) |
 | LED | PB0/PB1 低电平点亮 |
-| IP | 192.168.10.99 / 255.255.255.0 / GW 192.168.10.1 |
+| EEPROM | AT24C02 (I2C2 PH4/PH5, 器件地址 0xA0)，存网络参数 |
+| IP | 192.168.10.99 / 255.255.255.0 / GW 192.168.10.1（默认值，EEPROM 可改） |
 
 ## 软件架构
 
@@ -37,7 +38,7 @@
 │  ETH RX 零拷贝缓冲 (SRAM, DMA 可达)                                    │
 ├──────────────────────────────────────────────────────────────────────┤
 │ 外设 / 驱动层 (bsp/)                                                   │
-│  USART1+IRQ  ETH RMII(LAN8720)  FMC SDRAM  I2C(PCF8574)  AP3216/MPU9250│
+│  USART1+IRQ  ETH RMII(LAN8720)  FMC SDRAM  I2C2(PCF8574+24C02)  AP3216/MPU9250│
 └──────────────────────────────────────────────────────────────────────┘
         ↑ 工具链: arm-none-eabi-gcc + CMake + Ninja + OpenOCD + ST-Link
 ```
@@ -184,8 +185,8 @@ Montgomery ladder，实测握手 1.07s，比 NIST 优化的 P-256（0.79s）慢 
 | 端点 | 方法 | 说明 |
 |---|---|---|
 | `/api/hardware` | GET | MCU/时钟/AP3216C(lux,ps,ir)/MPU9250(9轴)/LED/BEEP |
-| `/api/network` | GET | ip/mask/gw/mac |
-| `/api/network` | POST | 修改 ip/mask/gw/mac → 写 SD `netcfg.ini`，IP 立即生效（netif_set_addr），MAC 复位后生效 |
+| `/api/network` | GET | ip/mask/gw/mac（当前待生效值，EEPROM 中持久化） |
+| `/api/network` | POST | 修改 ip/mask/gw/mac → 写 EEPROM，校验 head+crc16，**重启后生效**（响应 `{"ok":true,"apply":"reboot"}`） |
 | `/api/control` | POST | `{"led":0\|1}` / `{"beep":0\|1}` |
 | `/api/reset` | POST | 复位设备 |
 
@@ -308,7 +309,7 @@ typedef struct {
 |---|---|
 | `hw` | FreeRTOS 任务数、芯片型号(STM32F429IGT6)、时钟(180MHz) |
 | `dev` | 硬件设备信息（`hwinfo_dynamic_copy`：AP3216C lux/ps/ir、MPU9250 9 轴、led/beep 状态、sensor_valid） |
-| `net` | 网络信息（IP/MASK/GW/MAC，取自 `g_netcfg`） |
+| `net` | 无参数显示待生效网络参数；`net ip <a.b.c.d>` / `net mask <掩码>` / `net gw <a.b.c.d>` / `net mac <XX:XX:XX:XX:XX:XX>` 或 `net mac random` 修改并写入 EEPROM（重启生效）。格式不合规打印 `ERR: ...` |
 | `version` | 固件版本（`v1.0.0` + 编译日期时间） |
 | `beep on\|off` | 控制实际硬件（`hwinfo_set_beep`） |
 | `led on\|off` | 控制实际硬件（`hwinfo_set_led`，控制 PB0 非心跳灯） |
@@ -356,6 +357,20 @@ typedef struct {
     若追求极致体积，可改用定点整数显示（×100）避免该符号。
   - **方向键（ESC[A/B/C/D）静默丢弃**：终端方向键发出 `ESC [ A/B/C/D`，`shell_task` 用
     `esc_state` 状态机识别整串后直接丢弃（不回显、不存入 line buffer），避免光标键污染命令行。
+  - **EEPROM(AT24C02) 网络参数持久化，重启生效**：
+    - 驱动 `bsp/bsp_eeprom_24c02.c` 基于 I2C2（PH4/PH5，器件地址 7 位 0x50 / 写 0xA0），实现随机读
+      `EEPROM24_Read` 与页写 `EEPROM24_Write`（8 字节/页，写后 5ms 延时；HAL `Mem_Read/Write` 自动处理地址）。
+    - 块布局（EEPROM 地址 0 起，共 **69 字节**，24C02 容量 256B 富余）：
+      `[head=0xAA][ip 16][mask 16][gw 16][mac 18][crc16(2)]`。CRC16-CCITT（poly 0x1021, init 0xFFFF）
+      覆盖 `[head..mac]` 全部数据区（`netcfg_crc16`）。
+    - 加载顺序：`main()` 在 `BSP_I2C_Init()`（释放 PHY 复位）之后调 `web_serve_init()`，其内部先
+      `netcfg_init_defaults()` 填默认，再 `netcfg_load()` 读 EEPROM：head≠0xAA 或 CRC16 失配则回退默认。
+      随后 `MX_LWIP_Init()` / `hwinfo_init()` 使用的就是 EEPROM（或默认）值。
+    - **不立即生效**：`net` 指令与网页 POST `/api/network` 只更新 `g_netcfg` RAM + 写 EEPROM，
+      **不调 `netif_set_addr`**，重启后 netif 才用新值。前端用 JS RegExp 校验、固件用 `valid_ip/
+      valid_mask/valid_mac` 校验，不合规拒绝写入。
+    - **校验测试**：`tests/verify_netcfg_block.py`（Python 复刻 CRC16+布局）9/9 PASS；真机 `net`
+      指令端到端用例已加入 `tests/shell_stress/verify_uart_hw.py`（待 COM3 端口释放后复跑）。
 - **`heap_4.c:269` 断言根因 = SDRAM 晚于 FreeRTOS 对象创建**：本工程 FreeRTOS heap(ucHeap)
   在 SDRAM，任何 `xTaskCreate`/`xSemaphoreCreate*` 都从 ucHeap 分配。原 `main()` 在
   `bsp_sdram_init()` **之前**就调 `BSP_UART_Init()`(建 mutex) 与 `shell_init()`(建任务)，
@@ -424,14 +439,14 @@ Python pyserial（`tests/shell_stress/verify_uart_hw.py`，COM3 @115200）模拟
 - AP3216C：I2C2 (PH4/PH5)，0x1E（`bsp/bsp_ap3216.c`）
 - MPU9250：I2C2，0x68（`bsp/bsp_mpu9250.c`，AK8963 磁力计经 I2C master）
 - LED：PB0/PB1 低电平点亮。**网页 `/api/control` 控制的 LED 是 LED1/PB0（非心跳）**；PB1 是心跳灯（500ms 闪烁，由 `led_task` 驱动，不受网页控制）。BEEP：PCF8574 **P0** 低电平发声（P0=L→蜂鸣器导通；`bsp_pcf8574.c`）
-- 网络参数：运行时内存配置（`app/netcfg.c`，`netcfg_save` 为接口占位，当前不写外部存储）
+- 网络参数：EEPROM(AT24C02) 持久化（`app/netcfg.c` + `bsp/bsp_eeprom_24c02.c`）。块布局：`[head=0xAA][ip][mask][gw][mac][crc16]`，共 69 字节；CRC16-CCITT(0x1021,init 0xFFFF) 覆盖全部数据区。启动 `web_serve_init()` 先填默认再从 EEPROM `netcfg_load()`，校验失败回退默认值。修改经 `net` 指令 / 网页写入，重启生效。
 
 ### 已知待办
 
 - MPU9250 磁力计当前读出为 0（加速度/陀螺仪正常）：AK8963 经 I2C master
   的 EXT_SENS_DATA 搬运时序待调
 - SDIO 初始化实测需插入 SD 卡（无卡时 `SDIO: init FAILED` 属预期，功能回退 flash 页）
-- 参数修改会写 SD `netcfg.ini`；无卡时修改仅本次运行生效
+- 参数修改已落地 EEPROM（AT24C02），重启后从 EEPROM 加载生效；网页与 shell 改动不立即应用（前端/串口均有格式校验，不合规拒绝写入）
 
 
 

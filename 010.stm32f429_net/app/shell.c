@@ -12,6 +12,7 @@
 #include "netcfg.h"
 #include "bsp_led.h"
 #include "bsp_pcf8574.h"
+#include "bsp_eeprom_24c02.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -19,6 +20,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* ---- configuration ---- */
 #define SHELL_TASK_PRIO    2
@@ -93,16 +95,124 @@ static void cmd_dev(shell_out_fn out)
   shell_println(out, buf);
 }
 
-static void cmd_net(shell_out_fn out)
+/* ---- field validators (MCU side: precise format check, no PCRE) ---- */
+
+/* IPv4 "a.b.c.d" with each octet 0..255. Returns 1 if valid. */
+static int valid_ip(const char *s)
 {
-  hwinfo_static_t s;
-  hwinfo_static_copy(&s);
-  char buf[48];
-  shell_println(out, "=== Network ===");
-  snprintf(buf, sizeof(buf), "IP  : %s", s.ip);    shell_println(out, buf);
-  snprintf(buf, sizeof(buf), "Mask: %s", s.mask);  shell_println(out, buf);
-  snprintf(buf, sizeof(buf), "GW  : %s", s.gw);    shell_println(out, buf);
-  snprintf(buf, sizeof(buf), "MAC : %s", s.mac);   shell_println(out, buf);
+  int a, b, c, d;
+  char extra;
+  if (sscanf(s, "%d.%d.%d.%d%c", &a, &b, &c, &d, &extra) != 4) return 0;
+  if (a < 0 || a > 255 || b < 0 || b > 255 ||
+      c < 0 || c > 255 || d < 0 || d > 255) return 0;
+  return 1;
+}
+
+/* IPv4 netmask: contiguous 1s then 0s. Returns 1 if valid. */
+static int valid_mask(const char *s)
+{
+  if (!valid_ip(s)) return 0;
+  uint32_t v = 0;
+  int a, b, c, d;
+  sscanf(s, "%d.%d.%d.%d", &a, &b, &c, &d);
+  v = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)c << 8) | (uint32_t)d;
+  /* valid mask <=> (v + ~v) has no carry hole: (v & (~v + 1)) == 0 */
+  return ((v & (~v + 1U)) == 0U);
+}
+
+/* MAC "XX:XX:XX:XX:XX:XX" with each byte 00..FF hex. Returns 1 if valid. */
+static int valid_mac(const char *s)
+{
+  unsigned int h[6];
+  char extra;
+  if (sscanf(s, "%02x:%02x:%02x:%02x:%02x:%02x%c",
+             &h[0], &h[1], &h[2], &h[3], &h[4], &h[5], &extra) != 6) return 0;
+  for (int i = 0; i < 6; i++)
+    if (h[i] > 255) return 0;
+  return 1;
+}
+
+static void cmd_net(shell_out_fn out, const char *arg)
+{
+  char buf[64];
+
+  /* no subcommand -> show pending (EEPROM-backed) values */
+  if (arg[0] == '\0')
+  {
+    shell_println(out, "=== Network (pending, applied after reboot) ===");
+    snprintf(buf, sizeof(buf), "IP  : %s", g_netcfg.ip);    shell_println(out, buf);
+    snprintf(buf, sizeof(buf), "Mask: %s", g_netcfg.mask);  shell_println(out, buf);
+    snprintf(buf, sizeof(buf), "GW  : %s", g_netcfg.gw);    shell_println(out, buf);
+    snprintf(buf, sizeof(buf), "MAC : %s", g_netcfg.mac);   shell_println(out, buf);
+    return;
+  }
+
+  /* split subcommand and value */
+  char sub[16];
+  const char *val = arg;
+  int i = 0;
+  while (*val && *val != ' ' && *val != '\t' && i < (int)sizeof(sub) - 1)
+    sub[i++] = *val++;
+  sub[i] = '\0';
+  while (*val == ' ' || *val == '\t') val++;
+  if (*val == '\0') val = "";   /* no value given */
+
+  if (strcmp(sub, "ip") == 0)
+  {
+    if (!valid_ip(val)) { shell_println(out, "ERR: bad IP format (expect a.b.c.d, 0-255)"); return; }
+    strncpy(g_netcfg.ip, val, sizeof(g_netcfg.ip) - 1);
+    g_netcfg.ip[sizeof(g_netcfg.ip) - 1] = '\0';
+  }
+  else if (strcmp(sub, "mask") == 0)
+  {
+    if (!valid_mask(val)) { shell_println(out, "ERR: bad MASK format (contiguous netmask)"); return; }
+    strncpy(g_netcfg.mask, val, sizeof(g_netcfg.mask) - 1);
+    g_netcfg.mask[sizeof(g_netcfg.mask) - 1] = '\0';
+  }
+  else if (strcmp(sub, "gw") == 0)
+  {
+    if (!valid_ip(val)) { shell_println(out, "ERR: bad GW format (expect a.b.c.d, 0-255)"); return; }
+    strncpy(g_netcfg.gw, val, sizeof(g_netcfg.gw) - 1);
+    g_netcfg.gw[sizeof(g_netcfg.gw) - 1] = '\0';
+  }
+  else if (strcmp(sub, "mac") == 0)
+  {
+    if (strcmp(val, "random") == 0)
+    {
+      /* locally-administered unicast random MAC */
+      uint8_t r[6];
+      for (int k = 0; k < 6; k++) r[k] = (uint8_t)(rand() & 0xFF);
+      r[0] = (uint8_t)((r[0] | 0x02U) & 0xFEU);   /* set LAA bit, clear multicast */
+      snprintf(g_netcfg.mac, sizeof(g_netcfg.mac),
+               "%02X:%02X:%02X:%02X:%02X:%02X",
+               r[0], r[1], r[2], r[3], r[4], r[5]);
+    }
+    else if (valid_mac(val))
+    {
+      strncpy(g_netcfg.mac, val, sizeof(g_netcfg.mac) - 1);
+      g_netcfg.mac[sizeof(g_netcfg.mac) - 1] = '\0';
+      /* normalize to upper-case hex (as validated) */
+      for (int k = 0; k < (int)strlen(g_netcfg.mac); k++)
+        if (g_netcfg.mac[k] >= 'a' && g_netcfg.mac[k] <= 'f')
+          g_netcfg.mac[k] = (char)(g_netcfg.mac[k] - ('a' - 'A'));
+    }
+    else
+    {
+      shell_println(out, "ERR: bad MAC (expect XX:XX:XX:XX:XX:XX or 'random')");
+      return;
+    }
+  }
+  else
+  {
+    shell_println(out, "ERR: usage: net <ip|mask|gw|mac> <value>");
+    return;
+  }
+
+  /* persist to EEPROM (effective after reboot) */
+  if (netcfg_save(&g_netcfg))
+    shell_println(out, "OK: saved, reboot to apply");
+  else
+    shell_println(out, "ERR: EEPROM write failed");
 }
 
 static void cmd_version(shell_out_fn out)
@@ -116,10 +226,11 @@ static void cmd_help(shell_out_fn out)
   shell_println(out, "Commands:");
   shell_println(out, "  hw               system info (FreeRTOS / MCU / clock)");
   shell_println(out, "  dev              device sensors (AP3216C / MPU9250 / IO)");
-  shell_println(out, "  net              network config (IP / MASK / GW / MAC)");
+  shell_println(out, "  net              network config (no arg=show; net ip/mask/gw/mac <val>)");
   shell_println(out, "  version          firmware version");
   shell_println(out, "  beep on|off      control BEEP hardware");
   shell_println(out, "  led on|off       control LED (PB0, non-heartbeat)");
+  shell_println(out, "  reboot           reset MCU (apply EEPROM netcfg)");
   shell_println(out, "  history          show last 3 commands");
   shell_println(out, "  help             this help");
 }
@@ -154,6 +265,18 @@ static void cmd_led(shell_out_fn out, const char *arg)
   else shell_println(out, "Usage: led on|off");
 }
 
+/* Reboot the MCU via the NVIC SYSRESETREQ. Equivalent to a hardware reset:
+ * re-runs the boot path, so any EEPROM-backed netcfg changes take effect. */
+static void cmd_reboot(shell_out_fn out)
+{
+  shell_println(out, "Rebooting...");
+  /* out() above pushes through the UART ring buffer; make sure the line is
+   * actually drained onto the wire before we reset. */
+  uart_flush();
+  NVIC_SystemReset();
+  /* does not return */
+}
+
 /* ---- public parser (transport-agnostic) ---- */
 int shell_exec(const char *line, shell_out_fn out)
 {
@@ -175,12 +298,13 @@ int shell_exec(const char *line, shell_out_fn out)
 
   if      (strcmp(cmd, "hw") == 0)      cmd_hw(out);
   else if (strcmp(cmd, "dev") == 0)     cmd_dev(out);
-  else if (strcmp(cmd, "net") == 0)     cmd_net(out);
+  else if (strcmp(cmd, "net") == 0)     cmd_net(out, arg);
   else if (strcmp(cmd, "version") == 0) cmd_version(out);
   else if (strcmp(cmd, "help") == 0)    cmd_help(out);
   else if (strcmp(cmd, "history") == 0) cmd_history(out);
   else if (strcmp(cmd, "beep") == 0)    cmd_beep(out, arg);
   else if (strcmp(cmd, "led") == 0)     cmd_led(out, arg);
+  else if (strcmp(cmd, "reboot") == 0)  cmd_reboot(out);
   else
   {
     char e[144];

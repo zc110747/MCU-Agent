@@ -21,6 +21,7 @@
 #include "lwip/netif.h"
 #include "lwip/ip_addr.h"
 #include "FreeRTOS.h"
+#include "task.h"           /* xTaskGetSchedulerState */
 #include "semphr.h"
 #include <stdio.h>
 #include <string.h>
@@ -34,14 +35,6 @@ netcfg_t g_netcfg;                   /* default set by netcfg_init_defaults() */
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-static void netcfg_init_defaults(void)
-{
-  strcpy(g_netcfg.ip,   "192.168.10.99");
-  strcpy(g_netcfg.mask, "255.255.255.0");
-  strcpy(g_netcfg.gw,   "192.168.10.1");
-  strcpy(g_netcfg.mac,  "00:80:E1:00:00:00");
-}
 
 /* one decimal place, no %f (newlib-nano) */
 static void fmt1(char *out, float v)
@@ -178,7 +171,6 @@ static void api_control(const char *body, web_send_fn send, void *sctx)
 static void api_network_set(const char *body, web_send_fn send, void *sctx)
 {
   char tmp[20];
-  ip4_addr_t ip, mask, gw;
 
   if (json_get_str(body, "ip", tmp, sizeof(tmp)))
   {
@@ -201,17 +193,11 @@ static void api_network_set(const char *body, web_send_fn send, void *sctx)
     g_netcfg.mac[sizeof(g_netcfg.mac) - 1] = '\0';
   }
 
-  /* persist to SD so it survives a reboot */
+  /* persist to EEPROM. Changes do NOT take effect until the next reset
+   * (netif is configured once at boot from g_netcfg, and MAC via netconn). */
   netcfg_save(&g_netcfg);
 
-  /* apply ip/mask/gw immediately (MAC takes effect after reboot) */
-  if (ipaddr_aton(g_netcfg.ip, &ip) && ipaddr_aton(g_netcfg.mask, &mask) &&
-      ipaddr_aton(g_netcfg.gw, &gw))
-  {
-    netif_set_addr(&gnetif, &ip, &mask, &gw);
-  }
-
-  send_json(send, sctx, "{\"ok\":true}", 11);
+  send_json(send, sctx, "{\"ok\":true,\"apply\":\"reboot\"}", 27);
 }
 
 static void api_reset(web_send_fn send, void *sctx)
@@ -364,6 +350,12 @@ void web_serve(struct netconn *conn, web_send_fn send, void *sctx,
 
 void web_i2c_lock(void)
 {
+  /* Before the scheduler starts (e.g. netcfg_load during boot) the system is
+   * single-threaded: there is no bus contention, and creating/taking a mutex
+   * here would leave BASEPRI set. Skip locking until the scheduler is up. */
+  if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING)
+    return;
+
   if (g_i2c_mutex == NULL)
   {
     g_i2c_mutex = xSemaphoreCreateMutex();
@@ -376,6 +368,9 @@ void web_i2c_lock(void)
 
 void web_i2c_unlock(void)
 {
+  if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING)
+    return;
+
   if (g_i2c_mutex != NULL)
   {
     xSemaphoreGive(g_i2c_mutex);
@@ -387,5 +382,7 @@ void web_i2c_unlock(void)
  * because xSemaphoreCreate* before vTaskStartScheduler leaves BASEPRI set. */
 void web_serve_init(void)
 {
-  netcfg_init_defaults();
+  /* defaults first, then load persisted block from EEPROM (if valid). */
+  netcfg_init_defaults(&g_netcfg);
+  netcfg_load(&g_netcfg);
 }
