@@ -15,6 +15,26 @@
 #include "task.h"
 #include <string.h>
 
+/* case-insensitive substring search (newlib-nano lacks strcasestr) */
+static const char *stristr(const char *hay, const char *needle)
+{
+  int nlen = (int)strlen(needle);
+  if (nlen == 0) return hay;
+  for (; *hay; ++hay)
+  {
+    int i = 0;
+    for (; needle[i] && hay[i]; ++i)
+    {
+      char a = hay[i], b = needle[i];
+      if (a >= 'A' && a <= 'Z') a += 32;
+      if (b >= 'A' && b <= 'Z') b += 32;
+      if (a != b) break;
+    }
+    if (i == nlen) return hay;
+  }
+  return NULL;
+}
+
 #define HTTP_PORT          80
 #define HTTP_SERVER_STACK  2048   /* web_serve + api_hardware locals need room */
 #define HTTP_SERVER_PRIO   3
@@ -98,6 +118,9 @@ static void http_server_thread(void *arg)
     char req[REQ_BUF];
     int reqlen = 0;
     struct netbuf *nb = NULL;
+    int header_done = 0;
+    int body_need = 0;      /* expected body bytes (0 for GET/HEAD) */
+    int body_got = 0;
     while (reqlen < (int)sizeof(req) - 1 &&
            netconn_recv(newconn, &nb) == ERR_OK && nb != NULL)
     {
@@ -109,12 +132,36 @@ static void http_server_thread(void *arg)
         int take = (len < room) ? (int)len : room;
         memcpy(req + reqlen, data, (size_t)take);
         reqlen += take;
-        /* stop after the end of headers (enough for our API bodies) */
-        if (reqlen >= 4 &&
-            memmem(req, (size_t)reqlen, "\r\n\r\n", 4) != NULL)
+
+        if (!header_done)
         {
-          netbuf_delete(nb);
-          break;
+          /* look for end of headers */
+          const char *he = stristr(req, "\r\n\r\n");
+          if (he != NULL)
+          {
+            header_done = 1;
+            int hend = (int)(he - req) + 4;
+            const char *cl = stristr(req, "content-length:");
+            body_need = (cl != NULL) ? atoi(cl + 15) : 0;
+            body_got = reqlen - hend;
+            if (body_got >= body_need)
+            {
+              netbuf_delete(nb);
+              break;
+            }
+          }
+        }
+        else
+        {
+          /* header already seen; keep accumulating body */
+          const char *he = stristr(req, "\r\n\r\n");
+          int hend = (he != NULL) ? (int)(he - req) + 4 : 0;
+          body_got = reqlen - hend;
+          if (body_got >= body_need)
+          {
+            netbuf_delete(nb);
+            break;
+          }
         }
       }
       netbuf_delete(nb);
@@ -126,7 +173,20 @@ static void http_server_thread(void *arg)
       web_serve(newconn, http_send, newconn, req, reqlen);
     }
 
+    /* Graceful close: send FIN, then drain until the peer closes (or a
+     * short timeout) so queued TX data is not aborted by netconn_delete.
+     * Without this, netconn_delete can RST the connection mid-transfer,
+     * which browsers surface as "connection reset". */
     netconn_close(newconn);
+    {
+      struct netbuf *rb = NULL;
+      TickType_t start = xTaskGetTickCount();
+      while (netconn_recv(newconn, &rb) == ERR_OK)
+      {
+        if (rb) netbuf_delete(rb);
+        if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(2000)) break;
+      }
+    }
     netconn_delete(newconn);
   }
 }

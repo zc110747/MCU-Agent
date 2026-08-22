@@ -55,9 +55,10 @@ int main(void)
   BSP_UART_Init();
   printf("\r\nSTM32F429 NET demo starting (FreeRTOS + LwIP)...\r\n");
 
-  /* Board status LED */
+  /* Board status LED. LED0/PB1 is the heartbeat (driven by led_task);
+   * LED1/PB0 is web-controlled and starts OFF so the web API owns it. */
   BSP_LED_Init();
-  BSP_LED_On(1);
+  BSP_LED_Off(1);
 
   /* I2C2 + PCF8574 used to release the ETH PHY from reset */
   BSP_I2C_Init();

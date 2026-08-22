@@ -124,15 +124,31 @@ static void api_network_get(web_send_fn send, void *sctx)
   send_json(send, sctx, j, n);
 }
 
-/* extract "key":value after the given key; returns 1 if found */
+/* extract "key":value; the key must be a complete JSON token (preceded by
+ * '"'/'{'/',' and followed by '"'), so "beep" does not match inside another
+ * key. Returns 1 if found. */
 static int json_get_int(const char *body, const char *key, int *val)
 {
-  const char *p = strstr(body, key);
-  if (p == NULL) return 0;
-  p = strchr(p, ':');
-  if (p == NULL) return 0;
-  *val = atoi(p + 1);
-  return 1;
+  size_t klen = strlen(key);
+  const char *p = body;
+  while ((p = strstr(p, key)) != NULL)
+  {
+    char prev = (p > body) ? p[-1] : '{';
+    const char *after = p + klen;
+    if ((prev == '"' || prev == '{' || prev == ',') && *after == '"')
+    {
+      const char *colon = strchr(after, ':');
+      if (colon != NULL)
+      {
+        const char *num = colon + 1;
+        while (*num == ' ' || *num == '\t') num++;
+        *val = atoi(num);
+        return 1;
+      }
+    }
+    p = after;
+  }
+  return 0;
 }
 
 static int json_get_str(const char *body, const char *key, char *out, int maxlen)
@@ -161,7 +177,9 @@ static void api_control(const char *body, web_send_fn send, void *sctx)
   if (json_get_int(body, "led", &v))
   {
     g_led_on = (uint8_t)(v ? 1 : 0);
-    if (g_led_on) BSP_LED_On(0); else BSP_LED_Off(0);
+    /* NB: web-controlled LED is LED1/PB0 (non-heartbeat). PB1 is the
+     * heartbeat and must not be driven by the web API. */
+    if (g_led_on) BSP_LED_On(1); else BSP_LED_Off(1);
   }
   if (json_get_int(body, "beep", &v))
   {

@@ -1,44 +1,40 @@
 <template>
-  <div class="card">
-    <h2>设备参数修改</h2>
+  <div>
+    <div class="card">
+      <h2 class="card-title"><SvgIcon name="setting" :size="18" /> 网络参数设置</h2>
+      <p class="card-desc">修改设备 IP / 掩码 / 网关 / MAC，点击应用后生效。</p>
 
-    <div class="row">
-      <span class="k">IP 地址</span>
-      <span class="v">
-        <input v-model.trim="form.ip" placeholder="192.168.10.99">
-      </span>
-    </div>
-    <div class="row">
-      <span class="k">子网掩码</span>
-      <span class="v">
-        <input v-model.trim="form.mask" placeholder="255.255.255.0">
-      </span>
-    </div>
-    <div class="row">
-      <span class="k">网关</span>
-      <span class="v">
-        <input v-model.trim="form.gw" placeholder="192.168.10.1">
-      </span>
-    </div>
-    <div class="row">
-      <span class="k">MAC 地址</span>
-      <span class="v">
-        <input v-model.trim="form.mac" placeholder="00:80:E1:xx:xx:xx">
-      </span>
-    </div>
+      <div class="form-row">
+        <span class="label">IP 地址</span>
+        <input v-model.trim="form.ip" placeholder="192.168.10.99" />
+      </div>
+      <div class="form-row">
+        <span class="label">子网掩码</span>
+        <input v-model.trim="form.mask" placeholder="255.255.255.0" />
+      </div>
+      <div class="form-row">
+        <span class="label">网关</span>
+        <input v-model.trim="form.gw" placeholder="192.168.10.1" />
+      </div>
+      <div class="form-row">
+        <span class="label">MAC 地址</span>
+        <input v-model.trim="form.mac" placeholder="00:80:E1:xx:xx:xx" />
+      </div>
 
-    <div style="margin-top:16px" class="btn-group">
-      <button class="btn" :disabled="busy" @click="apply">应用修改</button>
-      <button class="btn danger" :disabled="busy" @click="doReset">复位设备</button>
-    </div>
+      <div class="btn-group" style="margin-top:16px">
+        <button class="btn" :disabled="busy" @click="apply">应用修改</button>
+        <button class="btn danger" :disabled="busy" @click="doReset">复位设备</button>
+      </div>
 
-    <div v-if="msg" class="msg" :class="{ ok: msgOk, err: !msgOk }">{{ msg }}</div>
+      <div v-if="msg" class="msg" :class="{ ok: msgOk, err: !msgOk }">{{ msg }}</div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getNetwork, setNetwork, resetDevice } from '../api.js'
+import SvgIcon from '../components/SvgIcon.vue'
 
 const form = ref({ ip: '', mask: '', gw: '', mac: '' })
 const msg = ref('')
@@ -97,7 +93,6 @@ async function doReset() {
   try {
     await resetDevice()
     show('复位指令已发送，设备重启中…', true)
-    /* the device reboots; poll until it comes back */
     const wait = setInterval(async () => {
       try {
         await getNetwork()

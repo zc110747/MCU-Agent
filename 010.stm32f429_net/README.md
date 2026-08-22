@@ -129,7 +129,7 @@ Montgomery ladder，实测握手 1.07s，比 NIST 优化的 P-256（0.79s）慢 
 
 - AP3216C：I2C2 (PH4/PH5)，0x1E（`bsp/bsp_ap3216.c`）
 - MPU9250：I2C2，0x68（`bsp/bsp_mpu9250.c`，AK8963 磁力计经 I2C master）
-- LED：PB0/PB1 低电平点亮；BEEP：PCF8574 **P0** 低电平发声（P0=L→蜂鸣器导通；`bsp_pcf8574.c`）
+- LED：PB0/PB1 低电平点亮。**网页 `/api/control` 控制的 LED 是 LED1/PB0（非心跳）**；PB1 是心跳灯（500ms 闪烁，由 `led_task` 驱动，不受网页控制）。BEEP：PCF8574 **P0** 低电平发声（P0=L→蜂鸣器导通；`bsp_pcf8574.c`）
 - 网络参数：运行时内存配置（`app/netcfg.c`，`netcfg_save` 为接口占位，当前不写外部存储）
 
 ### 已知待办
