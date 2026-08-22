@@ -32,7 +32,12 @@ void shell_init(void);
 int shell_exec(const char *line, shell_out_fn out);
 
 /* Feed one complete line (history + execute). Shared by the UART shell and any
- * future transport. Empty lines are ignored (not recorded in history). */
+ * future transport. Empty lines are ignored (not recorded in history).
+ * 'out' selects where command output goes (uart_out for console, telnet_out
+ * for a Telnet session). */
+void shell_feed_line_ex(const char *line, shell_out_fn out);
+
+/* Convenience wrapper: feed a line and route output to the UART console. */
 void shell_feed_line(const char *line);
 
 /* Convenience: print one string + CRLF via the given sink. */

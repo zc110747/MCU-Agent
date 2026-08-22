@@ -20,6 +20,11 @@
 #define LWIP_SOCKET                 0
 #define LWIP_DNS                    0
 
+/* Enable recv/send timeouts on netconn (needed for telnet idle-disconnect
+ * polling). These add 4 B + 4 B per netconn struct — negligible. */
+#define LWIP_SO_RCVTIMEO            1
+#define LWIP_SO_SNDTIMEO            1
+
 /* The pbuf/memp pools are touched from both the ETH IRQ and the
  * tcpip_thread, so real critical sections are needed.  Provided by
  * sys_arch.h/sys_arch.c (FreeRTOS vPortEnterCritical). */
@@ -111,14 +116,14 @@
 #define MEMP_NUM_PBUF               64
 #define MEMP_NUM_RAW_PCB            1
 #define MEMP_NUM_UDP_PCB            4
-#define MEMP_NUM_TCP_PCB            8
-#define MEMP_NUM_TCP_PCB_LISTEN     4
+#define MEMP_NUM_TCP_PCB            12
+#define MEMP_NUM_TCP_PCB_LISTEN     6
 #define MEMP_NUM_TCP_SEG            40
 #define MEMP_NUM_REASSDATA          5
 #define MEMP_NUM_ARP_QUEUE          10
 #define MEMP_NUM_SYS_TIMEOUT        24
-#define MEMP_NUM_NETBUF             4
-#define MEMP_NUM_NETCONN            4
+#define MEMP_NUM_NETBUF             8
+#define MEMP_NUM_NETCONN            8
 #define MEMP_NUM_TCPIP_MSG_API      8
 #define MEMP_NUM_TCPIP_MSG_INPKT    8
 

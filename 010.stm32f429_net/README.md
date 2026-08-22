@@ -24,12 +24,14 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ 应用层 (app/)                                                          │
-│  shell (UART 命令行)   HTTP server(80)   HTTPS server(443, mbedTLS)   │
+│  shell (UART 命令行)   Telnet server(23, 每连接独立任务)               │
+│  HTTP server(80)   HTTPS server(443, mbedTLS)                          │
 │  hwinfo (传感器采集 AP3216C/MPU9250)        led 心跳                   │
 ├──────────────────────────────────────────────────────────────────────┤
 │ 协议 / RTOS 层                                                         │
 │  LwIP 2.1 (tcpip_thread)   mbedTLS 3.6 (TLS)   FreeRTOS V11.1.0       │
-│  → 9+ 任务: tcpip / EthLink / httpd / httpsd / shell / hwinfo / led   │
+│  → 9+ 任务: tcpip / EthLink / httpd / httpsd / telnetd / telnetN /   │
+│         shell / hwinfo / led                                          │
 ├──────────────────────────────────────────────────────────────────────┤
 │ 系统层 (内存布局)                                                      │
 │  SDRAM ucHeap (FreeRTOS 512KB)  @0xC0020000                           │
@@ -51,6 +53,8 @@
 | EthLink | 2 | LAN8720 链路监控（500ms 轮询） |
 | httpd | 3 | HTTP server（netconn, 端口 80） |
 | httpsd | 3 | HTTPS server（netconn + mbedTLS, 端口 443） |
+| telnetd | 2 | Telnet 监听任务（netconn, 端口 23，accept 后派生 telnetN） |
+| telnetN | 2 | 每 Telnet 客户端一个任务（行编辑 + 回显 + shell_feed_line_ex） |
 | hwinfo | 2 | 硬件信息采集（每 200ms 读传感器 → 写共享结构体） |
 | shell | 2 | UART 命令行（xQueue 收字节 → 行编辑 → shell_exec） |
 | led | 1 | LED 心跳 |
@@ -315,7 +319,18 @@ typedef struct {
 | `led on\|off` | 控制实际硬件（`hwinfo_set_led`，控制 PB0 非心跳灯） |
 | `help` | 命令帮助 |
 | `history` | 显示最近 3 条指令 |
+| `reboot` | NVIC 系统复位（等价于硬件复位，使 EEPROM 持久化的网络参数生效） |
 | 未知命令 | 回显 `Unknown command: xxx` |
+
+> **Telnet 服务**：默认端口 **23**，连接即打印与 UART 相同的 shell 横幅与提示符
+> `STM32>`。每个连接由独立任务处理，支持**最多 3 个并发连接**（`TELNET_MAX_CONNS`），
+> 与 UART shell 完全并行、互不阻塞；命令输出仅回显到发起连接的会话，不串台。
+> 客户端断开（正常关闭或异常掉线）均正确释放 netconn 与任务资源，可随时重连。
+> **Telnet-only 命令 `exit`**：仅在 telnet 上下文生效，关闭当前连接（走 `telnet_conn_cleanup`，
+> 命令在 shell.c 不可见，不会从 UART shell 调出）。`telnet_conn_cleanup` 先排空对端残包、
+> 发 FIN、延时 200 ms 让 `Bye!` 与 FIN 真正落线再 `netconn_delete`，对端收到干净关闭而非 RST。
+> **30 s idle 超时**：连接静默 30 秒后服务端主动关闭并提示 `[timeout] idle, closing.`
+> （`LWIP_SO_RCVTIMEO=1` + 每连接 `last_active` tick，每秒 poll 检测）。
 
 #### 关键坑（新增）
 - **RXNEIE 必须用寄存器直接置位**：`SET_BIT(huart1.Instance->CR1, USART_CR1_RXNEIE)` 或

@@ -31,6 +31,7 @@
 #include "https_server.h"
 #include "hwinfo.h"
 #include "shell.h"
+#include "telnet_shell.h"
 
 static void SystemClock_Config(void);
 void Error_Handler(void);
@@ -106,6 +107,9 @@ int main(void)
   __set_BASEPRI(0);
   __enable_irq();
   https_server_init();
+  __set_BASEPRI(0);
+  __enable_irq();
+  telnet_shell_init();
   __set_BASEPRI(0);
   __enable_irq();
 

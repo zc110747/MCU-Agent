@@ -50,8 +50,12 @@ void shell_println(shell_out_fn out, const char *s)
 static void history_push(const char *line)
 {
   if (line[0] == '\0') return;             /* ignore empty */
-  strncpy(g_history[g_hist_head], line, SHELL_LINE_MAX - 1);
-  g_history[g_hist_head][SHELL_LINE_MAX - 1] = '\0';
+  /* Copy with explicit NUL termination (avoids -Wstringop-truncation on GCC15
+   * when line is exactly SHELL_LINE_MAX-1 bytes). */
+  size_t n = strlen(line);
+  if (n > SHELL_LINE_MAX - 1) n = SHELL_LINE_MAX - 1;
+  memcpy(g_history[g_hist_head], line, n);
+  g_history[g_hist_head][n] = '\0';
   g_hist_head = (uint8_t)((g_hist_head + 1) % SHELL_HISTORY_NUM);
   if (g_hist_count < SHELL_HISTORY_NUM) g_hist_count++;
 }
@@ -317,11 +321,19 @@ int shell_exec(const char *line, shell_out_fn out)
 
 /* ---- one complete line: record history then execute ----
  * Extracted from shell_task so the same history+exec path is shared by the
- * UART shell and any future transport (telnet). */
-void shell_feed_line(const char *line)
+ * UART shell and any future transport (telnet). 'out' is the output sink,
+ * so the caller decides where results go (uart_out for the console,
+ * telnet_out for a Telnet session). */
+void shell_feed_line_ex(const char *line, shell_out_fn out)
 {
   if (line[0] != '\0') history_push(line);
-  shell_exec(line, uart_out);
+  shell_exec(line, out);
+}
+
+/* Backwards-compatible helper: route output to the UART console. */
+void shell_feed_line(const char *line)
+{
+  shell_feed_line_ex(line, uart_out);
 }
 
 /* ---- shell task: read RX, echo, build line, push to queue ---- */
