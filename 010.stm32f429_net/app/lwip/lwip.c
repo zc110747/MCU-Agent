@@ -8,7 +8,9 @@
 #include "lwip/init.h"
 #include "lwip/tcpip.h"
 #include "lwip/timeouts.h"
+#include "lwip/ip_addr.h"
 #include "netif/ethernet.h"
+#include "netcfg.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <string.h>
@@ -49,10 +51,10 @@ void MX_LWIP_Init(void)
   __set_BASEPRI(0);
   __enable_irq();
 
-  /* IP addresses initialization */
-  IP4_ADDR(&ipaddr, LWIP_IP_ADDR0, LWIP_IP_ADDR1, LWIP_IP_ADDR2, LWIP_IP_ADDR3);
-  IP4_ADDR(&netmask, LWIP_NETMASK0, LWIP_NETMASK1, LWIP_NETMASK2, LWIP_NETMASK3);
-  IP4_ADDR(&gw, LWIP_GW_ADDR0, LWIP_GW_ADDR1, LWIP_GW_ADDR2, LWIP_GW_ADDR3);
+  /* IP addresses: from the runtime config (defaults or SD netcfg.ini) */
+  ipaddr_aton(g_netcfg.ip, &ipaddr);
+  ipaddr_aton(g_netcfg.mask, &netmask);
+  ipaddr_aton(g_netcfg.gw, &gw);
 
   /* Add the network interface; input function hands pbufs to tcpip_thread */
   netif_add(&gnetif, &ipaddr, &netmask, &gw, NULL, &ethernetif_init, &tcpip_input);

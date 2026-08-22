@@ -106,6 +106,39 @@ bignum 模约减（慢 5-10 倍）且每次握手重建固定基点表。代价�
 **X25519 反而更慢（实测否决）**：mbedTLS 3.6 已移除 Everest 快速实现，X25519 走通用
 Montgomery ladder，实测握手 1.07s，比 NIST 优化的 P-256（0.79s）慢 35%。保持 P-256 仅。
 
+## Vue 网页 + SD 卡 + JSON API
+
+### SD 卡部署（网页默认页）
+
+1. 前端工程：`web/`（Vue 3 + Vite，`vite build` 产物在 `web/dist/`）
+2. 把 `web/dist/` 下 **index.html + assets/** 拷入 SD 卡 `web/` 目录
+3. 插卡重启 → HTTP(S) 默认页从 SD `0:/web/index.html` 读取
+   （无卡/无文件 → 自动回退 flash 内嵌页）
+
+### JSON API（HTTP 80 与 HTTPS 443 均支持）
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/api/hardware` | GET | MCU/时钟/AP3216C(lux,ps,ir)/MPU9250(9轴)/LED/BEEP |
+| `/api/network` | GET | ip/mask/gw/mac |
+| `/api/network` | POST | 修改 ip/mask/gw/mac → 写 SD `netcfg.ini`，IP 立即生效（netif_set_addr），MAC 复位后生效 |
+| `/api/control` | POST | `{"led":0\|1}` / `{"beep":0\|1}` |
+| `/api/reset` | POST | 复位设备 |
+
+### 传感器/IO 映射
+
+- AP3216C：I2C2 (PH4/PH5)，0x1E（`bsp/bsp_ap3216.c`）
+- MPU9250：I2C2，0x68（`bsp/bsp_mpu9250.c`，AK8963 磁力计经 I2C master）
+- LED：PB0/PB1 低电平点亮；BEEP：PCF8574 **P0** 低电平发声（P0=L→蜂鸣器导通；`bsp_pcf8574.c`）
+- 网络参数：运行时内存配置（`app/netcfg.c`，`netcfg_save` 为接口占位，当前不写外部存储）
+
+### 已知待办
+
+- MPU9250 磁力计当前读出为 0（加速度/陀螺仪正常）：AK8963 经 I2C master
+  的 EXT_SENS_DATA 搬运时序待调
+- SDIO 初始化实测需插入 SD 卡（无卡时 `SDIO: init FAILED` 属预期，功能回退 flash 页）
+- 参数修改会写 SD `netcfg.ini`；无卡时修改仅本次运行生效
+
 
 
 ## 移植踩坑记录（重要）

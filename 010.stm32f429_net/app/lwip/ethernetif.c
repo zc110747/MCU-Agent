@@ -16,7 +16,9 @@
 #include "lwip/ethip6.h"
 #include "ethernetif.h"
 #include "lan8720.h"
+#include "netcfg.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Network interface name */
 #define IFNAME0 's'
@@ -100,12 +102,23 @@ static void low_level_init(struct netif *netif)
   uint8_t MACAddr[6];
 
   heth.Instance = ETH;
-  MACAddr[0] = 0x00;
-  MACAddr[1] = 0x80;
-  MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
+  /* MAC from runtime config (defaults or SD netcfg.ini, settable via API) */
+  {
+    unsigned macb[6];
+    if (sscanf(g_netcfg.mac, "%x:%x:%x:%x:%x:%x",
+               &macb[0], &macb[1], &macb[2], &macb[3], &macb[4], &macb[5]) == 6)
+    {
+      for (int i = 0; i < 6; i++)
+      {
+        MACAddr[i] = (uint8_t)macb[i];
+      }
+    }
+    else
+    {
+      MACAddr[0] = 0x00; MACAddr[1] = 0x80; MACAddr[2] = 0xE1;
+      MACAddr[3] = 0x00; MACAddr[4] = 0x00; MACAddr[5] = 0x00;
+    }
+  }
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;

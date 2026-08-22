@@ -4,7 +4,8 @@
   * @brief   STM32F429IGT6 + FreeRTOS + LwIP + SDRAM network demo.
   *          - LAN8720 PHY (released from reset via PCF8574 P7)
   *          - Static IPv4 192.168.10.99, tcpip_thread drives LwIP
-  *          - HTTP server task (netconn API) on port 80
+  *          - HTTP/HTTPS server (netconn API) on port 80/443
+  *          - Web pages built-in as const arrays (no SD card)
   *          - External SDRAM 32 MB @0xC0000000: FreeRTOS heap + LwIP pools
   *          - HAL 1 ms time base on TIM7 (SysTick belongs to FreeRTOS)
   *          - LED heartbeat task, USART1(PA9/PA10) debug console
@@ -20,6 +21,10 @@
 #include "bsp_i2c.h"
 #include "bsp_pcf8574.h"
 #include "bsp_sdram.h"
+#include "bsp_ap3216.h"
+#include "bsp_mpu9250.h"
+#include "web_serve.h"
+#include "netcfg.h"
 #include "lwip.h"
 #include "http_server.h"
 #include "https_server.h"
@@ -58,6 +63,15 @@ int main(void)
   BSP_I2C_Init();
   BSP_ETH_PHY_Reset();
   printf("ETH PHY (LAN8720) released from reset.\r\n");
+
+  /* Runtime netcfg defaults (in-RAM only; no SD persistence) */
+  web_serve_init();
+
+  /* Sensors on I2C2 (AP3216C light/proximity + MPU9250 9-axis) */
+  if (bsp_ap3216c_init() == 0) printf("AP3216C: init OK\r\n");
+  else                         printf("AP3216C: init FAIL\r\n");
+  if (bsp_mpu9250_init() == 0) printf("MPU9250: init OK\r\n");
+  else                         printf("MPU9250: init FAIL\r\n");
 
   /* External SDRAM: MUST be up before any code touches 0xC0000000
    * (FreeRTOS heap + LwIP pools live there). */

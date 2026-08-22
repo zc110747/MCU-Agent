@@ -13,6 +13,10 @@
 - LED0: PB1, 输出, 低电平点亮, 推挽, 上拉
 - LED1: PB0, 输出, 低电平点亮, 推挽, 上拉
 
+### BEEP (GPIO)
+
+- BEEP：PCF8574T的P0，低电平发出声音
+
 ### USART
 
 - USART1_RX：PA10

@@ -19,6 +19,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "web_page.h"
+#include "web_serve.h"
 #include "tls_creds.h"
 
 #include "mbedtls/ssl.h"
@@ -33,7 +34,7 @@
 #define HTTPS_PORT            443
 #define HTTPS_STACK_SIZE      2048   /* mbedTLS ECDHE handshake needs room */
 #define HTTPS_TASK_PRIORITY   3
-#define HTTPS_REQ_BUF         512
+#define HTTPS_REQ_BUF         2048   /* request line + headers + body */
 
 /* ---- shared config (parsed once at init) ---- */
 static mbedtls_ssl_config g_conf;
@@ -68,8 +69,31 @@ static u16_t g_rxpos = 0;
 static int https_bio_send(void *ctx, const unsigned char *buf, size_t len)
 {
   struct netconn *conn = (struct netconn *)ctx;
-  err_t err = netconn_write(conn, buf, (u16_t)len, NETCONN_COPY);
-  return (err == ERR_OK) ? (int)len : MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  const unsigned char *p = buf;
+  size_t remain = len;
+  /* Same loop-and-retry pattern as http_send: a single netconn_write of a
+   * large TLS record (e.g. 16 KB of an application-data record containing the
+   * Vue JS bundle) can return ERR_MEM and silently truncate the response. */
+  while (remain > 0)
+  {
+    size_t chunk = (remain > 1024) ? 1024 : remain;
+    err_t err = netconn_write(conn, p, (u16_t)chunk, NETCONN_COPY);
+    if (err == ERR_OK)
+    {
+      p += chunk;
+      remain -= chunk;
+    }
+    else if (err == ERR_MEM)
+    {
+      vTaskDelay(pdMS_TO_TICKS(2));
+      continue;
+    }
+    else
+    {
+      return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+    }
+  }
+  return (int)len;
 }
 
 static int https_bio_recv(void *ctx, unsigned char *buf, size_t len)
@@ -109,6 +133,36 @@ static int https_bio_recv(void *ctx, unsigned char *buf, size_t len)
   return (int)take;
 }
 
+/* ---- send callback for web_serve over TLS ---- */
+static int https_send(void *ctx, const void *data, int len)
+{
+  mbedtls_ssl_context *ssl = (mbedtls_ssl_context *)ctx;
+  const unsigned char *p = (const unsigned char *)data;
+  int remain = len;
+  /* mbedtls_ssl_write can return short on a full TLS send buffer; loop until
+   * the whole response has been queued into the BIO. */
+  while (remain > 0)
+  {
+    int ret = mbedtls_ssl_write(ssl, p, (size_t)remain);
+    if (ret > 0)
+    {
+      p += ret;
+      remain -= ret;
+    }
+    else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE ||
+             ret == MBEDTLS_ERR_SSL_WANT_READ)
+    {
+      vTaskDelay(pdMS_TO_TICKS(2));
+      continue;
+    }
+    else
+    {
+      return -1;
+    }
+  }
+  return 0;
+}
+
 /* ---- per-connection TLS session ---- */
 static void https_serve_conn(struct netconn *newconn)
 {
@@ -134,22 +188,36 @@ static void https_serve_conn(struct netconn *newconn)
     return;
   }
 
-  /* Drain the request (keeps close() clean, like the HTTP server) */
+  /* Read the full request (headers end marker or buffer full). */
   unsigned char req[HTTPS_REQ_BUF];
-  ret = mbedtls_ssl_read(&ssl, req, sizeof(req));
-  (void)ret;
+  int reqlen = 0;
+  while (reqlen < (int)sizeof(req) - 1)
+  {
+    ret = mbedtls_ssl_read(&ssl, req + reqlen, (size_t)((int)sizeof(req) - 1 - reqlen));
+    if (ret > 0)
+    {
+      reqlen += ret;
+      if (reqlen >= 4 && memmem(req, (size_t)reqlen, "\r\n\r\n", 4) != NULL)
+      {
+        break;
+      }
+    }
+    else if (ret == MBEDTLS_ERR_SSL_WANT_READ)
+    {
+      continue;
+    }
+    else
+    {
+      break;
+    }
+  }
+  req[reqlen] = '\0';
 
-  /* Build + send the response over TLS */
-  int page_len = (int)strlen(HTTP_PAGE);
-  char resp[2048];
-  int resp_len = snprintf(resp, sizeof(resp),
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/html; charset=utf-8\r\n"
-      "Content-Length: %d\r\n"
-      "Connection: close\r\n"
-      "\r\n%s", page_len, HTTP_PAGE);
+  if (reqlen > 0)
+  {
+    web_serve(newconn, https_send, &ssl, (const char *)req, reqlen);
+  }
 
-  mbedtls_ssl_write(&ssl, (const unsigned char *)resp, (size_t)resp_len);
   mbedtls_ssl_close_notify(&ssl);
   mbedtls_ssl_free(&ssl);
 
