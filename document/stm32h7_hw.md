@@ -12,7 +12,12 @@
 
 - LED: PG7, 输出, 低电平点亮, 推挽, 上拉
 
-### QSPI (QuadSPI, 连接W25Q256)
+### USART
+
+- USART1_RX：PA10
+- USART1_TX：PA9
+
+### QSPI (QuadSPI, 连接W25Q64)
 
 - 模式: 4线
 - CS: PG6, AF10
