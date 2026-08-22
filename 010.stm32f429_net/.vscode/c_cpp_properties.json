@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "name": "STM32F429 (arm-none-eabi-gcc)",
+      "compilerPath": "arm-none-eabi-gcc",
+      "cStandard": "gnu99",
+      "cppStandard": "gnu++14",
+      "intelliSenseMode": "gcc-arm",
+      "defines": [
+        "STM32F429xx",
+        "USE_HAL_DRIVER",
+        "ARM_MATH_CM4"
+      ],
+      "includePath": [
+        "${workspaceFolder}/app",
+        "${workspaceFolder}/app/lwip",
+        "${workspaceFolder}/app/web",
+        "${workspaceFolder}/bsp",
+        "${workspaceFolder}/Drivers/CMSIS/Include",
+        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+        "${workspaceFolder}/third_party/LwIP/src/include",
+        "${workspaceFolder}/third_party/LwIP/system/arch"
+      ]
+    }
+  ],
+  "version": 4
+}

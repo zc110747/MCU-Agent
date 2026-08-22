@@ -1,0 +1,16 @@
+{
+  "cmake.generator": "Ninja",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureOnOpen": true,
+  "cmake.statusbar.advanced": {
+    "build": true,
+    "launch": true,
+    "debug": true
+  },
+  "cortex-debug.armToolchainPath": "",
+  "cortex-debug.openocdPath": "openocd",
+  "editor.formatOnSave": false,
+  "files.associations": {
+    "*.ld": "linkerScript"
+  }
+}

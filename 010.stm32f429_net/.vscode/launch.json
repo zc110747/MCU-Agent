@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Cortex-Debug: ST-LINK + OpenOCD",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32f429_net.elf",
+      "configFiles": [
+        "openocd/openocd.cfg"
+      ],
+      "runToEntryPoint": "main",
+      "preLaunchTask": "Build",
+      "postRestartCommands": [
+        "break main"
+      ]
+    }
+  ]
+}
