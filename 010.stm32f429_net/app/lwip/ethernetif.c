@@ -17,6 +17,7 @@
 #include "ethernetif.h"
 #include "lan8720.h"
 #include "netcfg.h"
+#include "log.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -333,7 +334,7 @@ void ethernet_link_check(struct netif *netif)
     netif_set_up(netif);
     netif_set_link_up(netif);
     link_up_prev = 1;
-    printf("ETH: link up (%luM %s)\r\n",
+    PRINT_LOG("ETH: link up (%luM %s)\r\n",
            (unsigned long)(speed == ETH_SPEED_100M ? 100U : 10U),
            (duplex == ETH_FULLDUPLEX_MODE) ? "full-duplex" : "half-duplex");
   }
@@ -343,7 +344,7 @@ void ethernet_link_check(struct netif *netif)
     netif_set_link_down(netif);
     netif_set_down(netif);
     link_up_prev = 0;
-    printf("ETH: link down\r\n");
+    PRINT_LOG("ETH: link down\r\n");
   }
 }
 

@@ -31,7 +31,12 @@
 #define configCPU_CLOCK_HZ                        ( SystemCoreClock )
 #define configTICK_RATE_HZ                        ( (TickType_t)1000 )
 
-/* Tasks/queues/timers are allocated from ucHeap (SDRAM) via heap_4. */
+/* Tasks/queues/timers are allocated from ucHeap (SDRAM) via heap_4.
+ * Heap lives in external SDRAM (.freertos_heap @0xC0020000, see sdram_heap.c
+ * and the linker script). 512KB is sufficient; the heap_4.c:269
+ * subtract-underflow assert (free-list metadata corruption) is guarded against
+ * by the 4KB guard band in the linker script between the lwIP pool and ucHeap,
+ * not by a larger heap. */
 #define configMAX_PRIORITIES                      ( 25 )
 #define configMINIMAL_STACK_SIZE                  ( (uint16_t)128 )
 #define configTOTAL_HEAP_SIZE                     ( (size_t)(512 * 1024) )

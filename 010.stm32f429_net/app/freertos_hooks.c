@@ -7,10 +7,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include <stdio.h>
+#include "log.h"
 
 void vApplicationMallocFailedHook(void)
 {
-  printf("FreeRTOS: pvPortMalloc failed (heap exhausted)\r\n");
+  PRINT_LOG("FreeRTOS: pvPortMalloc failed (heap exhausted)\r\n");
   taskDISABLE_INTERRUPTS();
   for (;;) { }
 }
@@ -18,14 +19,14 @@ void vApplicationMallocFailedHook(void)
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
   (void)xTask;
-  printf("FreeRTOS: stack overflow in task %s\r\n", pcTaskName);
+  PRINT_LOG("FreeRTOS: stack overflow in task %s\r\n", pcTaskName);
   taskDISABLE_INTERRUPTS();
   for (;;) { }
 }
 
 void vApplicationAssertFailed(const char *file, int line)
 {
-  printf("FreeRTOS assert failed: %s:%d\r\n", file, line);
+  PRINT_LOG("FreeRTOS assert failed: %s:%d\r\n", file, line);
   taskDISABLE_INTERRUPTS();
   for (;;) { }
 }

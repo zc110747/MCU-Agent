@@ -13,6 +13,7 @@
 #include "web_serve.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "log.h"
 #include <string.h>
 
 /* case-insensitive substring search (newlib-nano lacks strcasestr) */
@@ -81,7 +82,7 @@ static void http_server_thread(void *arg)
   conn = netconn_new(NETCONN_TCP);
   if (conn == NULL)
   {
-    printf("HTTP server: netconn_new failed\r\n");
+    PRINT_LOG("HTTP server: netconn_new failed\r\n");
     vTaskDelete(NULL);
     return;
   }
@@ -89,7 +90,7 @@ static void http_server_thread(void *arg)
   err = netconn_bind(conn, IP_ADDR_ANY, HTTP_PORT);
   if (err != ERR_OK)
   {
-    printf("HTTP server: bind failed (%d)\r\n", (int)err);
+    PRINT_LOG("HTTP server: bind failed (%d)\r\n", (int)err);
     netconn_delete(conn);
     vTaskDelete(NULL);
     return;
@@ -98,13 +99,13 @@ static void http_server_thread(void *arg)
   err = netconn_listen(conn);
   if (err != ERR_OK)
   {
-    printf("HTTP server: listen failed (%d)\r\n", (int)err);
+    PRINT_LOG("HTTP server: listen failed (%d)\r\n", (int)err);
     netconn_delete(conn);
     vTaskDelete(NULL);
     return;
   }
 
-  printf("HTTP server: listening on port %d (netconn task)\r\n", HTTP_PORT);
+  PRINT_LOG("HTTP server: listening on port %d (netconn task)\r\n", HTTP_PORT);
 
   for (;;)
   {
@@ -196,6 +197,6 @@ void http_server_init(void)
   if (xTaskCreate(http_server_thread, "httpd", HTTP_SERVER_STACK, NULL,
                   HTTP_SERVER_PRIO, NULL) != pdPASS)
   {
-    printf("HTTP server: task create failed\r\n");
+    PRINT_LOG("HTTP server: task create failed\r\n");
   }
 }

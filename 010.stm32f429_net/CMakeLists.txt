@@ -25,7 +25,7 @@ set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${MCU_FLAGS} -x assembler-with-cpp -g -O
 
 # Linker flags: flash linker script, map, dead-code strip, newlib-nano.
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Source/STM32F429IGTx_FLASH.ld)
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${LINKER_SCRIPT} -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map -Wl,--gc-sections -Wl,--print-memory-usage -specs=nano.specs -lc -lm -lgcc")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${LINKER_SCRIPT} -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map -Wl,--gc-sections -Wl,--print-memory-usage -specs=nano.specs -u _printf_float -lc -lm -lgcc")
 
 # ------------------------------------------------------------------
 # Include paths (order matters: app/lwip must win over the bundled

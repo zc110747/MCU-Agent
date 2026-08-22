@@ -19,7 +19,6 @@
 #include "bsp_sdram.h"
 #include "bsp_delay.h"
 #include "stm32f4xx_hal.h"
-#include <stdio.h>
 
 SDRAM_HandleTypeDef hsdram1;
 
@@ -156,12 +155,9 @@ static int sdram_memory_test(void)
       for (i = 0; i < 64; i++)
       {
         if (p32[i] != patterns[p])
-        {
-          printf("SDRAM test FAILED @0x%08X (pat 0x%08X got 0x%08X)\r\n",
-                 (unsigned)(SDRAM_BASE + regions[r] + i * 4u),
-                 (unsigned)patterns[p], (unsigned)p32[i]);
-          return -1;
-        }
+          {
+            return -1;
+          }
       }
     }
   }
@@ -172,12 +168,10 @@ int bsp_sdram_init(void)
 {
   if (sdram_hardware_init() != 0)
   {
-    printf("SDRAM: FMC init failed\r\n");
     return -1;
   }
   if (sdram_initialize_sequence() != 0)
   {
-    printf("SDRAM: init sequence failed\r\n");
     return -1;
   }
   /* Refresh counter: 64ms / 11.1ns / 8192 rows - 20 = 683 */
@@ -187,6 +181,5 @@ int bsp_sdram_init(void)
   {
     return -1;
   }
-  printf("SDRAM: OK, 32 MB @ 0xC0000000 (FMC 90 MHz)\r\n");
   return 0;
 }

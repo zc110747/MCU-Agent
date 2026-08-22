@@ -27,8 +27,10 @@
 #include "netcfg.h"
 #include "lwip.h"
 #include "http_server.h"
+#include "log.h"
 #include "https_server.h"
 #include "hwinfo.h"
+#include "shell.h"
 
 static void SystemClock_Config(void);
 void Error_Handler(void);
@@ -52,9 +54,21 @@ int main(void)
   /* Configure the system clock to 180 MHz (HSE 25 MHz -> PLL) */
   SystemClock_Config();
 
+  /* External SDRAM MUST come up first. FreeRTOS heap (ucHeap) and LwIP pools
+   * live in SDRAM, and every xTaskCreate / xSemaphoreCreate* allocates from
+   * ucHeap. Creating any of those before SDRAM is initialized writes the
+   * object's control block into uninitialized memory and corrupts the heap_4
+   * free list (heap_4.c:269 subtract-underflow assert). Bringing SDRAM up here
+   * lets every later init create FreeRTOS objects safely, with no split. */
+  if (bsp_sdram_init() != 0)
+  {
+    Error_Handler();
+  }
+
   /* Debug console */
   BSP_UART_Init();
-  printf("\r\nSTM32F429 NET demo starting (FreeRTOS + LwIP)...\r\n");
+  PRINT_LOG("\r\nSTM32F429 NET demo starting (FreeRTOS + LwIP)...\r\n");
+  shell_init();
 
   /* Board status LED. LED0/PB1 is the heartbeat (driven by led_task);
    * LED1/PB0 is web-controlled and starts OFF so the web API owns it. */
@@ -64,24 +78,16 @@ int main(void)
   /* I2C2 + PCF8574 used to release the ETH PHY from reset */
   BSP_I2C_Init();
   BSP_ETH_PHY_Reset();
-  printf("ETH PHY (LAN8720) released from reset.\r\n");
+  PRINT_LOG("ETH PHY (LAN8720) released from reset.\r\n");
 
   /* Runtime netcfg defaults (in-RAM only; no SD persistence) */
   web_serve_init();
 
   /* Sensors on I2C2 (AP3216C light/proximity + MPU9250 9-axis) */
-  if (bsp_ap3216c_init() == 0) printf("AP3216C: init OK\r\n");
-  else                         printf("AP3216C: init FAIL\r\n");
-  if (bsp_mpu9250_init() == 0) printf("MPU9250: init OK\r\n");
-  else                         printf("MPU9250: init FAIL\r\n");
-
-  /* External SDRAM: MUST be up before any code touches 0xC0000000
-   * (FreeRTOS heap + LwIP pools live there). */
-  if (bsp_sdram_init() != 0)
-  {
-    printf("FATAL: SDRAM init failed, halting.\r\n");
-    Error_Handler();
-  }
+  if (bsp_ap3216c_init() == 0) PRINT_LOG("AP3216C: init OK\r\n");
+  else                         PRINT_LOG("AP3216C: init FAIL\r\n");
+  if (bsp_mpu9250_init() == 0) PRINT_LOG("MPU9250: init OK\r\n");
+  else                         PRINT_LOG("MPU9250: init FAIL\r\n");
 
   /* LwIP (FreeRTOS mode): tcpip_thread + netif + link task */
   MX_LWIP_Init();
@@ -106,7 +112,7 @@ int main(void)
    * scheduler starts. */
   hwinfo_init();
 
-  printf("FreeRTOS scheduler starting... (IP 192.168.10.99)\r\n");
+  PRINT_LOG("FreeRTOS scheduler starting... (IP 192.168.10.99)\r\n");
 
   /* Create the LED heartbeat task, then start the scheduler */
   xTaskCreate(led_task, "led", 128, NULL, tskIDLE_PRIORITY + 1, NULL);

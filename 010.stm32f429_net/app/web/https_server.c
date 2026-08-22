@@ -27,6 +27,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/version.h"
 #include "mbedtls/memory_buffer_alloc.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -173,7 +174,7 @@ static void https_serve_conn(struct netconn *newconn)
   ret = mbedtls_ssl_setup(&ssl, &g_conf);
   if (ret != 0)
   {
-    printf("HTTPS ssl_setup: -0x%04X\r\n", (unsigned)(-ret));
+    PRINT_LOG("HTTPS ssl_setup: -0x%04X\r\n", (unsigned)(-ret));
     mbedtls_ssl_free(&ssl);
     return;
   }
@@ -183,7 +184,7 @@ static void https_serve_conn(struct netconn *newconn)
   ret = mbedtls_ssl_handshake(&ssl);
   if (ret != 0)
   {
-    printf("HTTPS handshake: -0x%04X\r\n", (unsigned)(-ret));
+    PRINT_LOG("HTTPS handshake: -0x%04X\r\n", (unsigned)(-ret));
     mbedtls_ssl_free(&ssl);
     return;
   }
@@ -225,7 +226,7 @@ static void https_serve_conn(struct netconn *newconn)
   size_t cur = 0, cur_blk = 0, max = 0, max_blk = 0;
   mbedtls_memory_buffer_alloc_cur_get(&cur, &cur_blk);
   mbedtls_memory_buffer_alloc_max_get(&max, &max_blk);
-  printf("HTTPS conn done, TLS heap cur=%u max=%u\r\n",
+  PRINT_LOG("HTTPS conn done, TLS heap cur=%u max=%u\r\n",
          (unsigned)cur, (unsigned)max);
 #endif
 }
@@ -241,25 +242,25 @@ static void https_server_thread(void *arg)
   conn = netconn_new(NETCONN_TCP);
   if (conn == NULL)
   {
-    printf("HTTPS: netconn_new failed\r\n");
+    PRINT_LOG("HTTPS: netconn_new failed\r\n");
     vTaskDelete(NULL);
     return;
   }
   if (netconn_bind(conn, IP_ADDR_ANY, HTTPS_PORT) != ERR_OK)
   {
-    printf("HTTPS: bind 443 failed\r\n");
+    PRINT_LOG("HTTPS: bind 443 failed\r\n");
     netconn_delete(conn);
     vTaskDelete(NULL);
     return;
   }
   if (netconn_listen(conn) != ERR_OK)
   {
-    printf("HTTPS: listen failed\r\n");
+    PRINT_LOG("HTTPS: listen failed\r\n");
     netconn_delete(conn);
     vTaskDelete(NULL);
     return;
   }
-  printf("HTTPS server: listening on port 443 (mbedTLS %s)\r\n",
+  PRINT_LOG("HTTPS server: listening on port 443 (mbedTLS %s)\r\n",
          MBEDTLS_VERSION_STRING);
 
   for (;;)
@@ -304,7 +305,7 @@ void https_server_init(void)
                                    strlen(tls_cert_pem) + 1);
   if (ret != 0)
   {
-    printf("HTTPS cert parse failed: -0x%04X\r\n", (unsigned)(-ret));
+    PRINT_LOG("HTTPS cert parse failed: -0x%04X\r\n", (unsigned)(-ret));
     return;
   }
   ret = mbedtls_pk_parse_key(&g_pkey,
@@ -312,7 +313,7 @@ void https_server_init(void)
                              strlen(tls_key_pem) + 1, NULL, 0, https_rng, NULL);
   if (ret != 0)
   {
-    printf("HTTPS key parse failed: -0x%04X\r\n", (unsigned)(-ret));
+    PRINT_LOG("HTTPS key parse failed: -0x%04X\r\n", (unsigned)(-ret));
     return;
   }
 
@@ -321,7 +322,7 @@ void https_server_init(void)
                                     MBEDTLS_SSL_PRESET_DEFAULT);
   if (ret != 0)
   {
-    printf("HTTPS ssl_config_defaults failed: -0x%04X\r\n", (unsigned)(-ret));
+    PRINT_LOG("HTTPS ssl_config_defaults failed: -0x%04X\r\n", (unsigned)(-ret));
     return;
   }
   mbedtls_ssl_conf_authmode(&g_conf, MBEDTLS_SSL_VERIFY_NONE);
@@ -329,13 +330,13 @@ void https_server_init(void)
   ret = mbedtls_ssl_conf_own_cert(&g_conf, &g_srvcert, &g_pkey);
   if (ret != 0)
   {
-    printf("HTTPS own_cert failed: -0x%04X\r\n", (unsigned)(-ret));
+    PRINT_LOG("HTTPS own_cert failed: -0x%04X\r\n", (unsigned)(-ret));
     return;
   }
 
   if (xTaskCreate(https_server_thread, "httpsd", HTTPS_STACK_SIZE, NULL,
                   HTTPS_TASK_PRIORITY, NULL) != pdPASS)
   {
-    printf("HTTPS: task create failed\r\n");
+    PRINT_LOG("HTTPS: task create failed\r\n");
   }
 }
