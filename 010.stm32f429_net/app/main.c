@@ -28,6 +28,7 @@
 #include "lwip.h"
 #include "http_server.h"
 #include "https_server.h"
+#include "hwinfo.h"
 
 static void SystemClock_Config(void);
 void Error_Handler(void);
@@ -99,6 +100,11 @@ int main(void)
   https_server_init();
   __set_BASEPRI(0);
   __enable_irq();
+
+  /* Shared hardware info collector (web/telnet/snmp read from it).
+   * Spawns hwinfo_task at HWINFO_PERIOD_MS; the task runs after the
+   * scheduler starts. */
+  hwinfo_init();
 
   printf("FreeRTOS scheduler starting... (IP 192.168.10.99)\r\n");
 

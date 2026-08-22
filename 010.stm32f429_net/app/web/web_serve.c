@@ -16,10 +16,7 @@
 #include "web_serve.h"
 #include "web_page.h"
 #include "web_assets.h"
-#include "bsp_ap3216.h"
-#include "bsp_mpu9250.h"
-#include "bsp_led.h"
-#include "bsp_pcf8574.h"
+#include "hwinfo.h"          /* shared static/dynamic info (web/telnet/snmp) */
 #include "netcfg.h"
 #include "lwip/netif.h"
 #include "lwip/ip_addr.h"
@@ -29,10 +26,6 @@
 #include <string.h>
 
 #define REQ_BUF     2048         /* must hold request line + headers + body */
-
-/* ---- shared IO state ---- */
-static uint8_t g_led_on  = 0;
-static uint8_t g_beep_on = 0;
 static SemaphoreHandle_t g_i2c_mutex = NULL;
 
 extern struct netif gnetif;          /* lwip.h also declares it */
@@ -81,36 +74,32 @@ static void send_json(web_send_fn send, void *sctx, const char *json, int len)
 
 static void api_hardware(web_send_fn send, void *sctx)
 {
-  ap3216c_data_t als;
-  mpu9250_data_t imu;
+  hwinfo_static_t  sta;
+  hwinfo_dynamic_t dyn;
   char f[9][16];      /* one buffer per value (no %f in newlib-nano) */
   char j[1024];
   int n;
 
-  web_i2c_lock();
-  int ok1 = bsp_ap3216c_read(&als);
-  int ok2 = bsp_mpu9250_read(&imu);
-  web_i2c_unlock();
+  /* Snapshot the shared info (atomic whole-struct copy under critical sec). */
+  hwinfo_static_copy(&sta);
+  hwinfo_dynamic_copy(&dyn);
 
-  if (ok1 != 0) { als.lux = als.ps = als.ir = 0; }
-  if (ok2 != 0) { imu.ax = imu.ay = imu.az = 0;
-                  imu.gx = imu.gy = imu.gz = 0;
-                  imu.mx = imu.my = imu.mz = 0; }
-
-  fmt1(f[0], imu.ax); fmt1(f[1], imu.ay); fmt1(f[2], imu.az);
-  fmt1(f[3], imu.gx); fmt1(f[4], imu.gy); fmt1(f[5], imu.gz);
-  fmt1(f[6], imu.mx); fmt1(f[7], imu.my); fmt1(f[8], imu.mz);
+  fmt1(f[0], dyn.ax); fmt1(f[1], dyn.ay); fmt1(f[2], dyn.az);
+  fmt1(f[3], dyn.gx); fmt1(f[4], dyn.gy); fmt1(f[5], dyn.gz);
+  fmt1(f[6], dyn.mx); fmt1(f[7], dyn.my); fmt1(f[8], dyn.mz);
 
   n = snprintf(j, sizeof(j),
-    "{\"mcu\":\"STM32F429IGT6\",\"clock\":\"180 MHz\","
-    "\"ap3216c\":{\"lux\":%u,\"ps\":%u,\"ir\":%u},"
+    "{\"mcu\":\"%s\",\"clock\":\"%s\",\"tasks\":%u,"
+    "\"ap3216c\":{\"lux\":%u,\"ps\":%u,\"ir\":%u,\"valid\":%u},"
     "\"mpu9250\":{\"ax\":%s,\"ay\":%s,\"az\":%s,"
     "\"gx\":%s,\"gy\":%s,\"gz\":%s,"
     "\"mx\":%s,\"my\":%s,\"mz\":%s},"
     "\"led\":%u,\"beep\":%u}",
-    (unsigned)als.lux, (unsigned)als.ps, (unsigned)als.ir,
+    sta.mcu, sta.clock, (unsigned)sta.freertos_tasks,
+    (unsigned)dyn.lux, (unsigned)dyn.ps, (unsigned)dyn.ir,
+    (unsigned)dyn.sensor_valid,
     f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8],
-    (unsigned)g_led_on, (unsigned)g_beep_on);
+    (unsigned)dyn.led_on, (unsigned)dyn.beep_on);
 
   send_json(send, sctx, j, n);
 }
@@ -176,15 +165,12 @@ static void api_control(const char *body, web_send_fn send, void *sctx)
   int v;
   if (json_get_int(body, "led", &v))
   {
-    g_led_on = (uint8_t)(v ? 1 : 0);
-    /* NB: web-controlled LED is LED1/PB0 (non-heartbeat). PB1 is the
-     * heartbeat and must not be driven by the web API. */
-    if (g_led_on) BSP_LED_On(1); else BSP_LED_Off(1);
+    /* Routes to the shared control path (PB0, non-heartbeat LED). */
+    hwinfo_set_led((uint8_t)(v ? 1 : 0));
   }
   if (json_get_int(body, "beep", &v))
   {
-    g_beep_on = (uint8_t)(v ? 1 : 0);
-    if (g_beep_on) BSP_BEEP_On(); else BSP_BEEP_Off();
+    hwinfo_set_beep((uint8_t)(v ? 1 : 0));
   }
   send_json(send, sctx, "{\"ok\":true}", 11);
 }
