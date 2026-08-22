@@ -42,9 +42,14 @@ include_directories(
   third_party/LwIP/system/arch
   third_party/FreeRTOS-Kernel/include
   third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F
+  third_party/mbedtls/include
 )
 
 add_compile_definitions(STM32F429xx USE_HAL_DRIVER)
+# mbedTLS: point MBEDTLS_CONFIG_FILE at our whitelist config (app/mbedtls_config.h).
+# Angle-bracket form is required: quote form would resolve to the stock config
+# in include/mbedtls/ (quote-include searches the includer's directory first).
+add_compile_definitions(MBEDTLS_CONFIG_FILE=<mbedtls_config.h>)
 
 # ------------------------------------------------------------------
 # Sources
@@ -110,6 +115,47 @@ list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/sockets\\.c")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/netdb\\.c")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/if_api\\.c")
 
+# mbedTLS: exactly the modules enabled by app/mbedtls_config.h (TLS 1.2 server,
+# ECDHE-ECDSA P-256, AES-128-GCM, SHA-256, X509/PK parse, buffer allocator).
+set(MBEDTLS_SOURCES
+  third_party/mbedtls/library/aes.c
+  third_party/mbedtls/library/asn1parse.c
+  third_party/mbedtls/library/asn1write.c
+  third_party/mbedtls/library/base64.c
+  third_party/mbedtls/library/bignum.c
+  third_party/mbedtls/library/bignum_core.c
+  third_party/mbedtls/library/bignum_mod.c
+  third_party/mbedtls/library/bignum_mod_raw.c
+  third_party/mbedtls/library/block_cipher.c
+  third_party/mbedtls/library/cipher.c
+  third_party/mbedtls/library/cipher_wrap.c
+  third_party/mbedtls/library/constant_time.c
+  third_party/mbedtls/library/ecdh.c
+  third_party/mbedtls/library/ecdsa.c
+  third_party/mbedtls/library/ecp.c
+  third_party/mbedtls/library/ecp_curves.c
+  third_party/mbedtls/library/error.c
+  third_party/mbedtls/library/gcm.c
+  third_party/mbedtls/library/md.c
+  third_party/mbedtls/library/memory_buffer_alloc.c
+  third_party/mbedtls/library/oid.c
+  third_party/mbedtls/library/pem.c
+  third_party/mbedtls/library/pk.c
+  third_party/mbedtls/library/pk_ecc.c
+  third_party/mbedtls/library/pk_wrap.c
+  third_party/mbedtls/library/pkparse.c
+  third_party/mbedtls/library/platform.c
+  third_party/mbedtls/library/platform_util.c
+  third_party/mbedtls/library/sha1.c
+  third_party/mbedtls/library/sha256.c
+  third_party/mbedtls/library/ssl_ciphersuites.c
+  third_party/mbedtls/library/ssl_msg.c
+  third_party/mbedtls/library/ssl_tls.c
+  third_party/mbedtls/library/ssl_tls12_server.c
+  third_party/mbedtls/library/x509.c
+  third_party/mbedtls/library/x509_crt.c
+)
+
 # ------------------------------------------------------------------
 # Executable
 # ------------------------------------------------------------------
@@ -121,6 +167,7 @@ add_executable(${PROJECT_NAME}.elf
   ${HAL_SOURCES}
   ${LWIP_SOURCES}
   ${FREERTOS_SOURCES}
+  ${MBEDTLS_SOURCES}
 )
 
 # LwIP 2.1 quirk: api_lib.c computes polls_left with a large constant that

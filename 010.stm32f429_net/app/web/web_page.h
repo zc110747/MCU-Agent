@@ -8,6 +8,7 @@ static const char HTTP_PAGE[] =
 "<head>\r\n"
 "  <meta charset=\"utf-8\">\r\n"
 "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\r\n"
+"  <link rel=\"icon\" href=\"data:,\">\r\n"
 "  <title>STM32F429 Web Server</title>\r\n"
 "  <style>\r\n"
 "    body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}\r\n"

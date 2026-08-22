@@ -17,6 +17,7 @@
   ******************************************************************************
   */
 #include "bsp_sdram.h"
+#include "bsp_delay.h"
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
 
@@ -112,7 +113,7 @@ static int sdram_initialize_sequence(void)
   int result = 0;
 
   result |= sdram_send_command(0, FMC_SDRAM_CMD_CLK_ENABLE, 1, 0);
-  HAL_Delay(1);
+  bsp_delay_us(1000U);   /* >= 100 us: settle before PALL (DWT busy-wait) */
   result |= sdram_send_command(0, FMC_SDRAM_CMD_PALL, 1, 0);
   result |= sdram_send_command(0, FMC_SDRAM_CMD_AUTOREFRESH_MODE, 1, 0);
 

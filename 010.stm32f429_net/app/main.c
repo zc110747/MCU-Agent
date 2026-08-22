@@ -22,6 +22,7 @@
 #include "bsp_sdram.h"
 #include "lwip.h"
 #include "http_server.h"
+#include "https_server.h"
 
 static void SystemClock_Config(void);
 void Error_Handler(void);
@@ -68,9 +69,21 @@ int main(void)
 
   /* LwIP (FreeRTOS mode): tcpip_thread + netif + link task */
   MX_LWIP_Init();
+  /* FreeRTOS V11 quirk: xTaskCreate before vTaskStartScheduler leaves
+   * BASEPRI set to configMAX_SYSCALL_INTERRUPT_PRIORITY (vPortEnterCritical
+   * inside, vPortExitCritical gated on xSchedulerRunning). Clear it here so
+   * TIM7 IRQ and HAL_Delay still work for any subsequent pre-scheduler
+   * syscalls. */
+  __set_BASEPRI(0);
+  __enable_irq();
 
-  /* HTTP server task (netconn API, port 80) */
+  /* HTTP (port 80) + HTTPS (port 443, mbedTLS) server tasks */
   http_server_init();
+  __set_BASEPRI(0);
+  __enable_irq();
+  https_server_init();
+  __set_BASEPRI(0);
+  __enable_irq();
 
   printf("FreeRTOS scheduler starting... (IP 192.168.10.99)\r\n");
 
