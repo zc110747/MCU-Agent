@@ -1,29 +1,45 @@
 /**
   ******************************************************************************
   * @file    main.c
-  * @brief   STM32F429IGT6 + LwIP (NO_SYS) network demo.
+  * @brief   STM32F429IGT6 + FreeRTOS + LwIP + SDRAM network demo.
   *          - LAN8720 PHY (released from reset via PCF8574 P7)
-  *          - Static IPv4 192.168.10.99
-  *          - Minimal HTTP server (port 80) serving a flash page
-  *          - LED heartbeat, USART1(PA9/PA10) debug console
+  *          - Static IPv4 192.168.10.99, tcpip_thread drives LwIP
+  *          - HTTP server task (netconn API) on port 80
+  *          - External SDRAM 32 MB @0xC0000000: FreeRTOS heap + LwIP pools
+  *          - HAL 1 ms time base on TIM7 (SysTick belongs to FreeRTOS)
+  *          - LED heartbeat task, USART1(PA9/PA10) debug console
   ******************************************************************************
   */
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <stdio.h>
 
 #include "bsp_led.h"
 #include "bsp_uart.h"
 #include "bsp_i2c.h"
 #include "bsp_pcf8574.h"
+#include "bsp_sdram.h"
 #include "lwip.h"
 #include "http_server.h"
 
 static void SystemClock_Config(void);
 void Error_Handler(void);
 
+/* ---- LED heartbeat task ---- */
+static void led_task(void *arg)
+{
+  (void)arg;
+  for (;;)
+  {
+    BSP_LED_Toggle(0);
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+}
+
 int main(void)
 {
-  /* Reset of all peripherals, initializes the Flash interface and SysTick */
+  /* Reset of all peripherals, initializes the Flash interface and TIM7 tick */
   HAL_Init();
 
   /* Configure the system clock to 180 MHz (HSE 25 MHz -> PLL) */
@@ -31,7 +47,7 @@ int main(void)
 
   /* Debug console */
   BSP_UART_Init();
-  printf("\r\nSTM32F429 NET demo starting...\r\n");
+  printf("\r\nSTM32F429 NET demo starting (FreeRTOS + LwIP)...\r\n");
 
   /* Board status LED */
   BSP_LED_Init();
@@ -42,27 +58,28 @@ int main(void)
   BSP_ETH_PHY_Reset();
   printf("ETH PHY (LAN8720) released from reset.\r\n");
 
-  /* LwIP stack (NO_SYS) */
-  MX_LWIP_Init();
-  http_server_init();
-  printf("LwIP ready. Target IP = 192.168.10.99\r\n");
-
-  uint32_t led_toggle_ms = 0U;
-
-  /* Main loop */
-  while (1)
+  /* External SDRAM: MUST be up before any code touches 0xC0000000
+   * (FreeRTOS heap + LwIP pools live there). */
+  if (bsp_sdram_init() != 0)
   {
-    /* LwIP: process RX, link state, timeouts */
-    MX_LWIP_Process();
-
-    /* Heartbeat LED */
-    uint32_t now = HAL_GetTick();
-    if ((now - led_toggle_ms) >= 500U)
-    {
-      led_toggle_ms = now;
-      BSP_LED_Toggle(0);
-    }
+    printf("FATAL: SDRAM init failed, halting.\r\n");
+    Error_Handler();
   }
+
+  /* LwIP (FreeRTOS mode): tcpip_thread + netif + link task */
+  MX_LWIP_Init();
+
+  /* HTTP server task (netconn API, port 80) */
+  http_server_init();
+
+  printf("FreeRTOS scheduler starting... (IP 192.168.10.99)\r\n");
+
+  /* Create the LED heartbeat task, then start the scheduler */
+  xTaskCreate(led_task, "led", 128, NULL, tskIDLE_PRIORITY + 1, NULL);
+  vTaskStartScheduler();
+
+  /* Should never reach here */
+  Error_Handler();
 }
 
 /**

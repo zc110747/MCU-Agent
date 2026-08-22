@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-typedef int sys_prot_t;
+/* sys_prot_t is provided by arch/sys_arch.h (FreeRTOS port). */
 
 #define LWIP_PROVIDE_ERRNO
 

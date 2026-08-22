@@ -1,12 +1,15 @@
 /**
   ******************************************************************************
   * @file    ethernetif.c
-  * @brief   Ethernet interface driver for STM32F429 + LAN8720 (LwIP, NO_SYS).
+  * @brief   Ethernet interface driver for STM32F429 + LAN8720 (LwIP + FreeRTOS).
+  *          RX pbufs are handed to the tcpip_thread directly from the ETH ISR
+  *          via tcpip_input(); link state is polled by a dedicated task.
   ******************************************************************************
   */
 #include "stm32f4xx_hal.h"
 #include "lwip/opt.h"
 #include "lwip/timeouts.h"
+#include "lwip/tcpip.h"
 #include "lwip/memp.h"
 #include "netif/ethernet.h"
 #include "netif/etharp.h"
@@ -18,6 +21,9 @@
 /* Network interface name */
 #define IFNAME0 's'
 #define IFNAME1 't'
+
+/* The global netif (defined in lwip.c) */
+extern struct netif gnetif;
 
 /* ETH settings */
 #define ETH_DMA_TRANSMIT_TIMEOUT   ( 20U )
@@ -45,8 +51,6 @@ ETH_DMADescTypeDef  DMATxDscrTab[ETH_TX_DESC_CNT];  /* Ethernet Tx DMA Descripto
 
 ETH_HandleTypeDef heth;
 ETH_TxPacketConfig TxConfig;
-
-volatile uint8_t eth_rx_ready = 0;
 
 /* PHY IO context */
 static int32_t ETH_PHY_IO_Init(void);
@@ -155,8 +159,6 @@ static void low_level_init(struct netif *netif)
   /* Initialize the LAN8720 PHY */
   LAN8720_Init(&LAN8720);
 
-  eth_rx_ready = 0;
-
   if (hal_eth_init_status == HAL_OK)
   {
     PHYLinkState = LAN8720_GetLinkState(&LAN8720);
@@ -259,28 +261,15 @@ static struct pbuf *low_level_input(struct netif *netif)
   return p;
 }
 
-void ethernetif_input(struct netif *netif)
+/*******************************************************************************
+                       Link monitoring (FreeRTOS task)
+*******************************************************************************/
+void ethernet_link_status_updated(struct netif *netif)
 {
-  struct pbuf *p = NULL;
-
-  do
-  {
-    p = low_level_input(netif);
-    if (p != NULL)
-    {
-      if (netif->input(p, netif) != ERR_OK)
-      {
-        pbuf_free(p);
-      }
-    }
-  } while (p != NULL);
-
-  eth_rx_ready = 0;
+  (void)netif;
+  /* ethernet_link_check() already drives netif_set_up/down + MAC config */
 }
 
-/*******************************************************************************
-                       Link monitoring (NO_SYS polling)
-*******************************************************************************/
 void ethernet_link_check(struct netif *netif)
 {
   static uint32_t last_check = 0U;
@@ -393,7 +382,20 @@ void pbuf_free_custom(struct pbuf *p)
 void HAL_ETH_RxCpltCallback(ETH_HandleTypeDef *handlerEth)
 {
   (void)handlerEth;
-  eth_rx_ready = 1;
+  struct pbuf *p = NULL;
+
+  if (RxAllocStatus == RX_ALLOC_OK)
+  {
+    HAL_ETH_ReadData(&heth, (void **)&p);
+  }
+  if (p != NULL)
+  {
+    /* Hand the frame to the tcpip_thread (ISR-safe via sys_arch.c) */
+    if (tcpip_input(p, &gnetif) != ERR_OK)
+    {
+      pbuf_free(p);
+    }
+  }
 }
 
 void HAL_ETH_RxAllocateCallback(uint8_t **buff)
@@ -585,11 +587,6 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
 
     HAL_NVIC_DisableIRQ(ETH_IRQn);
   }
-}
-
-u32_t sys_now(void)
-{
-  return HAL_GetTick();
 }
 
 /* USER CODE BEGIN 1 */

@@ -1,103 +1,96 @@
 /**
   ******************************************************************************
   * @file    http_server.c
-  * @brief   Minimal HTTP/1.1 server (LwIP raw API) serving a flash page.
+  * @brief   Minimal HTTP/1.1 server (LwIP netconn API) in its own FreeRTOS
+  *          task, serving the flash page on port 80.
   ******************************************************************************
   */
 #include "http_server.h"
-#include "lwip/tcp.h"
-#include "lwip/pbuf.h"
-#include <string.h>
-#include <stdio.h>
+#include "lwip/api.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "web_page.h"
+#include <stdio.h>
+#include <string.h>
 
-static struct tcp_pcb *http_pcb = NULL;
+#define HTTP_SERVER_STACK_SIZE   512
+#define HTTP_SERVER_PRIORITY     3
 
-static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err);
-static err_t http_accept(void *arg, struct tcp_pcb *pcb, err_t err);
-
-static void http_send(struct tcp_pcb *pcb)
-{
-  char header[160];
-  int header_len;
-  int page_len = (int)strlen(HTTP_PAGE);
-
-  header_len = snprintf(header, sizeof(header),
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/html; charset=utf-8\r\n"
-      "Content-Length: %d\r\n"
-      "Connection: close\r\n"
-      "\r\n", page_len);
-
-  /* COPY flag: the stack copies the data, so we may reuse/free our buffers */
-  if (tcp_write(pcb, header, (u16_t)header_len, TCP_WRITE_FLAG_COPY) == ERR_OK)
-  {
-    tcp_write(pcb, HTTP_PAGE, (u16_t)page_len, TCP_WRITE_FLAG_COPY);
-  }
-  tcp_output(pcb);
-  tcp_close(pcb);
-}
-
-static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+static void http_server_thread(void *arg)
 {
   (void)arg;
+  struct netconn *conn = NULL;
+  struct netconn *newconn = NULL;
+  err_t err;
 
+  conn = netconn_new(NETCONN_TCP);
+  if (conn == NULL)
+  {
+    printf("HTTP server: netconn_new failed\r\n");
+    vTaskDelete(NULL);
+    return;
+  }
+
+  err = netconn_bind(conn, IP_ADDR_ANY, 80);
   if (err != ERR_OK)
   {
-    if (p != NULL)
-    {
-      pbuf_free(p);
-    }
-    return ERR_OK;
+    printf("HTTP server: bind failed (%d)\r\n", (int)err);
+    netconn_delete(conn);
+    vTaskDelete(NULL);
+    return;
   }
 
-  /* Connection closed by the client */
-  if (p == NULL)
+  err = netconn_listen(conn);
+  if (err != ERR_OK)
   {
-    tcp_close(pcb);
-    return ERR_OK;
+    printf("HTTP server: listen failed (%d)\r\n", (int)err);
+    netconn_delete(conn);
+    vTaskDelete(NULL);
+    return;
   }
 
-  /* We don't parse the request here; just acknowledge and send the page */
-  tcp_recved(pcb, p->tot_len);
-  pbuf_free(p);
+  printf("HTTP server: listening on port 80 (netconn task)\r\n");
 
-  http_send(pcb);
-  return ERR_OK;
-}
+  for (;;)
+  {
+    err = netconn_accept(conn, &newconn);
+    if (err != ERR_OK)
+    {
+      continue;
+    }
 
-static err_t http_accept(void *arg, struct tcp_pcb *pcb, err_t err)
-{
-  (void)arg;
-  (void)err;
+    /* Drain the request first: closing a conn with unread data sends RST. */
+    struct netbuf *inbuf = NULL;
+    if (netconn_recv(newconn, &inbuf) == ERR_OK && inbuf != NULL)
+    {
+      netbuf_delete(inbuf);
+    }
 
-  tcp_setprio(pcb, TCP_PRIO_NORMAL);
-  tcp_recv(pcb, http_recv);
-  return ERR_OK;
+    /* Reply with the flash page */
+    char header[160];
+    int page_len = (int)strlen(HTTP_PAGE);
+    int header_len = snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        "Content-Length: %d\r\n"
+        "Connection: close\r\n"
+        "\r\n", page_len);
+
+    if (netconn_write(newconn, header, (u16_t)header_len, NETCONN_COPY) == ERR_OK)
+    {
+      netconn_write(newconn, HTTP_PAGE, (u16_t)page_len, NETCONN_COPY);
+    }
+
+    netconn_close(newconn);
+    netconn_delete(newconn);
+  }
 }
 
 void http_server_init(void)
 {
-  http_pcb = tcp_new();
-  if (http_pcb == NULL)
+  if (xTaskCreate(http_server_thread, "httpd", HTTP_SERVER_STACK_SIZE, NULL,
+                  HTTP_SERVER_PRIORITY, NULL) != pdPASS)
   {
-    printf("HTTP server: tcp_new failed\r\n");
-    return;
+    printf("HTTP server: task create failed\r\n");
   }
-
-  if (tcp_bind(http_pcb, IP_ADDR_ANY, 80) != ERR_OK)
-  {
-    printf("HTTP server: bind failed\r\n");
-    return;
-  }
-
-  http_pcb = tcp_listen(http_pcb);
-  if (http_pcb == NULL)
-  {
-    printf("HTTP server: listen failed\r\n");
-    return;
-  }
-
-  tcp_accept(http_pcb, http_accept);
-  printf("HTTP server: listening on port 80\r\n");
 }

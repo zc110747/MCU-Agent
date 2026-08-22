@@ -1,39 +1,29 @@
 /*
- * lwipopts.h - LwIP configuration for STM32F429 + LAN8720.
+ * lwipopts.h - LwIP configuration for STM32F429 + LAN8720 + FreeRTOS.
  *
- * Built WITHOUT an operating system (NO_SYS = 1): the raw API is driven
- * from the main loop. This avoids any cmsis_os / RTOS dependency.
+ * Built WITH an OS (NO_SYS = 0): tcpip_thread runs the core stack, the
+ * Ethernet input is fed via tcpip_input() from the ETH IRQ, and the HTTP
+ * server uses the netconn API in its own task.  sys_arch.c (FreeRTOS)
+ * provides the OS abstraction.  LwIP heap + memp pools live in SDRAM
+ * (section .lwip_memp_pool, see linker script + mem.c/memp.c patches).
  */
 #ifndef __LWIPOPTS_H__
 #define __LWIPOPTS_H__
 
 /* ------------------------------------------------------------------ */
-/* Core: no operating system                                          */
+/* Core: FreeRTOS multi-threaded                                      */
 /* ------------------------------------------------------------------ */
-#define NO_SYS                      1
+#define NO_SYS                      0
 
-/* Sequential / socket API off (we use the raw TCP API directly). */
-#define LWIP_NETCONN                0
+/* Sequential API (netconn) on; socket API off (netconn is lighter). */
+#define LWIP_NETCONN                1
 #define LWIP_SOCKET                 0
 #define LWIP_DNS                    0
 
-/* The pbuf/memp pool is allocated from the ETH RX interrupt and freed
- * from the main loop, so it needs a real critical section. We provide
- * SYS_ARCH_PROTECT / SYS_ARCH_UNPROTECT as inline-asm macros here, which
- * saves/restores PRIMASK (so interrupts are only re-enabled if they were
- * enabled before, keeping the ETH ISR atomic). */
+/* The pbuf/memp pools are touched from both the ETH IRQ and the
+ * tcpip_thread, so real critical sections are needed.  Provided by
+ * sys_arch.h/sys_arch.c (FreeRTOS vPortEnterCritical). */
 #define SYS_LIGHTWEIGHT_PROT        1
-#define SYS_ARCH_DECL_PROTECT(lev)  sys_prot_t lev
-#define SYS_ARCH_PROTECT(lev) do {               \
-    unsigned long __p;                           \
-    __asm__ volatile ("mrs %0, PRIMASK" : "=r" (__p)); \
-    __asm__ volatile ("cpsid i" ::: "memory");   \
-    (lev) = (sys_prot_t)__p;                     \
-  } while (0)
-#define SYS_ARCH_UNPROTECT(lev) do {            \
-    if (!((unsigned long)(lev) & 1UL))          \
-      __asm__ volatile ("cpsie i" ::: "memory"); \
-  } while (0)
 
 /* ------------------------------------------------------------------ */
 /* Platform / processor                                               */
@@ -114,22 +104,23 @@
 #define LWIP_DBG_MIN_LEVEL          LWIP_DBG_LEVEL_SERIOUS
 
 /* ------------------------------------------------------------------ */
-/* Memory                                                            */
+/* Memory (all LwIP heap/memp pools live in SDRAM, see mem.c/memp.c    */
+/* section patches + linker script)                                    */
 /* ------------------------------------------------------------------ */
-#define MEM_SIZE                    (16 * 1024)
-#define MEMP_NUM_PBUF               32
+#define MEM_SIZE                    (128 * 1024)
+#define MEMP_NUM_PBUF               64
 #define MEMP_NUM_RAW_PCB            1
 #define MEMP_NUM_UDP_PCB            4
-#define MEMP_NUM_TCP_PCB            5
-#define MEMP_NUM_TCP_PCB_LISTEN     2
-#define MEMP_NUM_TCP_SEG            24
+#define MEMP_NUM_TCP_PCB            8
+#define MEMP_NUM_TCP_PCB_LISTEN     4
+#define MEMP_NUM_TCP_SEG            40
 #define MEMP_NUM_REASSDATA          5
 #define MEMP_NUM_ARP_QUEUE          10
-#define MEMP_NUM_SYS_TIMEOUT        16
-#define MEMP_NUM_NETBUF             1
-#define MEMP_NUM_NETCONN            1
-#define MEMP_NUM_TCPIP_MSG_API      1
-#define MEMP_NUM_TCPIP_MSG_INPKT    1
+#define MEMP_NUM_SYS_TIMEOUT        24
+#define MEMP_NUM_NETBUF             4
+#define MEMP_NUM_NETCONN            4
+#define MEMP_NUM_TCPIP_MSG_API      8
+#define MEMP_NUM_TCPIP_MSG_INPKT    8
 
 /* ARP */
 #define ARP_TABLE_SIZE              10
@@ -159,12 +150,12 @@
 
 /* TCP */
 #define TCP_TTL                     (IP_DEFAULT_TTL)
-#define TCP_WND                     (2 * TCP_MSS)
+#define TCP_WND                     (6 * TCP_MSS)
 #define TCP_MAXRTX                  12
 #define TCP_SYNMAXRTX               6
 #define TCP_MSS                     1460
 #define TCP_CALCULATE_EFF_SEND_MSS  1
-#define TCP_SND_BUF                 (2 * TCP_MSS)
+#define TCP_SND_BUF                 (8 * TCP_MSS)
 #define TCP_SND_QUEUELEN           (4 * (TCP_SND_BUF / TCP_MSS))
 #define TCP_LISTEN_BACKLOG          1
 #define TCP_DEFAULT_LISTEN_BACKLOG  5
@@ -174,7 +165,20 @@
 /* PBUF */
 #define PBUF_LINK_HLEN              14
 #define PBUF_POOL_BUFSIZE          256
-#define PBUF_POOL_SIZE             32
+#define PBUF_POOL_SIZE             64
 #define ETH_PAD_SIZE               0
+
+/* ------------------------------------------------------------------ */
+/* tcpip_thread / netconn task sizes (units: stack words)             */
+/* ------------------------------------------------------------------ */
+#define TCPIP_THREAD_STACKSIZE      1024
+#define TCPIP_THREAD_PRIO           3
+#define TCPIP_MBOX_SIZE             16    /* tcpip_thread message queue */
+#define DEFAULT_THREAD_STACKSIZE    1024
+#define DEFAULT_THREAD_PRIO         3
+#define DEFAULT_ACCEPTMBOX_SIZE     4
+#define DEFAULT_TCP_RECVMBOX_SIZE   8
+#define DEFAULT_UDP_RECVMBOX_SIZE   8
+#define DEFAULT_RAW_RECVMBOX_SIZE   8
 
 #endif /* __LWIPOPTS_H__ */

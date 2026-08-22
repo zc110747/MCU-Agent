@@ -1,0 +1,95 @@
+# STM32F429 + FreeRTOS + LwIP + SDRAM 网络工程
+
+基于 STM32F429IGT6 的裸机网络工程，升级为 **FreeRTOS V11.1.0 + LwIP 2.1 多线程** 架构，
+带 **外部 SDRAM 内存池**（FreeRTOS 堆 + LwIP 堆），HTTP 服务器跑在独立任务（netconn API）。
+
+## 硬件
+
+| 项目 | 配置 |
+|---|---|
+| MCU | STM32F429IGT6 (Cortex-M4 @ 180MHz, HSE 25MHz, PLL M=25 N=360 P=2) |
+| SRAM | 192KB 连续 @0x20000000 (SRAM1 112K + SRAM2 16K + SRAM3 64K)；CCM 64K 不可用于 ETH DMA |
+| FLASH | 1024KB @0x08000000 |
+| SDRAM | W9825G6KH-6, 32MB @0xC0000000 (FMC Bank1, 16bit, 90MHz) |
+| PHY | LAN8720A (RMII, addr 0)，复位由 PCF8574T(I2C 0x20) P7 控制 |
+| 串口 | USART1 PA9/PA10 @115200 (COM3) |
+| LED | PB0/PB1 低电平点亮 |
+| IP | 192.168.10.99 / 255.255.255.0 / GW 192.168.10.1 |
+
+## 软件架构
+
+```
+┌─ main ───────────────────────────────────────────────┐
+│  HAL_Init(TIM7 时基) → 时钟 → UART/LED/I2C → SDRAM    │
+│  → MX_LWIP_Init(tcpip_thread) → httpd 任务            │
+│  → vTaskStartScheduler()                              │
+└───────────────────────────────────────────────────────┘
+FreeRTOS 任务:
+  tcpip_thread (prio 3)  LwIP 协议栈（tcpip_init 创建）
+  EthLink      (prio 2)  LAN8720 链路监控 (500ms 轮询)
+  httpd        (prio 3)  HTTP server (netconn, 端口 80)
+  led          (prio 1)  LED 心跳
+```
+
+### 内存布局（SDRAM 32MB 仅用 ~640KB）
+
+| 区域 | 地址 | 大小 | 用途 |
+|---|---|---|---|
+| LwIP mem heap (ram_heap) | 0xC0000000 | 128KB | LwIP 动态内存 (MEM_SIZE) |
+| FreeRTOS heap (ucHeap) | 0xC0020000 | 512KB | 任务/队列/信号量 (heap_4) |
+| 其余 | — | ~31MB | 预留（未来 TLS/mbedTLS 池等） |
+
+**ETH RX 零拷贝缓冲（RX_POOL）必须留在内部 SRAM**：ETH DMA 写 SDRAM 在分片突发时
+丢包（实测 `ping -l 1473` 起不稳定）。memp 池（PBUF 等）也在 SRAM。
+
+### 关键设计
+
+- **HAL 时基 = TIM7**（`app/stm32f4xx_hal_timebase_tim.c`）：SysTick 让给 FreeRTOS。
+- **LwIP 多线程**：`NO_SYS=0`、`LWIP_NETCONN=1`、`tcpip_input()` 从 ETH ISR 喂包。
+- **sys_arch**（`app/lwip/sys_arch.c`）：FreeRTOS 实现 mbox/sem/mutex/thread。
+- **校验和**：软件（`ETH_USE_HW_CHECKSUM=0`）——硬件卸载破坏 IP 分片（见 lwipopts.h 注释）。
+- **HTTP**：netconn API + 独立任务，连接后先读请求再响应（close 前不读会发 RST）。
+
+## 构建
+
+```bash
+cmake -G Ninja -B build              # Debug
+cmake -G Ninja -B build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+产物 `build/stm32f429_net.elf/.hex/.bin`。Debug/Release 双构零警告（仅 RWX 良性提示）。
+
+## 验收结果（真机）
+
+| 项目 | 结果 |
+|---|---|
+| SDRAM 自检 | 32MB @ 0xC0000000 OK (FMC 90MHz) |
+| FreeRTOS 启动 | 调度器正常，无 assert |
+| ping 192.168.10.99 | 20/20，RTT 1-2ms |
+| ICMP 32B→16000B（含 11 分片重组） | 全通 |
+| `ping -f -l 1472`（DF） | 9/9 |
+| HTTP GET / | 200 OK，Content-Length 1675 |
+| HTTP 连续 30 次 | 30/30 |
+| CFSR / HFSR | 0 / 0 |
+| 资源占用 | FLASH 83KB (Debug) / RAM 80KB (SRAM) + 640KB (SDRAM) |
+
+## 移植踩坑记录（重要）
+
+1. **FreeRTOS V11 `INCLUDE_*` 默认全 0**：`vTaskDelay`/`vTaskDelete` 等必须显式 `#define INCLUDE_vTaskDelay 1` 等，否则链接报 undefined。
+2. **V11 ARM_CM4F port 需要 softfp 编译**：port.c 的 PendSV 汇编含 FPU 指令，`-mfloat-abi=soft` 下汇编器拒绝；对该文件单独 `-mfloat-abi=softfp -mfpu=fpv4-sp-d16`。
+3. **V11 向量表必须直指 port 函数**：`port.c` assert `pxVectorTable[SVC]==vPortSVCHandler`。startup 的 `.word SVC_Handler` 等要直接改成 `.word vPortSVCHandler / xPortPendSVHandler / xPortSysTickHandler`（不能转发包装）。
+4. **调度器启动前 xTaskCreate 残留 BASEPRI=0x50**：`vPortEnterCritical` 在调度器未运行时设置 BASEPRI 但 `vPortExitCritical` 不恢复 → 后续 TIM7/HAL_Delay 卡死。在 `tcpip_init()` 后 `__set_BASEPRI(0)` 恢复。
+5. **SYS_ARCH_PROTECT 不能在 ISR 调 vPortEnterCritical**：ETH ISR → memp_malloc → 临界区 → FreeRTOS assert。sys_arch.c 里用 `xPortIsInsideInterrupt()` 跳过临界区（ISR 天然原子）。
+6. **netconn close 前必须读完请求**：有未读数据时 close 发 RST（curl: "Connection reset by peer"）。
+7. **ETH DMA 缓冲不能放 SDRAM**：分片重组丢包；RX 零拷贝池留 SRAM。
+8. **mbedTLS 3.x 配置注入**：`MBEDTLS_CONFIG_FILE` 用尖括号 `<mbedtls_config.h>`（引号形式会命中 include/mbedtls/ 下的 stock 配置）；PEM parse 需传 `strlen+1`（含 NUL）。
+
+## 目录
+
+```
+app/            main / FreeRTOSConfig / HAL timebase(TIM7) / LwIP 移植 / HTTP / 堆定义
+bsp/            bsp_uart / bsp_led / bsp_i2c / bsp_pcf8574 / bsp_sdram
+Drivers/        ST HAL + CMSIS
+third_party/    LwIP 2.1 / FreeRTOS-Kernel V11.1.0
+```

@@ -6,7 +6,11 @@ project(stm32f429_net C ASM)
 # ------------------------------------------------------------------
 # MCU / toolchain flags
 # ------------------------------------------------------------------
-set(MCU_FLAGS "-mcpu=cortex-m4 -mthumb -mfloat-abi=soft")
+# soft-float ABI, but allow FPU instructions: the FreeRTOS ARM_CM4F port
+# contains unconditional vstmdbeq/vldmiaeq {s16-s31} which the assembler
+# rejects with plain -mfloat-abi=soft.  The C code stays float-free and the
+# port only saves FPU regs when a task actually uses them (runtime check).
+set(MCU_FLAGS "-mcpu=cortex-m4 -mthumb -mfloat-abi=soft -mfpu=fpv4-sp-d16")
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -36,6 +40,8 @@ include_directories(
   Drivers/STM32F4xx_HAL_Driver/Inc
   third_party/LwIP/src/include
   third_party/LwIP/system/arch
+  third_party/FreeRTOS-Kernel/include
+  third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F
 )
 
 add_compile_definitions(STM32F429xx USE_HAL_DRIVER)
@@ -69,12 +75,28 @@ set(HAL_SOURCES
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sdram.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_fmc.c
 )
 
-# LwIP core for a NO_SYS, IPv4, static-IP build. Exclude the OS/API/PPP/IPv6
-# and template files that require an RTOS or extra subsystems.
+# FreeRTOS V11 kernel (native API): core + ARM_CM4F port + heap_4.
+set(FREERTOS_SOURCES
+  third_party/FreeRTOS-Kernel/tasks.c
+  third_party/FreeRTOS-Kernel/queue.c
+  third_party/FreeRTOS-Kernel/list.c
+  third_party/FreeRTOS-Kernel/timers.c
+  third_party/FreeRTOS-Kernel/event_groups.c
+  third_party/FreeRTOS-Kernel/stream_buffer.c
+  third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F/port.c
+  third_party/FreeRTOS-Kernel/portable/MemMang/heap_4.c
+)
+
+# LwIP core for an RTOS (NO_SYS=0), IPv4, static-IP build. Exclude the
+# PPP/IPv6/templates and the parts we don't use (sockets/netdb); keep the
+# netconn API (tcpip thread + api_msg) used by the HTTP server.
 file(GLOB_RECURSE LWIP_SOURCES ${CMAKE_SOURCE_DIR}/third_party/LwIP/src/*.c)
-list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/.*")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/apps/.*")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/ppp/.*")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/ipv6/.*")
@@ -84,6 +106,9 @@ list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/netif/slipif\\.c")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/netif/zepif\\.c")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/core/sys\\.c")
 list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/core/altcp.*\\.c")
+list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/sockets\\.c")
+list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/netdb\\.c")
+list(FILTER LWIP_SOURCES EXCLUDE REGEX ".*/api/if_api\\.c")
 
 # ------------------------------------------------------------------
 # Executable
@@ -95,6 +120,23 @@ add_executable(${PROJECT_NAME}.elf
   ${CMSIS_SOURCES}
   ${HAL_SOURCES}
   ${LWIP_SOURCES}
+  ${FREERTOS_SOURCES}
+)
+
+# LwIP 2.1 quirk: api_lib.c computes polls_left with a large constant that
+# overflows u8_t (third-party code, warning only). Silence for that file.
+set_source_files_properties(
+  third_party/LwIP/src/api/api_lib.c
+  PROPERTIES COMPILE_OPTIONS "-Wno-overflow"
+)
+
+# FreeRTOS ARM_CM4F port has unconditional vstmdbeq/vldmiaeq {s16-s31} in
+# its naked PendSV handler.  With -mfloat-abi=soft the assembler disables
+# the FPU instruction set entirely, so compile just this file with softfp
+# (same call ABI, FPU instructions allowed).  All other files stay soft.
+set_source_files_properties(
+  third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F/port.c
+  PROPERTIES COMPILE_OPTIONS "-mfloat-abi=softfp;-mfpu=fpv4-sp-d16"
 )
 
 set_target_properties(${PROJECT_NAME}.elf PROPERTIES

@@ -34,7 +34,8 @@ extern "C" {
 extern struct netif gnetif;
 
 void MX_LWIP_Init(void);
-void MX_LWIP_Process(void);
+u8_t netif_link_up(void);
+void ethernet_link_status_updated(struct netif *netif);
 
 #ifdef __cplusplus
 }

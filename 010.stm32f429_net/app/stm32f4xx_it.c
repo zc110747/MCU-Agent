@@ -2,14 +2,25 @@
   ******************************************************************************
   * @file    stm32f4xx_it.c
   * @brief   Interrupt Service Routines.
+  *          SVC/PendSV/SysTick are owned by FreeRTOS (see port.c);
+  *          the HAL 1 ms tick uses TIM7 (stm32f4xx_hal_timebase_tim.c).
   ******************************************************************************
   */
 #include "stm32f4xx_it.h"
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
 #include "ethernetif.h"
 
 /* The ETH handle is defined in ethernetif.c */
 extern ETH_HandleTypeDef heth;
+
+/* The TIM7 time base handle is defined in stm32f4xx_hal_timebase_tim.c */
+extern TIM_HandleTypeDef htim7;
+
+/* FreeRTOS port exception handlers (defined in portable/GCC/ARM_CM4F/port.c) */
+extern void vPortSVCHandler(void);
+extern void xPortPendSVHandler(void);
+extern void xPortSysTickHandler(void);
 
 /******************************************************************************/
 /*           Cortex-M4 Processor Interruption and Exception Handlers          */
@@ -39,25 +50,19 @@ void UsageFault_Handler(void)
   while (1) { }
 }
 
-void SVC_Handler(void)
-{
-}
+/* SVC/PendSV/SysTick vectors point directly at the FreeRTOS port handlers
+ * (see startup_stm32f429xx.s); nothing to define here. */
 
 void DebugMon_Handler(void)
 {
 }
 
-void PendSV_Handler(void)
-{
-}
-
 /**
-  * @brief  This function handles SysTick interrupts (1 ms time base).
+  * @brief  TIM7 = HAL 1 ms time base (SysTick belongs to FreeRTOS).
   */
-void SysTick_Handler(void)
+void TIM7_IRQHandler(void)
 {
-  HAL_IncTick();
-  HAL_SYSTICK_IRQHandler();
+  HAL_TIM_IRQHandler(&htim7);
 }
 
 /**
