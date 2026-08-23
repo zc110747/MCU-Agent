@@ -28,6 +28,7 @@
 #include "bsp_mpu9250.h"
 #include "bsp_led.h"
 #include "bsp_pcf8574.h"
+#include "bsp_i2c.h"     /* BSP_I2C_Recover() */
 #include "web_serve.h"   /* web_i2c_lock / web_i2c_unlock (shared I2C bus) */
 #include "netcfg.h"
 
@@ -58,8 +59,9 @@ void hwinfo_init(void)
   g_dyn.led_on  = 0;
   g_dyn.beep_on = 0;
 
-  /* Collector task. */
-  xTaskCreate(hwinfo_task, "hwinfo", 256, NULL,
+  /* Collector task. Bumped to 384 because BSP_I2C_Recover() (called on a
+   * read failure) dives through HAL_I2C_DeInit/Init which is stack-heavy. */
+  xTaskCreate(hwinfo_task, "hwinfo", 384, NULL,
               tskIDLE_PRIORITY + 2, NULL);
 }
 
@@ -82,6 +84,21 @@ void hwinfo_task(void *arg)
     int ok2 = bsp_mpu9250_read(&imu);
     web_i2c_unlock();
 
+    /* I2C bus can lock up (a slave holding SDA low after noise / a reset).
+     * Without recovery every later read times out and we'd publish all-zero
+     * sensor data forever. Recover once, then retry the failed read(s). */
+    if (ok1 != 0 || ok2 != 0)
+    {
+      if (BSP_I2C_Recover() == 0)
+      {
+        g_dyn.i2c_recover++;                 /* observe auto-heal events */
+        web_i2c_lock();
+        if (ok1 != 0) ok1 = bsp_ap3216c_read(&als);
+        if (ok2 != 0) ok2 = bsp_mpu9250_read(&imu);
+        web_i2c_unlock();
+      }
+    }
+
     memset(&d, 0, sizeof(d));
     if (ok1 == 0)
     {
@@ -97,9 +114,11 @@ void hwinfo_task(void *arg)
     }
     d.sensor_valid = (ok1 == 0 && ok2 == 0) ? 1 : 0;
 
-    /* Preserve control state that only the set_* paths may change. */
-    d.led_on  = g_dyn.led_on;
-    d.beep_on = g_dyn.beep_on;
+    /* Preserve running counters / control state that only the set_* paths
+     * or the recovery path may change. */
+    d.led_on      = g_dyn.led_on;
+    d.beep_on     = g_dyn.beep_on;
+    d.i2c_recover = g_dyn.i2c_recover;     /* carry over the recovery count */
 
     d.updated_ms = xTaskGetTickCount();
 

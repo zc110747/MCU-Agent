@@ -1,1 +1,0 @@
-page=传感器监控 visibleControls=64 hasScrollbar=False

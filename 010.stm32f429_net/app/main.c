@@ -77,8 +77,15 @@ int main(void)
   BSP_LED_Init();
   BSP_LED_Off(1);
 
-  /* I2C2 + PCF8574 used to release the ETH PHY from reset */
+  /* I2C2 + PCF8574 used to release the ETH PHY from reset.
+   * Recover the bus first: a prior reset/flash can leave SDA stuck low (a
+   * slave holding it after an interrupted transaction), which would make the
+   * very next I2C write block forever in HAL's flag-wait loop (the HAL tick
+   * does not advance until the scheduler starts, so the 10 ms timeout never
+   * elapses). BSP_I2C_Recover() uses pure __NOP() delays and is safe to call
+   * before the scheduler is up. */
   BSP_I2C_Init();
+  BSP_I2C_Recover();
   BSP_ETH_PHY_Reset();
   PRINT_LOG("ETH PHY (LAN8720) released from reset.\r\n");
 

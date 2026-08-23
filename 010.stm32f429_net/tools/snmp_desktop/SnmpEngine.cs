@@ -164,6 +164,7 @@ namespace SnmpDesktop
             public const string Req = Root + ".5.1";
             public const string Err = Root + ".5.2";
             public const string LastUpd = Root + ".5.3";
+            public const string Recover = Root + ".5.4";
         }
     }
 }

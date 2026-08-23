@@ -1,1 +1,0 @@
-page=参数设置 visibleControls=90 hasScrollbar=False

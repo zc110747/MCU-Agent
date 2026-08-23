@@ -1,1 +1,0 @@
-page=硬件监控 visibleControls=37 hasScrollbar=False

@@ -204,6 +204,12 @@ static int sctrl_reset(const mib_val_t *v) {
 static int gstat_req(mib_val_t *v) { v->type = MIB_T_COUNTER32; v->u = mib_stats_req(); return 0; }
 static int gstat_err(mib_val_t *v) { v->type = MIB_T_COUNTER32; v->u = mib_stats_err(); return 0; }
 static int gstat_upd(mib_val_t *v) { v->type = MIB_T_TIMETICKS; v->u = mib_stats_last_tick()/portTICK_PERIOD_MS; return 0; }
+/* 32.5.4: I2C bus recovery count — non-zero means the bus jammed at least
+ * once and was auto-healed by hwinfo_task (instead of freezing data at 0). */
+static int gstat_i2c(mib_val_t *v) {
+  hwinfo_dynamic_t d; hwinfo_dynamic_copy(&d);
+  v->type = MIB_T_COUNTER32; v->u = d.i2c_recover; return 0;
+}
 
 /* Helper macro to declare a node with full relative OID. */
 #define NODE(...)  .oid = { __VA_ARGS__ }, .n = (sizeof((uint32_t[]){__VA_ARGS__})/sizeof(uint32_t))
@@ -241,6 +247,7 @@ static const mib_node_t MIB[] = {
   { NODE(5,1), 0, gstat_req },  /* statReq       Counter32 */
   { NODE(5,2), 0, gstat_err },  /* statErr       Counter32 */
   { NODE(5,3), 0, gstat_upd },  /* statLastUpd   TimeTicks */
+  { NODE(5,4), 0, gstat_i2c },  /* statI2cRecover Counter32 */
 };
 static const uint32_t MIB_COUNT = sizeof(MIB) / sizeof(MIB[0]);
 

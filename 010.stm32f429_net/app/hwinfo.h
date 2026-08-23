@@ -52,6 +52,10 @@ typedef struct {
   uint8_t beep_on;            /* BEEP (PCF8574 P0, low=sound) */
   /* collector tick stamp (ms) for freshness checks */
   uint32_t updated_ms;
+  /* I2C bus recovery count: how many times hwinfo_task had to recover a
+   * stuck I2C bus (see BSP_I2C_Recover). Non-zero means the bus had jammed
+   * at least once but was auto-healed instead of freezing the data at zero. */
+  uint32_t i2c_recover;
 } hwinfo_dynamic_t;
 
 /* Initialize static info + start the collector task. Call after

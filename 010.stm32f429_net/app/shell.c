@@ -81,6 +81,8 @@ static void cmd_dev(shell_out_fn out)
   shell_println(out, "=== Devices ===");
   snprintf(buf, sizeof(buf), "sensor_valid : %u", d.sensor_valid);
   shell_println(out, buf);
+  snprintf(buf, sizeof(buf), "i2c_recover  : %lu", (unsigned long)d.i2c_recover);
+  shell_println(out, buf);
   snprintf(buf, sizeof(buf), "AP3216C lux/ps/ir : %u / %u / %u",
            d.lux, d.ps, d.ir);
   shell_println(out, buf);
