@@ -10,7 +10,7 @@
 
 带着这些疑问，我使用了不算太强的Vibe Coding产品，完成本系列的项目。
 
-⚠️注意：**项目中使用的Drivers和third_party目录为重复且占用空间较大，因此打包保存为support_tools/env_support_for_stm32h743.zip中，解压后放在具体工程项目中即可使用**
+⚠️注意：**项目中使用的Drivers和third_party目录为重复且占用空间较大，因此打包保存为support_tools/env_support_for_stm32h743.zip/env_support_for_stm32f429.zip中，解压后放在具体工程项目中即可使用**  
 ⚠️注意：**RTOS环境zephyr的支持占用也十分巨大，已经打包为support_tools/env_support_for_zephyr.zip，解压后放在具体工程项目中即可使用**
 ⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝**  
 
@@ -31,6 +31,7 @@
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)
 ✅ 009.基于zephyr系统实现lvgl显示功能
+✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
 
 ### 具体项目效果和提示词说明
 
