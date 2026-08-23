@@ -157,13 +157,21 @@
 
 🚀 [008.基于lvgl实现的智能手表应用(nes模拟器、图片查看、文本阅读器)](./008.stm32h743_lvgl_mos/README.md)
 
+- **时钟**
+
 ![image](./document/image/008-01.jpg)
 
+- **相机**
+
 ![image](./document/image/008-02.jpg)
+
+- **文本阅读器**
 
 ![image](./document/image/008-03.jpg)
 
 ![image](./document/image/008-04.jpg)
+
+- **nes模拟器**
 
 ![image](./document/image/008-05.jpg)
 
@@ -188,9 +196,42 @@
 **AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持 - 90%  
 **个人参与**: 仿真环境、提示词、oled驱动、功能引导 - 10%
 
+- **lvgl界面**
+
 ![image](./document/image/009-01.jpg)
 
+- **zephry命令行**
+
 ![image](./document/image/009-02.jpg)
+
+提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
+
+#### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
+
+🚀 [101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)](./101.stm32f429_net/README.md)
+
+**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端 - 85%  
+**个人参与**: 仿真环境、提示词、基础驱动、功能引导 - 15%
+
+- **web访问http**
+
+![image](./document/image/101-01.jpg)
+
+- **web访问https**
+
+![image](./document/image/101-02.jpg)
+
+- **串口shell命令行**
+
+![image](./document/image/101-03.jpg)
+
+- **telnet接口shell命令行**
+
+![image](./document/image/101-04.jpg)
+
+- **snmp代理服务器和客户端**
+
+![image](./document/image/101-05.jpg)
 
 提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
 
