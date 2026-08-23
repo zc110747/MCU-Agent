@@ -42,7 +42,7 @@
 #include <string.h>
 
 #define HTTPS_PORT            443
-#define HTTPS_STACK_SIZE      3072   /* mbedTLS ECDHE handshake needs room */
+#define HTTPS_STACK_SIZE      4096   /* mbedTLS ECDHE handshake needs room */
 #define HTTPS_TASK_PRIORITY   3
 #define HTTPS_REQ_BUF         2048   /* request line + headers + body */
 #define HTTPS_MAX_CONNS       4      /* max concurrent TLS connections */

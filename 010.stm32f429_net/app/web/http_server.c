@@ -37,7 +37,7 @@ static const char *stristr(const char *hay, const char *needle)
 }
 
 #define HTTP_PORT          80
-#define HTTP_SERVER_STACK  2048   /* web_serve + api_hardware locals need room */
+#define HTTP_SERVER_STACK  4096   /* web_serve + api_hardware locals need room */
 #define HTTP_SERVER_PRIO   3
 #define REQ_BUF            2048
 
