@@ -1,0 +1,1 @@
+page=设备信息 visibleControls=77 hasScrollbar=False

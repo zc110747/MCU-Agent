@@ -153,6 +153,64 @@ cmake --build build
 | CFSR / HFSR | 0 / 0 |
 | 资源占用 | FLASH 156KB (Debug) / 174KB (Release，含 ECP window6 预计算表) + SRAM 80KB + SDRAM 672KB |
 
+## SNMP Agent（嵌入式端，UDP 161）
+
+基于 lwIP `netconn` UDP API，在独立 FreeRTOS 任务 `snmpd` 实现 **SNMP v2c** Agent（community `public`），
+手写轻量 BER/ASN.1 编解码（无外部依赖，无堆分配），MIB 节点按网页维度拆分，取值经 `hwinfo_*_copy()`
+共享层，控制节点经 `hwinfo_set_*()` 写回（与 web/telnet 复用同一控制路径）。
+
+企业根节点：`1.3.6.1.4.1.32`（局域网占位）。5 大类共 **26 个叶子节点**：
+
+| 分支 | 含义 | 代表节点 |
+|---|---|---|
+| `32.1.x` 系统 | MCU/时钟/任务数/运行时间 | `32.1.1` sysDescr=`STM32F429IGT6`，`32.1.3` sysTasks(INTEGER)，`32.1.4` sysUptime(TimeTicks) |
+| `32.2.x` 网络 | IP/掩码/网关/MAC | `32.2.1` netIp，`32.2.2` netMask，`32.2.3` netGw，`32.2.4` netMac |
+| `32.3.x` 传感器 | AP3216C + MPU9250 | `32.3.1~3` 光/距/IR，`32.3.4~12` 加速度/陀螺/磁力 9 轴，`32.3.13` 温度 |
+| `32.4.x` 控制 | LED / BEEP 读写 | `32.4.1` led(INTEGER, Set 生效)，`32.4.2` beep |
+| `32.5.x` 统计 | 请求/错误计数 | `32.5.1` snmpReqs，`32.5.2` snmpErrs，`32.5.3` uptimeSec |
+
+支持 PDU：`GetRequest` / `GetNextRequest`（Walk）/ `SetRequest`；错误 community 静默丢弃。
+
+### 源码布局
+
+```
+app/snmp/ber.h  ber.c          BER/ASN.1 编解码（TLV 读写、OID、INTEGER、OCTET、IPAddress、TimeTicks）
+app/snmp/mib.h  mib.c          自定义 MIB 树（节点表 + get/set 回调，绑定 hwinfo）
+app/snmp/snmp_msg.h snmp_msg.c 报文解码/调度/响应构建（纯逻辑，可在 PC 离线单测）
+app/snmp/snmp_agent.h snmp_agent.c  UDP 161 监听 + 独立线程 + netconn 收发
+```
+
+### PC 端工具（C# / .NET 9 / WinForms，tools/ 下）
+
+| 工具 | 路径 | 功能 |
+|---|---|---|
+| SNMP 客户端 | `tools/snmp_client` | 构造 Get/GetNext/Set，发往设备，解析并显示 VarBind，支持 Walk |
+| SNMP 代理服务器 | `tools/snmp_server` | 监听 UDP 161，显示收到的报文（解析 VarBind），可手动构造响应/Trap 联调 |
+| 共享编解码 | `tools/snmp_common/SnmpCore.cs` | 两工具共用的 BER v2c 编解码（单源维护） |
+| 命令行验证 | `tools/snmp_verify` | 无 GUI 批量验证（19 项断言，pass/fail 计数） |
+
+### SNMP 验收（真机 192.168.10.99:161）
+
+`tools/snmp_verify/bin/Release/net9.0-windows/snmp_verify.dll 192.168.10.99 161` 结果：
+
+| 测试 | 结果 |
+|---|---|
+| Get 32.1.1 sysDescr | `STM32F429IGT6` ✅ |
+| Get 32.1.3 sysTasks | 7（FreeRTOS 任务数）✅ |
+| Get 32.1.4 sysUptime | TimeTicks 计数 ✅ |
+| Get 32.2.1 netIp | `192.168.10.99` ✅ |
+| GetNext Walk | 遍历 26 节点 ✅ |
+| Set 32.4.1 led=1 | 回读 = 1 ✅ |
+| 错误 community `private` | 无响应（丢弃）✅ |
+
+**RESULT: PASS=19 FAIL=0**
+
+资源占用（含 SNMP）：FLASH 284488B/1MB (27.13% Debug) / 308968B (29.47% Release)，RAM 无显著增加（SNMP 用栈缓冲 + SDRAM 池）。
+
+> 调试记录：嵌入式端 `ber.c` 长度字段预留曾少 1 字节（long-form 写 5 字节占位仅 reserve 4），
+> 且 `BER_TAG_SEQUENCE` 误定义为 `0x10`（正确应为 `0x30`）；C# 端 `BuildRequest` 曾把 message 内容
+> 用 `Wrap(msg, SEQUENCE, msg)` 自引用追加导致顺序颠倒。三者均已在离线单测 + 真机联调中修复。
+
 ## HTTPS 握手性能（实测优化）
 
 | 配置 | TLS 握手耗时 |

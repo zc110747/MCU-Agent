@@ -35,6 +35,7 @@ include_directories(
   app
   app/lwip
   app/web
+  app/snmp
   bsp
   Drivers/CMSIS/Include
   Drivers/STM32F4xx_HAL_Driver/Inc
@@ -58,6 +59,7 @@ file(GLOB APP_SOURCES
   app/*.c
   app/lwip/*.c
   app/web/*.c
+  app/snmp/*.c
   bsp/*.c
 )
 

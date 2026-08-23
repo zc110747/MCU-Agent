@@ -32,6 +32,7 @@
 #include "hwinfo.h"
 #include "shell.h"
 #include "telnet_shell.h"
+#include "snmp_agent.h"
 
 static void SystemClock_Config(void);
 void Error_Handler(void);
@@ -110,6 +111,12 @@ int main(void)
   __set_BASEPRI(0);
   __enable_irq();
   telnet_shell_init();
+  __set_BASEPRI(0);
+  __enable_irq();
+
+  /* SNMP v2c agent (UDP 161) - dedicated task, mirrors the web /api surface
+   * under enterprise OID 1.3.6.1.4.1.32. */
+  snmp_agent_init();
   __set_BASEPRI(0);
   __enable_irq();
 
