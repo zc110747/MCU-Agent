@@ -1,0 +1,31 @@
+{
+  // C/C++ IntelliSense configuration for the QSPI test project.
+  "configurations": [
+    {
+      "name": "STM32H743 QSPI",
+      "compilerPath": "arm-none-eabi-gcc",
+      "intelliSenseMode": "gcc-arm",
+      "cStandard": "c11",
+      "defines": [
+        "STM32H743xx",
+        "USE_HAL_DRIVER",
+        "CORE_CM7"
+      ],
+      "includePath": [
+        "${workspaceFolder}/app",
+        "${workspaceFolder}/bsp",
+        "${workspaceFolder}/Drivers/CMSIS/Include",
+        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/Drivers/HAL/Inc"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}/app",
+          "${workspaceFolder}/bsp",
+          "${workspaceFolder}/Drivers"
+        ]
+      }
+    }
+  ],
+  "version": 4
+}

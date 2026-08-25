@@ -1,0 +1,27 @@
+{
+  // Workspace settings for the STM32H743 QSPI test project.
+  "cmake.generator": "Ninja",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureOnOpen": true,
+  "cmake.buildBeforeRun": true,
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "C_Cpp.default.defines": [
+    "STM32H743xx",
+    "USE_HAL_DRIVER",
+    "CORE_CM7"
+  ],
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/app",
+    "${workspaceFolder}/bsp",
+    "${workspaceFolder}/Drivers/CMSIS/Include",
+    "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+    "${workspaceFolder}/Drivers/HAL/Inc"
+  ],
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.armToolchainPath": "",
+  "[c]": {
+    "editor.formatOnSave": false,
+    "files.encoding": "utf8"
+  }
+}

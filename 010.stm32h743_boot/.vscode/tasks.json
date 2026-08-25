@@ -1,0 +1,51 @@
+{
+  // Build / flash tasks for the STM32H743 QSPI test project.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake Configure (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-B", "build",
+        "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=Debug"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake Build",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "build"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake Build (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "build", "--config", "Release"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake Clean",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "build", "--target", "clean"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash (openOCD)",
+      "type": "shell",
+      "command": "openocd",
+      "args": ["-f", "${workspaceFolder}/openocd_flash.cfg"],
+      "problemMatcher": []
+    }
+  ]
+}

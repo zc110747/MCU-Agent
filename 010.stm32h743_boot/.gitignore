@@ -1,0 +1,16 @@
+# Build output
+build/
+
+# Logs / capture artifacts (generated at runtime)
+*.bin.log
+capture.log
+qspi_log.bin
+
+# Temporary clone directories created during HAL/CMSIS setup (safe to delete)
+temp_hal_all/
+th/
+
+# VSCode / OS
+.vscode-test/
+.DS_Store
+*.swp
