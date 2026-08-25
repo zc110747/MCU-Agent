@@ -65,7 +65,8 @@ ninja 增量不会自动重扫，否则新文件不进编译）。
   不连续、ETH/DMA 访问不到。ST 模板常误写 256K/2048K。
 - SDRAM 段（外部内存）必须 `(NOLOAD)`：startup 的 bss 清零在 FMC 初始化前执行，
   SDRAM 段若参与清零会 HardFault。
-- 详细排障见 `stm32-bare-metal-bringup` 的"栈顶在真实 RAM 内"章节。
+- 栈顶 `_estack` 与 `RAM LENGTH` 必须按芯片真实容量（ST 官方模板常带错尺寸，如 F429 误写
+  256K/2048K，实际连续 SRAM 仅 192K）；否则内存越界 HardFault，详见本节上文边界实测。
 
 ## 四、OpenOCD 烧录配置
 
@@ -121,4 +122,24 @@ openocd -f openocd/stm32h743_stlink.cfg -c "program build/debug/xxx.elf verify r
 .word xPortPendSVHandler   /* PendSV */
 .word xPortSysTickHandler  /* SysTick */
 ```
-详见 `stm32-bare-metal-bringup` 的"FreeRTOS 化 LwIP 移植实战坑"。
+FreeRTOS 独占 SysTick 会导致裸机 HAL 时基（`HAL_Delay`）冻结，需在 `HAL_InitTick` 外另行提供
+时基或改用定时器；LwIP/SDRAM 等网络工程实战坑见 `stm32-peripheral-drivers` 第八节（F4 网络）。
+
+## 八、双固件镜像 Bootloader 工程约定
+
+Bootloader + App 共存于同一片内部 Flash，需**两套独立构建 + 固定地址分区**：
+
+- **内存布局（H743 2MB 双 Bank）**：
+  | 区域 | 地址 | 说明 |
+  |------|------|------|
+  | Bootloader | `0x08000000` sec0 (128KB) | 主构建 `stm32h7_boot.elf` |
+  | App 镜像 | `0x08020000` sec1-14 | 独立 CMake + `stm32h7_app.ld`（`ORIGIN=0x08020000`） |
+  | 版本槽 | `0x08021000` (App 偏移 0x1000, 4B) | `.app_version` 固定段 |
+  | 配置区 | `0x081E0000` sec15 (64B) | magic / len / version / hmac / crc32 |
+
+- **两套独立 CMake + 链接脚本**：bootloader 与 app 各一个工程目录，app 的 ld `ORIGIN` 必须指向 `0x08020000`，链接脚本互相独立；改 `.ld` 后务必让 CMake 跟踪（`LINK_DEPENDS`，见第二节）。
+- **升级包经 U 盘注入**：QSPI FatFs + TinyUSB MSC 把 QSPI 暴露为 PC U 盘；`verify.json`(name/len/HMAC/version) + 同名 `.bin` 落到根目录 → 复位后 Bootloader 校验 → 擦写 → 跳 App。
+- **跳转前清环境**：见 `stm32-peripheral-drivers` 第九节的跳转序列；App 入口 `__enable_irq()` + `SysTick_Handler` 必备（否则 `HAL_Delay` 卡死）。
+- **擦写引擎放 AXI SRAM**：见 `stm32-peripheral-drivers` 第九节 —— 绝不放 DTCM。
+- **防砖**：任何校验失败在擦写前 abort，已运行 App 不被破坏。
+- 验收方法见 `stm32-verification-acceptance` 第八、九节（含 gdb 直调 `BFLASH_ProgramBlock` 与 Flash 回读）。

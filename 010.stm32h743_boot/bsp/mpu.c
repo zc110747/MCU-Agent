@@ -10,7 +10,7 @@
   * NON-CACHEABLE:
   *
   *   Region 0 : 0x08000000, 2 MB  internal flash (execute + program + verify)
-  *   Region 1 : 0x20000000, 128 KB DTCM         (stack + upgrade engine)
+  *   Region 1 : 0x20000000, 128 KB DTCM         (stack)
   *   Region 2 : 0x24000000, 512 KB AXI SRAM     (.data/.bss, USB buffers)
   *   Region 3 : 0x90000000, 8 MB  QSPI flash    (future XIP / safety)
   *

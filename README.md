@@ -33,6 +33,7 @@
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
 ✅ 009.基于zephyr系统实现lvgl显示功能  
+✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
 ✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)  
 
 ### 具体项目效果和提示词说明
@@ -209,6 +210,15 @@
 
 提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
 
+#### 基于QSPI虚拟U盘与安全升级的Bootloader
+
+🚀 [010.基于QSPI虚拟U盘与安全升级的Bootloader](./010.stm32h743_boot/README.md)
+
+**AI开发**：工程骨架、QSPI FatFs、TinyUSB MSC、HMAC-SHA256 安全升级、双固件跳转、openocd+gdb 函数级验证 - 90%  
+**个人参与**: 仿真环境、提示词、真机验收 - 10%
+
+提示词内容：[项目提示词](./010.stm32h743_boot/prompter.md)
+
 #### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
 
 🚀 [101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)](./101.stm32f429_net/README.md)
@@ -236,7 +246,7 @@
 
 ![image](./document/image/101-05.jpg)
 
-提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
+提示词内容：[项目提示词](./101.stm32f429_net/prompter.md)
 
 ## 开发经验总结
 

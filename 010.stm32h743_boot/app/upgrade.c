@@ -10,7 +10,8 @@
   *   4. stream-HMAC the package with the shared key, compare to the JSON value
   *   5. read the current app version at 0x08021000; if equal -> skip
   *      (files are KEPT by design: next reset re-checks and skips)
-  *   6. erase app sectors 1..14, stream program + read-back verify
+  *   6. erase only the sectors the app occupies (by app_len; last sector
+ *      erased just-in-time right before streaming), stream program + verify
   *   7. write the system config sector (magic/len/version/hmac/status/crc)
   *   8. unmount; the USB MSC stack takes over the raw QSPI
   *
@@ -225,9 +226,22 @@ int BSP_Upgrade_Check(void)
     }
 
     /* ---- 5. erase app region (engine runs from DTCM) ---- */
-    BSP_UART_Printf("[UPG] erasing app sectors 1..14 ...\r\n");
-    if (BFLASH_EraseApp() != 0) {
+    {
+        uint32_t first_sec = (APP_BASE_ADDR - FLASH_BASE) / FLASH_SECTOR_SIZE;
+        uint32_t last_sec  = (APP_BASE_ADDR + (uint32_t)json_len - 1U - FLASH_BASE) / FLASH_SECTOR_SIZE;
+        BSP_UART_Printf("[UPG] erasing %lu sector(s) by app length (%ld B) ...\r\n",
+                        (unsigned long)(last_sec - first_sec + 1U), json_len);
+    }
+    /* front blocks derived from app_len */
+    if (BFLASH_EraseApp((uint32_t)json_len) != 0) {
         BSP_UART_Printf("[UPG] erase FAILED\r\n");
+        f_close(&fbin);
+        FS_Unmount();
+        return -1;
+    }
+    /* last block wiped just-in-time, right before the upgrade stream writes */
+    if (BFLASH_EraseAppLastSector((uint32_t)json_len) != 0) {
+        BSP_UART_Printf("[UPG] last-sector erase FAILED\r\n");
         f_close(&fbin);
         FS_Unmount();
         return -1;

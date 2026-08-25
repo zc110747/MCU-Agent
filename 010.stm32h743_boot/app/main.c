@@ -6,7 +6,7 @@
   * Boot flow:
   *   1. HAL / clock / MPU (all regions non-cacheable for safe flash writes)
   *   2. UART + QSPI + LED init
-  *   3. relocate the internal-flash write engine into DTCM (BFLASH_Relocate)
+  *   3. relocate the internal-flash write engine into AXI SRAM (BFLASH_Relocate)
   *   4. BSP_Upgrade_Check(): mount QSPI FAT, if a package (stm32h7_xx.bin +
   *      verify.json) is present and passes HMAC/version checks, erase the app
   *      region and program the new image, then update the system config and
@@ -58,9 +58,10 @@ int main(void)
     BSP_LED_Init();
     BSP_UART_Printf(" LED fast blink started (PG7, 200 ms)\r\n");
 
-    /* Copy the flash-write engine from FLASH into DTCM before any erase/program
-       call (the CPU must not fetch from bank1 while bank1 is being written). */
-    BSP_UART_Printf("[BOOT] relocating flash engine to DTCM...\r\n");
+    /* Copy the flash-write engine from FLASH into AXI SRAM before any
+       erase/program call (the CPU must not fetch from bank1 while bank1 is being
+       written, and must not execute from DTCM which is data-only on Cortex-M7). */
+    BSP_UART_Printf("[BOOT] relocating flash engine to AXI SRAM...\r\n");
     BFLASH_Relocate();
 
     /* 1. Process any upgrade package on the QSPI U-disk. */

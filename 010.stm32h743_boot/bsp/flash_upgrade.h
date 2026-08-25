@@ -9,10 +9,13 @@
   *   0x08021000              : app version, 4 bytes (major,minor,patch,build)
   *   0x081E0000 - 0x081FFFFF : system config sector (sector 15)
   *
-  * Erase/program/verify routines are placed in .upgrade_ram (DTCM, loaded
-  * from FLASH): while bank1 is being erased/programmed the CPU must not
-  * fetch instructions from bank1, so the write engine executes from RAM.
-  * Call BFLASH_Relocate() once before using any of these functions.
+ * Erase/program/verify routines are placed in .upgrade_ram (AXI SRAM 0x24000000,
+ * loaded from FLASH): while bank1 is being erased/programmed the CPU must not
+ * fetch instructions from bank1, so the write engine executes from AXI SRAM.
+ * NOTE: must NOT be DTCM - Cortex-M7 I-Code cannot fetch from DTCM.
+ * The actual flash operations use the verified HAL primitives
+ * (HAL_FLASHEx_Erase / HAL_FLASH_Program with FLASH_TYPEPROGRAM_FLASHWORD).
+ * Call BFLASH_Relocate() once before using any of these functions.
   ******************************************************************************
   */
 #ifndef __BSP_FLASH_UPGRADE_H
@@ -45,8 +48,9 @@ typedef struct {
 } app_config_t;              /* 64 bytes = 2 flash words                */
 
 /* ---- API ---- */
-void BFLASH_Relocate(void);                              /* copy engine to DTCM */
-int  BFLASH_EraseApp(void);                              /* erase sectors 1..14 */
+void BFLASH_Relocate(void);                              /* copy engine to AXI SRAM */
+int  BFLASH_EraseApp(uint32_t app_len);                  /* erase app sectors by len (all but last) */
+int  BFLASH_EraseAppLastSector(uint32_t app_len);        /* erase only the final app sector, just before upgrade */
 int  BFLASH_ProgramBlock(uint32_t addr, const uint8_t *src, uint32_t len);
 int  BFLASH_VerifyBlock(uint32_t addr, const uint8_t *src, uint32_t len);
 int  BFLASH_ConfigRead(app_config_t *cfg);

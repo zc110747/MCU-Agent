@@ -1,16 +1,20 @@
 /**
   ******************************************************************************
   * @file    bsp/flash_upgrade.c
-  * @brief   Internal flash upgrade engine (runs from DTCM) + config sector.
+  * @brief   Internal flash upgrade engine (runs from AXI SRAM) + config sector.
   *
-  * The erase / program / verify routines live in the .upgrade_ram section
-  * (linked into DTCM, loaded from FLASH) so that erasing/programming bank1
-  * never stalls the CPU, which is itself executing from bank1 sector 0.
+  * RWW note (STM32H7): while a bank is being erased/programmed, code fetches
+  * from that same bank are only STALLED (not faulted) by the flash interface.
+  * The erase / program / verify routines therefore live in the .upgrade_ram
+  * section (AXI SRAM 0x24000000, loaded from FLASH) so the write engine never
+  * competes with the CPU for bank1 fetches - this keeps the upgrade path free
+  * of RWW stalls and removes any coherency hazard.
   *
-  * Register-level programming (no HAL in the critical path):
-  *   - sector erase : CRx.SER + SNB + START, wait BSY
-  *   - program      : CRx.PG + 8 x 32-bit stores forming a 256-bit word
-  *   - errors       : WRPERR / PGSERR / OPERR / STRBERR / INCERR in SRx
+  * The actual erase/program is performed through the verified HAL primitives
+  * (HAL_FLASHEx_Erase / HAL_FLASH_Program with FLASH_TYPEPROGRAM_FLASHWORD),
+  * identical to the known-good reference implementation. All error flags of
+  * both banks are cleared before every operation, and the flash is unlocked
+  * for the duration of the operation with IRQs disabled.
   ******************************************************************************
   */
 #include "flash_upgrade.h"
@@ -23,10 +27,6 @@
 #define UPGRADE_RAM  __attribute__((section(".upgrade_ram")))
 
 /* FLASH_BANK1_BASE / FLASH_BANK2_BASE are provided by stm32h743xx.h. */
-
-/* Timeouts in DWT cycle-counter ticks (480 MHz). */
-#define ERASE_TIMEOUT_CYCLES  (3000000000UL)   /* ~6.2 s per 128 KB sector */
-#define PROG_TIMEOUT_CYCLES   (30000000UL)     /* ~62 ms per flash word */
 
 /* ---- CRC32 (IEEE 802.3, reflected, poly 0xEDB88320) ---- */
 static uint32_t crc32_bytes(uint32_t crc, const uint8_t *data, uint32_t len)
@@ -51,127 +51,64 @@ uint32_t BFLASH_ConfigCrc(const app_config_t *cfg)
     return crc32_bytes(0xFFFFFFFFUL, (const uint8_t *)cfg, 48U) ^ 0xFFFFFFFFUL;
 }
 
-/* ---- DWT cycle counter for IRQ-independent timeouts ---- */
-static void UPGRADE_RAM dwt_enable(void)
+/* Clear all program/erase error flags of BOTH banks. Must run before every
+   flash operation so a stale flag from a previous (failed) op cannot block the
+   next one. */
+static void UPGRADE_RAM flash_clear_all_errors(void)
 {
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CYCCNT = 0U;
-    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
-}
-
-static uint32_t UPGRADE_RAM flash_sr(uint32_t bank)
-{
-    return (bank == 1U) ? FLASH->SR1 : FLASH->SR2;
-}
-
-/* Clear all program/erase error flags of a bank. */
-static void UPGRADE_RAM flash_clear_errors(uint32_t bank)
-{
-    uint32_t mask = FLASH_CCR_CLR_WRPERR | FLASH_CCR_CLR_PGSERR |
-                    FLASH_CCR_CLR_STRBERR | FLASH_CCR_CLR_INCERR |
-                    FLASH_CCR_CLR_OPERR | FLASH_CCR_CLR_EOP;
-    if (bank == 1U) FLASH->CCR1 = mask;
-    else            FLASH->CCR2 = mask;
-}
-
-/* Wait until BSY clears (or timeout); returns 0 ok, -1 busy/error. */
-static int UPGRADE_RAM flash_wait_busy(uint32_t bank, uint32_t timeout_cycles)
-{
-    uint32_t t0 = DWT->CYCCNT;
-
-    while (flash_sr(bank) & FLASH_SR_BSY) {
-        if ((DWT->CYCCNT - t0) > timeout_cycles) return -1;
-    }
-
-    if (flash_sr(bank) & (FLASH_SR_WRPERR | FLASH_SR_PGSERR |
-                          FLASH_SR_STRBERR | FLASH_SR_INCERR | FLASH_SR_OPERR)) {
-        return -1;
-    }
-    return 0;
-}
-
-static void UPGRADE_RAM flash_unlock(uint32_t bank)
-{
-    if (bank == 1U) {
-        FLASH->KEYR1 = FLASH_KEY1;
-        FLASH->KEYR1 = FLASH_KEY2;
-    } else {
-        FLASH->KEYR2 = FLASH_KEY1;
-        FLASH->KEYR2 = FLASH_KEY2;
-    }
-}
-
-static uint32_t UPGRADE_RAM flash_bank_of(uint32_t addr)
-{
-    return (addr < FLASH_BANK2_BASE) ? 1U : 2U;
-}
-
-/* Erase one 128 KB sector. Sector is the in-bank number (0..7). */
-static int UPGRADE_RAM flash_erase_sector(uint32_t bank, uint32_t sector)
-{
-    int rc;
-
-    dwt_enable();
-    __disable_irq();
-    flash_clear_errors(bank);
-    if (flash_wait_busy(bank, PROG_TIMEOUT_CYCLES) != 0) { __enable_irq(); return -1; }
-    flash_unlock(bank);
-    __DSB();
-
-    if (bank == 1U) {
-        FLASH->CR1 &= ~(FLASH_CR_PSIZE | FLASH_CR_SNB);
-        FLASH->CR1 |= (FLASH_CR_SER | FLASH_VOLTAGE_RANGE_3 |
-                       (sector << FLASH_CR_SNB_Pos) | FLASH_CR_START);
-    } else {
-        FLASH->CR2 &= ~(FLASH_CR_PSIZE | FLASH_CR_SNB);
-        FLASH->CR2 |= (FLASH_CR_SER | FLASH_VOLTAGE_RANGE_3 |
-                       (sector << FLASH_CR_SNB_Pos) | FLASH_CR_START);
-    }
-    __DSB();
-
-    rc = flash_wait_busy(bank, ERASE_TIMEOUT_CYCLES);
-
-    /* clear SER / SNB; keep the bank locked unless a later op re-unlocks it */
-    if (bank == 1U) FLASH->CR1 &= ~(FLASH_CR_SER | FLASH_CR_SNB);
-    else            FLASH->CR2 &= ~(FLASH_CR_SER | FLASH_CR_SNB);
-    __enable_irq();
-
-    return rc;
-}
-
-/* Program one 256-bit flash word (32 bytes at a 32-byte-aligned address). */
-static int UPGRADE_RAM flash_program_word(uint32_t addr, const uint32_t *src)
-{
-    volatile uint32_t *dst = (volatile uint32_t *)addr;
-    uint32_t bank = flash_bank_of(addr);
-    uint32_t i;
-    int rc;
-
-    dwt_enable();
-    __disable_irq();
-    if (flash_wait_busy(bank, PROG_TIMEOUT_CYCLES) != 0) { __enable_irq(); return -1; }
-    flash_unlock(bank);
-    __DSB();
-
-    if (bank == 1U) FLASH->CR1 |= FLASH_CR_PG;
-    else            FLASH->CR2 |= FLASH_CR_PG;
-    __DSB();
-    __ISB();
-
-    for (i = 0; i < 8U; i++) dst[i] = src[i];   /* assembles the 256-bit word */
-    __DSB();
-
-    rc = flash_wait_busy(bank, PROG_TIMEOUT_CYCLES);
-
-    if (bank == 1U) FLASH->CR1 &= ~FLASH_CR_PG;
-    else            FLASH->CR2 &= ~FLASH_CR_PG;
-    __enable_irq();
-
-    return rc;
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_ALL_ERRORS_BANK1);
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_ALL_ERRORS_BANK2);
 }
 
 /* -------------------------------------------------------------------------- */
-/* Public API - all write paths execute from DTCM (.upgrade_ram)              */
+/* Low-level engine (AXI SRAM) - wraps the verified HAL primitives             */
+/* -------------------------------------------------------------------------- */
+
+/* Erase one 128 KB in-bank sector. */
+static int UPGRADE_RAM flash_erase_sector(uint32_t bank, uint32_t sector)
+{
+    FLASH_EraseInitTypeDef ei;
+    uint32_t sector_error = 0U;
+    HAL_StatusTypeDef st;
+
+    __disable_irq();
+    HAL_FLASH_Unlock();
+    flash_clear_all_errors();
+
+    ei.TypeErase    = FLASH_TYPEERASE_SECTORS;
+    ei.Banks        = (bank == 1U) ? FLASH_BANK_1 : FLASH_BANK_2;
+    ei.Sector       = sector;
+    ei.NbSectors    = 1U;
+    ei.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+    st = HAL_FLASHEx_Erase(&ei, &sector_error);
+
+    HAL_FLASH_Lock();
+    __enable_irq();
+
+    return (st == HAL_OK) ? 0 : -1;
+}
+
+/* Program one 256-bit flash word (32 bytes at a 32-byte-aligned address).
+   src points at a 32-bit-aligned, 32-byte buffer holding the new contents. */
+static int UPGRADE_RAM flash_program_word(uint32_t addr, const uint32_t *src)
+{
+    HAL_StatusTypeDef st;
+
+    __disable_irq();
+    HAL_FLASH_Unlock();
+    flash_clear_all_errors();
+
+    st = HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD, addr, (uint32_t)src);
+
+    HAL_FLASH_Lock();
+    __enable_irq();
+
+    return (st == HAL_OK) ? 0 : -1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public API - all write paths execute from AXI SRAM (.upgrade_ram)           */
 /* -------------------------------------------------------------------------- */
 
 void BFLASH_Relocate(void)
@@ -186,19 +123,52 @@ void BFLASH_Relocate(void)
     __ISB();   /* make the copied code visible before any call into it */
 }
 
-int UPGRADE_RAM BFLASH_EraseApp(void)
+/* Map a flash address to (bank, in-bank sector). H743: 16 x 128 KB sectors,
+   bank1 = absolute sectors 0..7 (0x08000000..0x080FFFFF),
+   bank2 = absolute sectors 8..15 (0x08100000..0x081FFFFF). */
+static void UPGRADE_RAM addr_to_bank_sector(uint32_t addr, uint32_t *bank, uint32_t *sector)
 {
+    uint32_t off = addr - FLASH_BASE;
+    uint32_t sec = off / FLASH_SECTOR_SIZE;     /* 0..15 absolute */
+
+    if (sec >= 8U) { *bank = 2U; *sector = sec - 8U; }
+    else           { *bank = 1U; *sector = sec; }
+}
+
+/* Erase every sector the app occupies EXCEPT the last one. The last sector is
+   erased separately right before the upgrade writes into it (see
+   BFLASH_EraseAppLastSector), so the bulk upfront erase only covers the front
+   blocks derived from app_len. A zero length is treated as one flash word so it
+   can never wipe the whole region. */
+int UPGRADE_RAM BFLASH_EraseApp(uint32_t app_len)
+{
+    uint32_t total     = app_len ? app_len : FLASH_WORD_SIZE;
+    uint32_t first_sec = (APP_BASE_ADDR - FLASH_BASE) / FLASH_SECTOR_SIZE;
+    uint32_t last_sec  = (APP_BASE_ADDR + total - 1U - FLASH_BASE) / FLASH_SECTOR_SIZE;
     uint32_t s;
 
-    /* bank1 sectors 1..7 */
-    for (s = 1U; s <= 7U; s++) {
-        if (flash_erase_sector(1U, s) != 0) return -1;
+    if (last_sec <= first_sec) {
+        return 0;   /* single sector: nothing upfront, last block erased later */
     }
-    /* bank2 sectors 0..6 (absolute 8..14) */
-    for (s = 0U; s <= 6U; s++) {
-        if (flash_erase_sector(2U, s) != 0) return -1;
+    for (s = first_sec; s < last_sec; s++) {
+        uint32_t bank, sector;
+        addr_to_bank_sector(FLASH_BASE + s * FLASH_SECTOR_SIZE, &bank, &sector);
+        if (flash_erase_sector(bank, sector) != 0) return -1;
     }
     return 0;
+}
+
+/* Erase only the last sector the app occupies. Called just before the upgrade
+   stream-program starts, so the final block is wiped just-in-time rather than
+   in the upfront bulk erase. */
+int UPGRADE_RAM BFLASH_EraseAppLastSector(uint32_t app_len)
+{
+    uint32_t total    = app_len ? app_len : FLASH_WORD_SIZE;
+    uint32_t last_sec = (APP_BASE_ADDR + total - 1U - FLASH_BASE) / FLASH_SECTOR_SIZE;
+    uint32_t bank, sector;
+
+    addr_to_bank_sector(FLASH_BASE + last_sec * FLASH_SECTOR_SIZE, &bank, &sector);
+    return flash_erase_sector(bank, sector);
 }
 
 int UPGRADE_RAM BFLASH_ProgramBlock(uint32_t addr, const uint8_t *src, uint32_t len)

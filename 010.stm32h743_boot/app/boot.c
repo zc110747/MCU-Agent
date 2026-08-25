@@ -11,7 +11,7 @@
   *          - vector table sane (SP in RAM, 8B aligned; reset vector in app)
   *          - version at 0x08021000 == config version
   *          - HMAC-SHA256 over the programmed app image == config.app_hmac
-  *     3. all OK  -> start USB, 8 s countdown (LED fast blink, tud_task):
+  *     3. all OK  -> start USB, 8 s countdown (LED 300 ms blink, tud_task):
   *                    USB connected during the window -> U-disk mode (no jump;
   *                    count cleared; unplug does NOT resume the countdown,
   *                    only the next reset re-evaluates)
@@ -31,8 +31,11 @@
 #include <string.h>
 
 /* Boot-to-app delay window (ms). Includes the earlier HMAC verify time. */
-#define BOOT_JUMP_DELAY_MS  8000U
-#define HMAC_CHUNK          4096U
+#define BOOT_JUMP_DELAY_MS       8000U
+/* LED toggle interval during the 8 s jump-wait window (full cycle ~600 ms).
+   Distinct from the 200 ms fast blink used in U-disk mode. */
+#define BOOT_JUMP_LED_BLINK_MS   300U
+#define HMAC_CHUNK               4096U
 
 static void log_version(const char *tag, const uint8_t v[4])
 {
@@ -85,9 +88,15 @@ static void jump_to_app(void)
     __DSB();
     __ISB();
 
-    /* 4. vector table + stack + entry */
+    /* 4. vector table + stack + entry.
+       Re-enable global interrupts so the app sees a reset-like core state
+       (on a real reset PRIMASK is 0). The app may also enable IRQs itself;
+       this just guarantees the bootloader does not leak a disabled-PRIMASK
+       state across the jump, which would otherwise suppress every interrupt
+       (including the SysTick that HAL_Delay relies on). */
     __set_MSP(sp);
     SCB->VTOR = APP_BASE_ADDR;
+    __enable_irq();
     app_entry();
     while (1) {
     }
@@ -175,7 +184,7 @@ void BSP_Boot_Enter(void)
             BSP_UART_Printf("[BOOT] USB connected in window -> U-disk mode\r\n");
             enter_udisk_mode();
         }
-        if ((HAL_GetTick() - led_t) >= LED_BLINK_MS) {
+        if ((HAL_GetTick() - led_t) >= BOOT_JUMP_LED_BLINK_MS) {
             led_t = HAL_GetTick();
             BSP_LED_Toggle();
         }

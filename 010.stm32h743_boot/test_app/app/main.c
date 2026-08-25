@@ -17,6 +17,11 @@ static void Error_Handler(void);
 
 int main(void)
 {
+    /* The bootloader jumps here with PRIMASK set (global IRQs off). On a real
+       reset the core starts with IRQs enabled, so emulate that: re-enable them
+       before any driver that relies on interrupts (e.g. HAL_Delay / SysTick). */
+    __enable_irq();
+
     HAL_Init();
     SystemClock_Config();
 

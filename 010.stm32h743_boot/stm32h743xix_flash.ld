@@ -7,12 +7,15 @@
  *   0x081E0000 - 0x081FFFFF : system config sector (sector 15)
  *
  * RAM:
- *   DTCM  0x20000000, 128 KB : stack (top) + upgrade engine (bottom)
- *   SRAM1 0x24000000, 512 KB : .data / .bss / heap (AXI SRAM)
+ *   DTCM  0x20000000, 128 KB : stack (top)
+ *   SRAM1 0x24000000, 512 KB : .data / .bss / heap (AXI SRAM) + upgrade engine
  *
- * The upgrade engine (.upgrade_ram) is LOADed in FLASH but RUNs from DTCM:
- * while erasing/programming bank1 the CPU must not fetch instructions from
- * bank1, so all flash write code executes from RAM.
+ * The upgrade engine (.upgrade_ram) is LOADed in FLASH but RUNs from AXI SRAM
+ * (0x24000000): while erasing/programming bank1 the CPU must not fetch
+ * instructions from bank1, so all flash write code executes from a RAM region
+ * that is independent of both flash banks AND executable. NOTE: the code must
+ * NOT run from DTCM - on Cortex-M7 the I-Code bus cannot fetch instructions
+ * from DTCM (data-TCM only), which would BusFault on the first engine call.
  */
 
 ENTRY(Reset_Handler)
@@ -96,9 +99,11 @@ SECTIONS
   } >FLASH
 
   /*
-   * Flash upgrade engine: linked into DTCM (bottom of RAM), loaded from FLASH.
+   * Flash upgrade engine: linked into AXI SRAM (0x24000000), loaded from FLASH.
    * BFLASH_Relocate() copies _supgrade_ram_load..+size to _supgrade_ram before
-   * the first use. All symbols in this section resolve to the DTCM run address.
+   * the first use. All symbols in this section resolve to the AXI SRAM run
+   * address (executable, independent of both flash banks). Do NOT place this in
+   * DTCM: Cortex-M7 cannot fetch instructions from DTCM.
    */
   .upgrade_ram :
   {
@@ -108,7 +113,7 @@ SECTIONS
     *(.upgrade_ram*)
     . = ALIGN(8);
     _eupgrade_ram = .;
-  } >DTCM AT> FLASH
+  } >SRAM1 AT> FLASH
   _supgrade_ram_load = LOADADDR(.upgrade_ram);
 
   _sidata = LOADADDR(.data);

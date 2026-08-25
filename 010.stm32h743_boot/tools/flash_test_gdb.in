@@ -1,0 +1,26 @@
+set pagination off
+set confirm off
+set width 0
+set height 0
+target extended-remote :3333
+monitor reset halt
+# BFLASH_Relocate lives in .upgrade_ram (AXI SRAM 0x24000000, LMA in FLASH).
+# Set a hardware breakpoint so it triggers after the firmware copies the engine.
+hbreak BFLASH_Relocate
+continue
+# halted at BFLASH_Relocate entry -> run it to completion (relocates engine)
+finish
+echo \n>>> ENGINE RELOCATED, bootloader in control <<<\n
+# write a known 32-byte pattern into AXI SRAM scratch (above bss)
+set {uint32_t[8]}0x24070000 = {0x11223344,0x55667788,0x99aabbcc,0xddeeff00,0x01234567,0x89abcdef,0xfedcba98,0x76543210}
+# erase scratch sector (bank1, absolute sector 2 = 0x08040000)
+print flash_erase_sector(1, 2)
+echo \n>>> calling BFLASH_ProgramBlock(0x08040000, 0x24070000, 32) ... <<<\n
+print BFLASH_ProgramBlock(0x08040000, (uint8_t*)0x24070000, 32)
+echo \n>>> readback 8 words @0x08040000 <<<\n
+x/8xw 0x08040000
+print *((uint32_t*)0x08040000)
+# leave sector clean
+print flash_erase_sector(1, 2)
+echo \n>>> TEST DONE <<<\n
+quit

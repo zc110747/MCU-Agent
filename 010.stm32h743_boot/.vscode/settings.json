@@ -23,5 +23,6 @@
   "[c]": {
     "editor.formatOnSave": false,
     "files.encoding": "utf8"
-  }
+  },
+  "cortex-debug.variableUseNaturalFormat": false
 }

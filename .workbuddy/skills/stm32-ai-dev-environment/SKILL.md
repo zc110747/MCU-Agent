@@ -85,6 +85,16 @@ grep -E "define (IP_REASSEMBLY|CHECKSUM_)" build/probe.i
 ### 4.6 arp 核对 MAC OUI 防假通
 `arp -a <IP>` 确认应答者厂商（ST 是 `00:80:E1`），排除同 IP 其它设备顶替造成的假通。
 
+### 4.7 ST-Link 被残留进程占用排查
+烧录/调试偶发 `ST-Link not found` / `init mode failed`，多因上一次 `openocd` / `arm-none-eabi-gdb`
+未退出仍独占 ST-Link。排查：
+```bash
+tasklist | findstr openocd
+tasklist | findstr arm-none-eabi-gdb
+taskkill /F /PID <pid>     # 结束残留再重试
+```
+推荐常驻一个 openocd 调试服务器（见 `stm32-verification-acceptance` 第八节），避免重复实例抢 ST-Link。
+
 ## 五、编译期零警告约束
 
 本项目强约束 **Debug / Release 双构零警告**：

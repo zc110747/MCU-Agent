@@ -1,5 +1,9 @@
 # STM32H743ZIT6 Bootloader — QSPI 虚拟 U 盘 + 安全升级
 
+## 0. 整体框架图
+
+![STM32H743 Bootloader 整体框架](docs/bootloader_architecture.svg)
+
 ## 1. 项目概述
 
 基于 **LXB743ZI-P1 开发板**（STM32H743ZIT6，Cortex-M7 @480MHz）的 Bootloader，把板载 **8 MB QSPI Flash（W25Q64 兼容）虚拟成 USB Mass Storage（U 盘）**，并支持**安全固件升级**：
@@ -29,7 +33,7 @@
 | QSPI IO3  | PF6  (AF9) |
 | USB（U 盘）| OTG_FS，PA11/PA12（**接用户机器**，非本沙箱） |
 | 调试串口 | USART1，PA9(TX)/PA10(RX) → ST-Link VCP（**本机 COM19**，115200 8N1） |
-| 状态 LED  | PG7，低电平点亮，200 ms 快闪=Bootloader / 1 s 慢闪=App |
+| 状态 LED  | PG7，低电平点亮；Bootloader 200 ms 快闪 / 跳转前 8 s 窗口 300 ms 闪烁 / App 1 s 慢闪 |
 | HSE | 25 MHz 无源晶振 |
 | 烧录/调试 | ST-Link V2（SWD） |
 
@@ -59,8 +63,8 @@ cmake --build build                 # Debug，产物 build/stm32h7_boot.{elf,bin
 cmake --build build --config Release
 ```
 
-- 零警告目标。体积：Debug `text 107,920 B / data 2,268 B / bss 38,792 B`（≈107.6 KB / 128 KB，84%）；Release `text 70,800 B`（bin ≈73 KB）。
-- 升级擦写引擎（Flash 编程/校验）放在 **DTCM RAM** 执行，规避 H7 Bank 内擦写取指停顿。
+- 零警告目标。体积：Debug `text 109,808 B / data 2,268 B / bss 38,824 B`（≈110 KB / 128 KB，84%）；Release `text ≈70,800 B`（bin ≈73 KB）。
+- 升级擦写引擎（Flash 编程/校验）放在 **AXI SRAM（0x24000000）** 执行，规避 H7 Bank 内擦写取指停顿。⚠️ **绝不可放 DTCM（0x20000000）**——Cortex-M7 的 I-Code 总线无法从 DTCM 取指，引擎放 DTCM 会立即 BusFault→`Default_Handler`（已踩坑修复）。
 
 ### 4.2 Test App（升级目标 / 跳转目标）
 
@@ -102,8 +106,8 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 3. 打开同名 `.bin`，比对 `f_size == len`
 4. 流式 HMAC-SHA256（共享密钥）比对 JSON 中的值
 5. 读当前 App 版本（0x08021000）；**版本相同则跳过（保留包）**，不同（含降级）则继续
-6. 擦除 App 扇区 1..14（`BFLASH_EraseApp`）
-7. 流式编程 + 读回校验（`BFLASH_ProgramBlock` / `VerifyBlock`，DTCM 引擎）
+6. 两阶段擦除 App：`BFLASH_EraseApp(len)` 仅按实际长度擦非末块，留末块到编程前由 `BFLASH_EraseAppLastSector(len)` 即时擦除（避免整片先擦 + 中途掉电风险）。
+7. 流式编程 + 读回校验（`BFLASH_ProgramBlock` / `VerifyBlock`，AXI SRAM 引擎）。编程走**经验证 HAL `HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD)` 通路**，每次操作前清双 Bank 错误标志（`FLASH_FLAG_ALL_ERRORS_BANK1/2`）。
 8. 写系统配置区（magic/len/version/hmac/status/crc）
 9. 卸载；随后 Bootloader 进入 8 s 窗口，USB 未连则跳转新 App
 
@@ -127,36 +131,31 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 
 ## 8. 验证状态与 Test A 流程
 
-### 8.1 已验证
+### 8.1 已验证（真机，openocd + gdb + 串口）
 
-- **Test B（跳转 v1.0.0.5）**：直烧 App+配置后复位 → Bootloader 启动 → QSPI 挂载 → 无升级包 → 配置 CRC/向量/HMAC/版本全过 → `[BOOT] app image OK app v1.0.0.5` → 8 s 窗口。因 **OTG_FS USB 物理连在用户机器**，窗口内检测到 USB → 正确进入 U-disk 模式（不跳转）。这是**符合设计的正确行为**。
-- **Golden path（串口实测）**：同上串口日志确认 `app image OK` 校验通过；若 USB 未连则正常跳转 App。
-- **升级包交叉校验**：`verify_hmac.py` 通过 —— 工具密钥 == `BOOT_HMAC_KEY`（25 B），版本槽 == `verify.json` 版本（1.0.0.6）。固件对烧录后镜像重算 HMAC 必与 `verify.json` 一致。
-- **升级代码已接线**：`BSP_Upgrade_Check()` 在 `app/main.c:68` 调用。
+- **跳转验证（Golden path）**：直烧 App+配置后复位 → Bootloader 启动 → QSPI 挂载 → 配置 CRC/向量/HMAC/版本全过 → `[BOOT] app image OK app vX.Y.Z` → 8 s 窗口；USB 连接则 U-disk 模式（符合设计），未连则跳转 App。v1.0.0.5 / v1.0.0.6 均验证通过。
+- **升级包交叉校验**：`verify_hmac.py` 通过 —— 工具密钥 == `BOOT_HMAC_KEY`（25 B），版本槽 == `verify.json` 版本（1.0.0.6）。
+- **`BFLASH_ProgramBlock` 真机验证（openocd + gdb 直调）**：hw-bp 命中 `BFLASH_Relocate`→`finish` 完成引擎 relocate 到 AXI SRAM；`flash_erase_sector` + `BFLASH_ProgramBlock(0x08040000, buf, 32)` → 均返回 0，回读 8 字与写入 pattern 完全一致，5.0 s 干净返回不卡死。
+- **端到端 U 盘升级 v1.0.0.6（真机通过）**：串口实测 boot banner 含 `[BOOT] relocating flash engine to AXI SRAM...`；Bootloader 检测升级包 → 执行 `BFLASH_EraseApp`+`BFLASH_ProgramBlock` → 重启 → 打印 `STM32H743 TEST APP v1.0.0.6`。Flash 读回确认：版本槽 `0x08021000=0x06000001`（v1.0.0.6）、App 向量合法、config 扇区 `magic=0xB0075EED`+CRC 完好、Bootloader 向量完好。
+- **升级代码已接线**：`BSP_Upgrade_Check()` 在 `app/main.c` 中于 USB/跳转逻辑之前调用。
 
-### 8.2 Test A（升级 v1.0.0.5 → v1.0.0.6）—— 当前就绪，待用户拷包
+### 8.2 升级包（Test A 已完成验证）
 
-升级包已生成在 `dist/`：
-- `dist/stm32h7_test.bin`（46,164 B，版本槽 `[1,0,0,6]`，App banner 动态打印版本槽）
-- `dist/verify.json`（`name=stm32h7_test.bin`、`len=46164`、`HMAC-SHA256`、`version=1.0.0.6`）
+升级包位于 `test_app/dist/`：
+- `test_app/dist/stm32h7_test.bin`（46,164 B，版本槽 `[1,0,0,6]`，App banner 动态打印版本槽）
+- `test_app/dist/verify.json`（`name=stm32h7_test.bin`、`len=46164`、`HMAC-SHA256`、`version=1.0.0.6`）
+- `test_app/dist/stm32h7_boot.bin`（Bootloader 镜像，需升级 Bootloader 时烧录内部 Flash sector0）
 
-**本沙箱局限**：openocd 的 `stmqspi` 驱动在本环境无法拉起 H743 QSPI（probe 能识别外设但 Flash 通信超时），且无 `mkfs.fat`/`mtools`，故**无法用 openocd 直写 QSPI 注入升级包**。因此 Test A 走设计的 U 盘路径，由用户在其机器上拷包、本沙箱看 COM19。
+**本沙箱局限**：openocd 的 `stmqspi` 驱动在本环境无法拉起 H743 QSPI，且无 `mkfs.fat`/`mtools`，故无法用 openocd 直写 QSPI 注入升级包；升级走设计的 U 盘路径（用户机器拷包 / 沙箱看 COM19）。
 
-**用户操作步骤（板子当前即处于 U-disk 模式，用户机器已挂载该盘）：**
-1. 将 `dist/stm32h7_test.bin`（**文件名必须保持 `stm32h7_test.bin`**）与 `dist/verify.json` 拷到 U 盘根目录。
-2. 安全弹出 U 盘。
-3. 复位板子（或断电再上电）。**升级本身与 USB 是否连接无关**（检测发生在 USB 窗口之前）；若想看到新 App 真正运行，请在复位时**拔掉 OTG_FS USB**，使 8 s 窗口超时后跳转。
-4. 通知沙箱运行验收：
+**用户操作步骤：**
+1. 将 `stm32h7_test.bin`（**文件名必须保持 `stm32h7_test.bin`**）与 `verify.json` 拷到 U 盘根目录。
+2. 安全弹出，复位板子（或断电再上电）。**升级本身与 USB 是否连接无关**（检测发生在 USB 窗口之前）；若想看到新 App 真正运行，请在复位时**拔掉 OTG_FS USB**，使 8 s 窗口超时后跳转。
+3. 验收：
    ```bash
    python tools/verify_serial.py --port COM19 --expect upgrade   # 期望 HMAC-SHA256 verified OK + upgrade SUCCESS
    python tools/verify_serial.py --port COM19 --expect jump      # 期望 app image OK v1.0.0.6 + TEST APP v1.0.0.6 + app alive @1Hz
    ```
-
-### 8.3 openocd QSPI 直写排查记录（供后续参考）
-
-- 错误现象：`flash probe stm32h7x.qspi` 先报 `No QSPI, no OCTOSPI at 0x52005000`，配置 QUADSPI CR/DCR+EN 后变为 `timeout`。
-- 已尝试：`reset halt` + 手动开时钟(AHB3 QSPIEN / AHB4 GPIOF,G) + 配 GPIO AF(PF6 漏配已修，MODER 由 `0x002A8000`→`0x002AA000`) + 配 QUADSPI CR(`0x05800018`)/DCR(`0x00160200`, FSIZE=0x16)/ABORT/EN；以及 `reset run` 让固件自初始化 QSPI 后 `halt` + ABORT 再 probe。
-- 结论：本 Sysprogs openocd 0.12 的 `stmqspi` 在 H743+W25Q64 下无法稳定通信，放弃直写，改走 U 盘路径。
 
 ---
 
@@ -164,7 +163,7 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 
 - Boot 状态机：`app/boot.c :: BSP_Boot_Enter()` / `jump_to_app()` / `app_hmac_check()`
 - 升级流程：`app/upgrade.c :: BSP_Upgrade_Check()`（HMAC/版本/擦写/配置更新）
-- Flash 引擎：`bsp/flash_upgrade.c/.h`（`BFLASH_EraseApp` / `ProgramBlock` / `VerifyBlock` / `ConfigRead`/`ConfigWrite` / `ConfigCrc` / `AppVersionRead`）
+- Flash 引擎：`bsp/flash_upgrade.c/.h`（`BFLASH_EraseApp` / `BFLASH_EraseAppLastSector` / `ProgramBlock` / `VerifyBlock` / `ConfigRead`/`ConfigWrite` / `ConfigCrc` / `AppVersionRead`），底层走 HAL `HAL_FLASHEx_Erase` / `HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD)`
 - QSPI 驱动：`bsp/qspi.c/.h`（W25Q64 兼容，HAL 间接 + 映射 + QE）
 - 安全：`bsp/flash_secure.h`（`BOOT_HMAC_KEY`）、`third_party/hmac_sha256/`（RFC2104）
 - USB U 盘：`bsp/usb_board.c` / `bsp/msc_qspi.c` / `bsp/tusb_config.h`
