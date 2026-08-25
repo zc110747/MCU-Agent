@@ -11,7 +11,7 @@
             "servertype": "openocd",
 
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/stm32_qspi.elf",
+            "executable": "${workspaceFolder}/build/stm32h7_boot.elf",
 
             "preLaunchTask": "CMake Build",
 
@@ -44,7 +44,7 @@
             "servertype": "openocd",
 
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build-release/stm32_qspi.elf",
+            "executable": "${workspaceFolder}/build-release/stm32h7_boot.elf",
 
             "preLaunchTask": "CMake Build (Release)",
 
@@ -67,7 +67,7 @@
             "servertype": "openocd",
 
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/stm32_qspi.elf",
+            "executable": "${workspaceFolder}/build/stm32h7_boot.elf",
 
             "configFiles": [
                 "${workspaceFolder}/openocd.cfg"

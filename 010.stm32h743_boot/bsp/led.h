@@ -15,7 +15,11 @@
 /* LED on the LXB743ZI-P1 board */
 #define LED_GPIO_PORT   GPIOG
 #define LED_GPIO_PIN    GPIO_PIN_7
-#define LED_BLINK_MS    500U   /* toggle interval: 500 ms -> 1 Hz heartbeat */
+/* Toggle interval: bootloader fast blink 200 ms; the test app overrides this
+   to 1000 ms (-DLED_BLINK_MS=1000) for a slow 1 Hz heartbeat. */
+#ifndef LED_BLINK_MS
+#define LED_BLINK_MS    200U
+#endif
 
 void BSP_LED_Init(void);
 void BSP_LED_On(void);

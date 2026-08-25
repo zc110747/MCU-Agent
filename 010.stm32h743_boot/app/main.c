@@ -1,22 +1,31 @@
 /**
   ******************************************************************************
   * @file    app/main.c
-  * @brief   STM32H743ZIT6 QSPI flash exposed as a USB Mass Storage (U-disk)
+  * @brief   STM32H743ZIT6 QSPI-U-Disk bootloader (upgrade + secure jump).
   *
-  * The firmware initialises the QSPI flash (HAL indirect mode only), prepares a
-  * FAT volume for plug-and-play usability, then runs the TinyUSB MSC stack so a
-  * host sees the 8 MB QSPI as a removable disk. No memory-mapped (XIP) access is
-  * performed at boot, which keeps the QUADSPI peripheral in a clean indirect
-  * state for both FatFs and the USB Mass Storage callbacks.
+  * Boot flow:
+  *   1. HAL / clock / MPU (all regions non-cacheable for safe flash writes)
+  *   2. UART + QSPI + LED init
+  *   3. relocate the internal-flash write engine into DTCM (BFLASH_Relocate)
+  *   4. BSP_Upgrade_Check(): mount QSPI FAT, if a package (stm32h7_xx.bin +
+  *      verify.json) is present and passes HMAC/version checks, erase the app
+  *      region and program the new image, then update the system config and
+  *      unmount (TinyUSB MSC takes over the raw QSPI for host access)
+  *   5. BSP_Boot_Enter(): validate the app image; if OK, an 8 s window lets
+  *      the user plug in USB to enter U-disk mode, otherwise reset HW + jump
+  *
+  * LED: 200 ms fast blink while the bootloader is alive (override to 1000 ms
+  * in the test app for a 1 Hz heartbeat).
   ******************************************************************************
   */
 #include "stm32h7xx_hal.h"
 #include "uart.h"
 #include "qspi.h"
-#include "fs_init.h"
-#include "usb_board.h"
-#include "tusb.h"
 #include "led.h"
+#include "mpu.h"
+#include "flash_upgrade.h"
+#include "upgrade.h"
+#include "boot.h"
 
 static void SystemClock_Config(void);
 static void Error_Handler(void);
@@ -26,8 +35,9 @@ int main(void)
     HAL_Init();
     SystemClock_Config();
 
-    /* Caches left disabled at reset; single-line QSPI indirect reads hit the
-       device fresh - no stale cache lines across HAL / XIP mode switches. */
+    /* All bootloader-visible memory is non-cacheable (see bsp/mpu.c) so flash
+       writes and QSPI/USB DMA never see stale cache lines. */
+    BSP_MPU_Init();
 
     if (BSP_UART_Init() != HAL_OK) {
         Error_Handler();
@@ -35,43 +45,33 @@ int main(void)
 
     BSP_UART_Printf("\r\n");
     BSP_UART_Printf("========================================================\r\n");
-    BSP_UART_Printf(" STM32H743ZIT6 QSPI U-Disk (USB MSC)\r\n");
+    BSP_UART_Printf(" STM32H743 Bootloader  (QSPI U-Disk + secure upgrade)\r\n");
     BSP_UART_Printf("========================================================\r\n");
     BSP_UART_Printf(" CPU Clock : %lu MHz\r\n", (unsigned long)(SystemCoreClock / 1000000UL));
 
-    /* Initialise the QSPI peripheral (HAL indirect mode). No memory-mapped /
-       XIP session is started, so the peripheral stays clean for FatFs and the
-       USB MSC callbacks. */
     if (BSP_QSPI_Init() != QSPI_OK) {
         BSP_UART_Printf(" QSPI init FAILED\r\n");
         Error_Handler();
     }
     BSP_UART_Printf(" QSPI initialised (HAL indirect mode)\r\n");
 
-    /* Status LED: 500 ms heartbeat blink = firmware running. */
     BSP_LED_Init();
-    BSP_UART_Printf(" LED heartbeat started (PG7, 500 ms)\r\n");
+    BSP_UART_Printf(" LED fast blink started (PG7, 200 ms)\r\n");
 
-    /* Prepare the FAT volume before USB is enabled: detect an existing FS, or
-       format a blank flash, then unmount - so the host sees a clean disk. */
-    FS_PrepareForMassStorage();
+    /* Copy the flash-write engine from FLASH into DTCM before any erase/program
+       call (the CPU must not fetch from bank1 while bank1 is being written). */
+    BSP_UART_Printf("[BOOT] relocating flash engine to DTCM...\r\n");
+    BFLASH_Relocate();
 
-    /* Bring up the USB2_OTG_FS device and start the TinyUSB stack. */
-    BSP_USB_Init();
-    if (!tusb_init()) {
-        BSP_UART_Printf(" tusb_init FAILED\r\n");
-        Error_Handler();
-    }
-    BSP_UART_Printf(" USB MSC ready - connect the board to a host\r\n");
+    /* 1. Process any upgrade package on the QSPI U-disk. */
+    BSP_UART_Printf("[BOOT] checking QSPI volume for upgrade package...\r\n");
+    BSP_Upgrade_Check();
 
-    uint32_t led_tick = 0;
+    /* 2. Validate app and either count down to a jump or stay in U-disk mode. */
+    BSP_Boot_Enter();
+
+    /* never returns */
     while (1) {
-        /* Non-blocking blink: toggle every LED_BLINK_MS without stalling tud_task() */
-        if ((HAL_GetTick() - led_tick) >= LED_BLINK_MS) {
-            led_tick = HAL_GetTick();
-            BSP_LED_Toggle();
-        }
-        tud_task();   /* pump the USB device stack */
     }
 }
 

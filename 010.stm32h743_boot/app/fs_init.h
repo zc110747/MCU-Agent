@@ -1,17 +1,17 @@
 /**
   ******************************************************************************
   * @file    app/fs_init.h
-  * @brief   QSPI FatFs one-shot preparation, run before USB MSC is enabled.
+  * @brief   QSPI FAT volume lifecycle (mount / format-blank / unmount).
   ******************************************************************************
   */
 #ifndef __FS_INIT_H
 #define __FS_INIT_H
 
-#include <stdint.h>
+/* Mount the FAT volume on QSPI; if the flash is blank, format it first.
+   Returns 0 on success, -1 on failure. */
+int FS_Mount(void);
 
-/* Prepare the QSPI flash for the U-disk role: if no FAT volume is present,
-   create one with f_mkfs, then always unmount so the host can enumerate a
-   clean, writable disk. Returns 0 on success, <0 on failure. */
-int FS_PrepareForMassStorage(void);
+/* Unmount so the USB MSC callbacks can own the raw QSPI device. */
+void FS_Unmount(void);
 
 #endif /* __FS_INIT_H */

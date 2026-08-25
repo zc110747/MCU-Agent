@@ -1,18 +1,14 @@
 /*
- * Linker script for STM32H743ZIT6 BOOTLOADER
+ * Linker script for the STM32H743 TEST APP
  *
- * Flash layout (2 MB, 16 sectors x 128 KB):
- *   0x08000000 - 0x0801FFFF : bootloader (this image, 128 KB = sector 0)
- *   0x08020000 - 0x081DFFFF : app        (14 sectors = sectors 1..14)
- *   0x081E0000 - 0x081FFFFF : system config sector (sector 15)
+ * The app is booted by the bootloader and runs from internal flash:
+ *   0x08020000 - 0x081DFFFF : app (14 sectors = sectors 1..14)
+ *   0x08021000              : app version, 4 bytes (major,minor,patch,build)
+ *   0x081E0000 - 0x081FFFFF : system config sector (owned by the bootloader)
  *
- * RAM:
- *   DTCM  0x20000000, 128 KB : stack (top) + upgrade engine (bottom)
- *   SRAM1 0x24000000, 512 KB : .data / .bss / heap (AXI SRAM)
- *
- * The upgrade engine (.upgrade_ram) is LOADed in FLASH but RUNs from DTCM:
- * while erasing/programming bank1 the CPU must not fetch instructions from
- * bank1, so all flash write code executes from RAM.
+ * A 4-byte version slot is fixed at 0x08021000 (0x1000 into the image); the
+ * bootloader reads it to validate the image and compares it to the version in
+ * the system config sector. The vector table sits at 0x08020000.
  */
 
 ENTRY(Reset_Handler)
@@ -22,12 +18,11 @@ _Min_Stack_Size = 0x400;
 
 MEMORY
 {
-  FLASH   (rx)  : ORIGIN = 0x08000000, LENGTH = 128K    /* bootloader only */
-  DTCM    (rwx) : ORIGIN = 0x20000000, LENGTH = 128K    /* stack + upgrade engine */
-  SRAM1   (rwx) : ORIGIN = 0x24000000, LENGTH = 512K    /* data/bss (AXI SRAM) */
+  FLASH   (rx)  : ORIGIN = 0x08020000, LENGTH = 0x001C0000   /* app (sectors 1..14) */
+  DTCM    (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
+  SRAM1   (rwx) : ORIGIN = 0x24000000, LENGTH = 512K
 }
 
-/* Initial stack pointer: top of DTCM RAM */
 _estack = ORIGIN(DTCM) + LENGTH(DTCM);
 
 SECTIONS
@@ -37,6 +32,14 @@ SECTIONS
     . = ALIGN(8);
     KEEP(*(.isr_vector))
     . = ALIGN(8);
+  } >FLASH
+
+  /* Reserve the vector area, then pin the 4-byte version slot at 0x08021000
+     (explicit address is more reliable than a location-counter assignment). */
+  .app_version 0x08021000 :
+  {
+    KEEP(*(.app_version))
+    . = ALIGN(4);
   } >FLASH
 
   .text :
@@ -49,7 +52,6 @@ SECTIONS
     KEEP(*(.init))
     KEEP(*(.fini))
     . = ALIGN(8);
-    _etext = .;
   } >FLASH
 
   .rodata :
@@ -94,22 +96,6 @@ SECTIONS
     KEEP(*(.fini_array*))
     PROVIDE_HIDDEN(__fini_array_end = .);
   } >FLASH
-
-  /*
-   * Flash upgrade engine: linked into DTCM (bottom of RAM), loaded from FLASH.
-   * BFLASH_Relocate() copies _supgrade_ram_load..+size to _supgrade_ram before
-   * the first use. All symbols in this section resolve to the DTCM run address.
-   */
-  .upgrade_ram :
-  {
-    . = ALIGN(8);
-    _supgrade_ram = .;
-    *(.upgrade_ram)
-    *(.upgrade_ram*)
-    . = ALIGN(8);
-    _eupgrade_ram = .;
-  } >DTCM AT> FLASH
-  _supgrade_ram_load = LOADADDR(.upgrade_ram);
 
   _sidata = LOADADDR(.data);
 

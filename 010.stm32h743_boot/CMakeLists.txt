@@ -8,7 +8,7 @@ set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
 # Bare-metal: skip linking an executable during compiler checks (no syscalls)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-project(stm32_qspi C ASM)
+project(stm32h7_boot C ASM)
 
 # MCU flags as a CMake LIST (each element becomes a separate compiler argument)
 set(MCU_FLAGS
@@ -82,6 +82,17 @@ set(FATFS_SOURCES
   ${CMAKE_SOURCE_DIR}/third_party/FatFs/ffunicode.c
 )
 
+# Self-contained HMAC-SHA256 (firmware security, no external download)
+set(HMAC_SHA256_SOURCES
+  ${CMAKE_SOURCE_DIR}/third_party/hmac_sha256/sha256.c
+  ${CMAKE_SOURCE_DIR}/third_party/hmac_sha256/hmac_sha256.c
+)
+
+# Minimal JSON parser for verify.json (no cJSON dependency)
+set(MINI_JSON_SOURCES
+  ${CMAKE_SOURCE_DIR}/third_party/mini_json/mini_json.c
+)
+
 # TinyUSB sources (DWC2 port only - what STM32H7 uses)
 set(TINYUSB_DIR "${CMAKE_SOURCE_DIR}/third_party/tinyusb")
 set(TINYUSB_SOURCES
@@ -100,6 +111,8 @@ add_executable(${CMAKE_PROJECT_NAME}.elf
   ${APP_SOURCES}
   ${TINYUSB_SOURCES}
   ${FATFS_SOURCES}
+  ${HMAC_SHA256_SOURCES}
+  ${MINI_JSON_SOURCES}
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME}.elf PUBLIC
@@ -110,6 +123,8 @@ target_include_directories(${CMAKE_PROJECT_NAME}.elf PUBLIC
   Drivers/HAL/Inc
   ${TINYUSB_DIR}/src
   ${CMAKE_SOURCE_DIR}/third_party/FatFs
+  ${CMAKE_SOURCE_DIR}/third_party/hmac_sha256
+  ${CMAKE_SOURCE_DIR}/third_party/mini_json
 )
 
 # TinyUSB needs CFG_TUSB_MCU / CFG_TUSB_OS and the rhport selector.

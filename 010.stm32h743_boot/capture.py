@@ -22,7 +22,7 @@ import argparse
 import glob
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_ELF = os.path.join(WORKDIR, "build", "stm32_qspi.elf")
+DEFAULT_ELF = os.path.join(WORKDIR, "build", "stm32h7_boot.elf")
 OPENOCD_CFG = os.path.join(WORKDIR, "openocd.cfg")
 LOG_SIZE = 0x4000  # UART_LOG_BUF_SIZE
 

@@ -14,3 +14,5 @@ th/
 .vscode-test/
 .DS_Store
 *.swp
+*.cfg
+*.txt

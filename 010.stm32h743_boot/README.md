@@ -1,234 +1,172 @@
-# STM32H743ZIT6 QSPI Flash 功能测试 Demo
+# STM32H743ZIT6 Bootloader — QSPI 虚拟 U 盘 + 安全升级
 
 ## 1. 项目概述
 
-基于 **LXB743ZI-P1 开发板**（STM32H743ZIT6）的 QSPI Flash 功能测试 Demo。
-目标：验证板载 QSPI Flash 在 **两种访问模式** 下均工作正常：
+基于 **LXB743ZI-P1 开发板**（STM32H743ZIT6，Cortex-M7 @480MHz）的 Bootloader，把板载 **8 MB QSPI Flash（W25Q64 兼容）虚拟成 USB Mass Storage（U 盘）**，并支持**安全固件升级**：
 
-| 模式 | 说明 | 验证方法 |
-|------|------|----------|
-| **直接 HAL 读取模式（Indirect）** | 通过 `HAL_QSPI_Command` / `HAL_QSPI_Receive` 发送读命令取数据 | 写 256B 图案 → 间接读回 → 比对 |
-| **内存映射模式（Memory-Mapped / XIP）** | 进入映射模式后，Flash 直接挂在 `0x90000000`，按指针读 | 经 `0x90000000` 指针读取 → 与写入图案比对 |
+| 能力 | 说明 |
+|------|------|
+| 虚拟 U 盘 | TinyUSB MSC 后端把 QSPI FatFs 卷暴露为 PC 上的 U 盘，可直接拷文件 |
+| 安全升级 | `verify.json`（名称/长度/HMAC-SHA256/版本）+ 同名 `.bin` 落到 U 盘 → 复位后 Bootloader 校验 → 擦写 App → 更新配置 → 跳转 |
+| 安全校验 | HMAC-SHA256（共享密钥，自研 RFC2104 实现） + 版本比对 + 向量表/栈顶合法性 + 配置区 CRC32 |
+| 防砖 | 任何校验失败 **绝不擦写** 已运行的 App；升级包校验通过才动 Flash |
 
-测试结论：**两种模式均 PASS**（详见第 7 节）。
-
-> **USB MSC（U 盘）已集成但未启用**：当前 flash 为空且无主机连接，U 盘测试暂不进行。
-> TinyUSB + MSC 后端代码（`bsp/usb_board.c`、`bsp/msc_qspi.c`、`bsp/usb_desc.c`、`bsp/tusb_config.h`）已就绪，
-> 后续只需在 `main.c` 调用 `BSP_USB_Init()` + `tusb_init()` + `tud_task()` 即可启用（详见第 10 节）。
+> 升级包必须经由 **U 盘（OTG_FS USB）** 拷入 —— 这是设计上的验收路径，也是本机（沙箱）无法用 openocd 直写 QSPI 时的标准验证方式（见第 8 节）。
 
 ---
 
-## 2. 硬件资源（解析自原理图 LXB743ZI-P1原理图.pdf）
+## 2. 硬件资源
 
 | 资源 | 配置 |
 |------|------|
 | MCU | STM32H743ZIT6（Cortex-M7，480 MHz） |
-| QSPI Flash | 板上实测 JEDEC ID `68 40 17` → **Boya BY25Q64**（Winbond W25Q64 命令兼容克隆，8 MB / 64 Mbit） |
-| QSPI CLK | PF10 (AF9) |
-| QSPI NCS | PG6 (AF10) |
-| QSPI IO0 | PF8 (AF10) |
-| QSPI IO1 | PF9 (AF10) |
-| QSPI IO2 | PF7 (AF10) |
-| QSPI IO3 | PF6 (AF10) |
-| 调试串口 | USART1，PA9(TX)/PA10(RX) → ST-Link VCP（本机 COM19），115200 8N1 |
-| 运行状态 LED | PG7，输出，低电平点亮，推挽，上拉（500 ms 心跳闪烁 = 固件运行中） |
-| HSE | 外部无源晶振 25 MHz |
-| 调试/烧录 | ST-Link V2（SWD）|
-
-> ⚠️ 原理图标注为 W25Q64JV（MFR `0xEF`），但本板实物为 Boya BY25Q64（MFR `0x68`）。
-> 二者命令集完全兼容（JEDEC ID / 读 / 页编程 / 扇区擦除 / 四线 QE 使能一致），测试全部通过。
+| QSPI Flash | 板载 JEDEC `68 40 17` → **Boya BY25Q64**（Winbond W25Q64 命令兼容 clones，8 MB / 64 Mbit） |
+| QSPI CLK  | PF10 (AF9) |
+| QSPI NCS  | PG6  (AF10) |
+| QSPI IO0  | PF8  (AF10) |
+| QSPI IO1  | PF9  (AF10) |
+| QSPI IO2  | PF7  (AF9) |
+| QSPI IO3  | PF6  (AF9) |
+| USB（U 盘）| OTG_FS，PA11/PA12（**接用户机器**，非本沙箱） |
+| 调试串口 | USART1，PA9(TX)/PA10(RX) → ST-Link VCP（**本机 COM19**，115200 8N1） |
+| 状态 LED  | PG7，低电平点亮，200 ms 快闪=Bootloader / 1 s 慢闪=App |
+| HSE | 25 MHz 无源晶振 |
+| 烧录/调试 | ST-Link V2（SWD） |
 
 ---
 
-## 3. 工程结构（模块化）
+## 3. Flash 内存布局（2 MB 内部 Flash，双 Bank）
 
-```
-stm32_qspi/
-├── CMakeLists.txt            # cmake + ninja 构建脚本（arm-none-eabi-gcc）
-├── stm32h743xix_flash.ld    # 链接脚本（FLASH/SRAM，_estack 在 DTCM 顶部）
-├── openocd.cfg              # VSCode 仿真调试用 OpenOCD 配置（仅起服务，不烧录）
-├── openocd_flash.cfg        # 独立烧录配置（flash + verify + reset + exit）
-├── capture.py               # 通过 SWD 读取 RAM 日志缓冲，抓取测试输出
-├── .vscode/                 # VSCode 仿真环境配置（见第 4 节）
-│   ├── launch.json          # Cortex-Debug 启动配置（ST-Link + OpenOCD）
-│   ├── tasks.json           # 构建/清理/烧录任务
-│   ├── settings.json        # cmake/ninja/gcc 工作区设置
-│   ├── c_cpp_properties.json# IntelliSense 包含路径
-│   └── extensions.json      # 推荐扩展
-├── app/
-│   ├── main.c               # 系统时钟、测试流程编排、结果判定
-│   └── stm32h7xx_it.c       # 中断处理（SysTick_Handler → HAL_IncTick）
-├── bsp/
-│   ├── uart.c / uart.h      # USART1 调试输出 + RAM 日志镜像缓冲
-│   ├── led.c / led.h        # 运行状态 LED（PG7，低电平点亮，500 ms 心跳闪烁）
-│   ├── qspi.c / qspi.h      # W25Q64 兼容 QSPI 驱动（间接/映射/擦写/QE）
-│   ├── qspi_test.c/.h       # QSPI 自测（间接+映射），已封装、可选，当前不编译进固件
-│   ├── usb_board.c / .h     # TinyUSB 板级初始化（PA11/PA12 FS + CRS + NVIC）
-│   ├── msc_qspi.c           # TinyUSB MSC 回调：以 HAL 间接模式把 QSPI 作为 U 盘
-│   ├── usb_desc.c           # USB 描述符（MSC-only，供应商/产品字符串）
-│   ├── tusb_config.h        # TinyUSB 配置（CFG_TUD_MSC=1，MSC-only）
-│   └── syscalls.c           # 最小 newlib 系统调用桩（去 nosys 链接告警）
-├── third_party/
-│   ├── tinyusb/             # TinyUSB 0.21.0（DWC2 端口，STM32H7 FS）
-│   └── FatFs/               # FatFs（已从参考工程导入，MSC 设备侧暂未使用）
-├── Drivers/
-│   ├── CMSIS/Include        # Cortex-M7 内核头 + cmsis_compiler 等
-│   ├── CMSIS/Device/...     # STM32H7 CMSIS 设备头、startup、system 文件
-│   └── HAL/                 # STM32H7 HAL 驱动（Inc/Src，含 Legacy）
-└── build/                   # 构建产物（.elf/.bin/.hex/.map）
-```
+| 区域 | 地址 | 说明 |
+|------|------|------|
+| Bootloader | `0x08000000` 扇区 0（128 KB） | 本工程 `build/stm32h7_boot.elf` |
+| App 镜像   | `0x08020000` 扇区 1–14 | 链接脚本 `test_app/stm32h7_app.ld` |
+| 版本槽     | `0x08021000`（`App.bin` 偏移 `0x1000`，4 B） | `test_app/app/app_version.c` 固定段 `.app_version` |
+| 系统配置区 | `0x081E0000` 扇区 15（64 B） | `app_config_t`：magic / app_len / version[4] / app_hmac[32] / status / crc32 |
+
+`app_config_t`（共 64 B）：`+0 magic(0xB0075EED)` / `+4 app_len` / `+8 version[4]` / `+12 app_hmac[32]` / `+44 status` / `+48 crc32`（CRC 覆盖 `[0,48)`）/ `+52 reserved[12]`。
+CRC 由 `BFLASH_ConfigCrc()` 计算：**覆盖除 crc32 自身外的全部字段**（曾因把 crc 字段也算进 CRC 导致配置永远校验失败，已修复）。
 
 ---
 
-## 4. 仿真 / 调试环境（VSCode + Cortex-Debug）
+## 4. 构建与烧录
 
-依赖（已加入系统 PATH）：`arm-none-eabi-gcc`、`cmake`、`ninja`、`openocd`、`python3`。
-
-推荐扩展（`Ctrl+Shift+X` 安装，或参考 `.vscode/extensions.json`）：
-
-- `marus25.cortex-debug`   — 嵌入式调试核心
-- `ms-vscode.cpptools`     — C/C++ IntelliSense
-- `ms-vscode.cmake-tools`  — CMake 集成（可选）
-
-### 启动调试（单步仿真）
-
-1. `F5` 或 *Run → Start Debugging*，选择 **"QSPI Debug (ST-Link + OpenOCD)"**。
-   - 该配置 `preLaunchTask` 自动执行 **CMake Build**；
-   - `runToEntryPoint: main` 复位后停在 `main()`；
-   - 加载 `build/stm32_qspi.elf`，可在 `app/main.c`、`bsp/qspi.c` 内打断点单步。
-2. 另一配置 **"QSPI Attach (no build)"** 用于不重新编译、直接挂载正在运行的板子。
-
-### 配置要点
-
-- `openocd.cfg`：**只**启动调试服务（SWD + STM32H7 目标），**不**自动烧录，
-  由 Cortex-Debug 自行加载 ELF，避免 `${PROJECT_ELF}` 变量未定义问题。
-- 如需寄存器视图，可将官方 `STM32H743x.svd` 放到
-  `Drivers/CMSIS/Device/ST/STM32H7xx/Include/` 并在 `launch.json` 的 `svdFile` 指向它
-  （ST 的 SVD 随 Cube 固件包分发，未包含在 GitHub 源码仓）。
-
----
-
-## 5. 构建步骤
+### 4.1 Bootloader
 
 ```bash
-# 配置（Ninja + Debug）
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-
-# 构建（零警告目标）
-cmake --build build
-# 产物： build/stm32_qspi.elf / .bin / .hex
-
-# Release 构建
+cmake --build build                 # Debug，产物 build/stm32h7_boot.{elf,bin}
 cmake --build build --config Release
 ```
 
-链接脚本与编译选项在 `CMakeLists.txt` 中集中管理：
-`-mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -DSTM32H743xx -DUSE_HAL_DRIVER`。
+- 零警告目标。体积：Debug `text 107,920 B / data 2,268 B / bss 38,792 B`（≈107.6 KB / 128 KB，84%）；Release `text 70,800 B`（bin ≈73 KB）。
+- 升级擦写引擎（Flash 编程/校验）放在 **DTCM RAM** 执行，规避 H7 Bank 内擦写取指停顿。
 
----
-
-## 6. 烧录与测试
-
-### 6.1 烧录
+### 4.2 Test App（升级目标 / 跳转目标）
 
 ```bash
-# 方式 A：VSCode 任务 "Flash (openOCD)"（= openocd -f openocd_flash.cfg）
-# 方式 B：命令行
-openocd -f openocd_flash.cfg
+cd test_app && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
+# 产物 test_app/build/stm32h7_app.{elf,bin}（版本槽由 app_version.c 决定）
 ```
 
-### 6.2 抓取测试输出（RAM 日志法）
-
-ST-Link 虚拟串口在复位瞬间会丢失启动日志，因此固件将每一行输出**镜像到 RAM 缓冲
-`g_uart_log`**，再用 OpenOCD 通过 SWD 直接读取该缓冲，稳定可靠：
+### 4.3 直烧 App + 配置（用于跳转验证 Test B）
 
 ```bash
-python capture.py --wait 7
+python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 ```
-
-脚本自动从 ELF 解析 `g_uart_log` 符号地址，复位运行 → 等待 → halt → dump → 解码打印。
-
-> 串口（COM19，115200）也直接输出同样内容；若需实时看心跳点，可用任意串口助手连接 ST-Link VCP。
+该脚本把 App 烧入 `0x08020000`、在 `0x08021000` 写版本槽、在 `0x081E0000` 写系统配置（magic/len/version/HMAC/CRC），使 Bootloader 校验通过并跳转。
 
 ---
 
-## 7. 测试结果
+## 5. Boot 决策状态机（app/boot.c）
 
 ```
-=================================================
- STM32H743ZIT6 QSPI Flash Test (W25Q64 compatible)
-=================================================
- CPU Clock : 480 MHz
-
-[1] Init QUADSPI peripheral... OK
-[2] Read JEDEC ID (cmd 0x9F)... OK  -> MFR=0x68 MemType=0x40 Cap=0x17
-    Detected: Boya BY25Q64 (W25Q64-compatible clone, 8MB)
-
-[TEST A] Indirect (HAL) read/write mode
-  Erase sector @0x00000000... OK
-  Program 256 bytes... OK
-  Read back (HAL indirect)... OK
-    Written pattern: 11 18 1F 26 ... E3 EA
-    Read  (indirect): 11 18 1F 26 ... E3 EA
-  RESULT: PASS (indirect read matches written data)
-
-[TEST B] Memory-mapped (XIP) mode (reads @0x90000000)
-  Enter memory-mapped mode (cmd 0xEB, quad)... OK
-  Read flash via 0x90000000 pointer... OK
-    Read  (memory-mapped): 11 18 1F 26 ... E3 EA
-  RESULT: PASS (memory-mapped read matches written data)
-  Exit memory-mapped mode... OK
-
-=================================================
- OVERALL: PASS - QSPI flash works in BOTH modes
-=================================================
+上电 → BSP_Boot_Enter()
+  ├─ 1. 读系统配置 (0x081E0000) + CRC32 校验
+  ├─ 2. 校验 App：app_len∈[512,APP_SIZE] / 版本分量 0..99 / 向量表合法(SP 在 RAM 且 8B 对齐, reset 向量在 App 内)
+  │        / 版本槽(0x08021000)==配置版本 / HMAC-SHA256(整段 App)==配置 app_hmac
+  ├─ 3a. 全部 OK → 启动 USB，进入 8 s 倒计时窗口（LED 快闪, tud_task）
+  │        ├─ 窗口内 USB 连接  → U-disk 模式（不跳转；拔插不恢复倒计时，下次复位重判）
+  │        └─ 窗口超时(USB 未连) → HAL_DeInit / 关中断 / 关 MPU / 关 I/D-Cache / 设 MSP / VTOR / 跳 App
+  └─ 3b. 任一失败 → U-disk 模式（拷包后复位重试）
 ```
-
-固件体积：`text 55,720 B / data 2,212 B / bss 6,680 B`（FLASH 约 56 KB，RAM 约 9 KB）。
 
 ---
 
-## 8. 调试过程中解决的问题
+## 6. 安全升级流程（app/upgrade.c → BSP_Upgrade_Check）
 
-| # | 现象 | 根因 | 解决 |
-|---|------|------|------|
-| 1 | 上电即 HardFault（CFSR 用法错误） | HCLK=480 MHz 仅设 `FLASH_LATENCY_4`，取指错位 | 改为 `FLASH_LATENCY_6`（H7 @480MHz 需 6 等待） |
-| 2 | 串口只输出 `\r\n` 后卡死 | `SysTick_Handler` 未实现，HAL 时基中断落到 `Default_Handler` 死循环 | 新增 `app/stm32h7xx_it.c` 实现 `SysTick_Handler → HAL_IncTick()` |
-| 3 | 内存映射模式读取为乱码 | W25Q64 四线读（0xEB）需先置 **QE** 位（状态寄存器 2）；且 PF8/PF9 复用应为 **AF10**（原理图注释正确但代码误用 AF9） | 修正 IO0/IO1 为 AF10；`BSP_QSPI_Init` 中增加 `QSPI_EnableQuadMode()` 置 QE |
-| 4 | 启动日志抓不全 | ST-Link VCP 在复位瞬间缓冲溢出丢数据；`subprocess` 阻塞复位期间串口读取被饿死 | 固件镜像日志到 RAM `g_uart_log`，用 OpenOCD 经 SWD 直接 dump |
-| 5 | 链接告警 `_close/_write ... not implemented` | 默认 `-specs=nosys.specs` 链接了工具链的空桩 | 自写 `bsp/syscalls.c` 提供最小桩并移除 `nosys.specs`；另加 `--no-warn-rwx-segments` 消 RWX 段告警 |
-| 6 | 二次 dump 日志为空 | 增删源文件改变 `.bss` 布局，`g_uart_log` 地址漂移，硬编码 dump 地址失效 | `capture.py` 改为从 ELF 动态解析符号地址 |
+`BSP_Upgrade_Check()` 在 `main.c` 中于 USB/跳转逻辑**之前**调用，故升级检测与 USB 是否连接无关：
 
-最终构建 **零警告**，烧录 **Verified OK**，硬件实测 **两种 QSPI 模式均 PASS**。
+1. `FS_Mount()`（空盘自动 FAT 格式化）
+2. 打开 `verify.json`，解析 `name / len / HMAC-SHA256 / version`
+3. 打开同名 `.bin`，比对 `f_size == len`
+4. 流式 HMAC-SHA256（共享密钥）比对 JSON 中的值
+5. 读当前 App 版本（0x08021000）；**版本相同则跳过（保留包）**，不同（含降级）则继续
+6. 擦除 App 扇区 1..14（`BFLASH_EraseApp`）
+7. 流式编程 + 读回校验（`BFLASH_ProgramBlock` / `VerifyBlock`，DTCM 引擎）
+8. 写系统配置区（magic/len/version/hmac/status/crc）
+9. 卸载；随后 Bootloader 进入 8 s 窗口，USB 未连则跳转新 App
+
+**任何校验失败都在擦写之前 abort**，已运行 App 不会被破坏。
 
 ---
 
-## 9. TinyUSB MSC（U 盘）集成状态
+## 7. 工具链（tools/）
 
-已按用户指令将 TinyUSB + MSC 移植完毕，目标是在 PC 上把板载 8 MB QSPI 当作 U 盘（虚拟 U 盘）读写。
-
-**当前状态：已启用并编译通过。**
-- 启动流程：`BSP_QSPI_Init()`（HAL 间接模式，不进入 XIP）→ `FS_PrepareForMassStorage()`（空盘自动 FAT 格式化并卸载，已存在则直接卸载）→ `BSP_USB_Init()` + `tusb_init()` → 主循环 `tud_task()`。
-- 已移除启动时的 QSPI 自测（含 XIP memory-mapped 会话），因为 XIP 会污染 QUADSPI 外设状态，导致后续间接访问（FatFs / USB MSC 写路径）挂死。仅保留 HAL 间接模式的初始化与读写。
-
-### 已落地的代码
-
-| 文件 | 作用 |
+| 脚本 | 作用 |
 |------|------|
-| `bsp/tusb_config.h` | TinyUSB 配置：`CFG_TUD_MSC=1`，`CFG_TUD_CDC=0`（纯 U 盘）；`CFG_TUD_MSC_EP_BUFSIZE=512` |
-| `bsp/usb_board.c` | `BSP_USB_Init()`：开 HSI48 + CRS（SOF 校准 48MHz）、配置 PA11/PA12 AF10、开 USB 电压检测、使能 OTG_FS 时钟与中断（`OTG_FS_IRQn`） |
-| `bsp/usb_desc.c` | 设备/配置/字符串描述符（厂商 `STM32H7`、产品 `QSPI_DISK`） |
-| `bsp/msc_qspi.c` | MSC 回调：`tud_msc_read10_cb`（HAL 间接读）、`tud_msc_write10_cb`（读-改-擦-写，4KB 扇区粒度，因 Flash 不可原地写）、`tud_msc_capacity_cb`（8MB / 512B 块） |
-| `app/main.c` | 启动即启用 USB MSC；`stm32h7xx_it.c` 中 `OTG_FS_IRQHandler` 转发 `tud_int_handler` |
+| `gen_upgrade.py` | 由 App `.bin` 生成升级包：`verify.json`（name/len/HMAC/version）+ 同名 `.bin`；读取 `0x1000` 版本槽，HMAC 用 `boot_secret.py` 共享密钥 |
+| `verify_serial.py` | 抓 COM19 串口做验收：`--expect jump|udisk|upgrade`，输出 PASS/FAIL 计数 |
+| `verify_hmac.py` | 交叉校验：`.bin` 版本槽 == `verify.json` 版本；工具密钥 == Bootloader `BOOT_HMAC_KEY` |
+| `flash_app_direct.py` | 直烧 App + 版本槽 + 配置区（路径统一用正斜杠，规避 TCL 反斜杠转义；显式声明 bank2 供 openocd 写 `0x081E0000`） |
+| `boot_secret.py` | 单一密钥源：`b"STM32H7BootKey2026#U-Disk"`（25 B），与 `bsp/flash_secure.h` 完全一致 |
 
-注意：`stm32h7xx_it.c` 已包含 `OTG_FS_IRQHandler`（转发 `tud_int_handler`），无需再改。
+> 版本组件取值范围 0..99；HMAC 为 RFC2104 标准实现（密钥不足 64 B 时零填充），主机签名与固件验签字节级一致。
 
 ---
 
-## 10. 关键源码索引
+## 8. 验证状态与 Test A 流程
 
-- 系统时钟：`app/main.c :: SystemClock_Config()` — HSE 25MHz → PLL1 → sys_ck 480MHz，HCLK 240MHz，PCLK 120MHz，FLASH_LATENCY_6。
-- QSPI 初始化/读写/映射：`bsp/qspi.c :: BSP_QSPI_Init / EraseSector / WritePage / ReadIndirect / EnableMemoryMapped`。
-- QSPI 自测（可选，未编译进固件）：`app/qspi_test.c :: BSP_QSPI_RunSelfTest()`（TEST A 间接、TEST B 映射，失败计数汇总 OVERALL），封装后可按需单独调用，不参与启动流程。
-- 调试输出：`bsp/uart.c :: BSP_UART_Printf()`（HAL_UART_Transmit + 镜像 `g_uart_log`）。
-```
+### 8.1 已验证
+
+- **Test B（跳转 v1.0.0.5）**：直烧 App+配置后复位 → Bootloader 启动 → QSPI 挂载 → 无升级包 → 配置 CRC/向量/HMAC/版本全过 → `[BOOT] app image OK app v1.0.0.5` → 8 s 窗口。因 **OTG_FS USB 物理连在用户机器**，窗口内检测到 USB → 正确进入 U-disk 模式（不跳转）。这是**符合设计的正确行为**。
+- **Golden path（串口实测）**：同上串口日志确认 `app image OK` 校验通过；若 USB 未连则正常跳转 App。
+- **升级包交叉校验**：`verify_hmac.py` 通过 —— 工具密钥 == `BOOT_HMAC_KEY`（25 B），版本槽 == `verify.json` 版本（1.0.0.6）。固件对烧录后镜像重算 HMAC 必与 `verify.json` 一致。
+- **升级代码已接线**：`BSP_Upgrade_Check()` 在 `app/main.c:68` 调用。
+
+### 8.2 Test A（升级 v1.0.0.5 → v1.0.0.6）—— 当前就绪，待用户拷包
+
+升级包已生成在 `dist/`：
+- `dist/stm32h7_test.bin`（46,164 B，版本槽 `[1,0,0,6]`，App banner 动态打印版本槽）
+- `dist/verify.json`（`name=stm32h7_test.bin`、`len=46164`、`HMAC-SHA256`、`version=1.0.0.6`）
+
+**本沙箱局限**：openocd 的 `stmqspi` 驱动在本环境无法拉起 H743 QSPI（probe 能识别外设但 Flash 通信超时），且无 `mkfs.fat`/`mtools`，故**无法用 openocd 直写 QSPI 注入升级包**。因此 Test A 走设计的 U 盘路径，由用户在其机器上拷包、本沙箱看 COM19。
+
+**用户操作步骤（板子当前即处于 U-disk 模式，用户机器已挂载该盘）：**
+1. 将 `dist/stm32h7_test.bin`（**文件名必须保持 `stm32h7_test.bin`**）与 `dist/verify.json` 拷到 U 盘根目录。
+2. 安全弹出 U 盘。
+3. 复位板子（或断电再上电）。**升级本身与 USB 是否连接无关**（检测发生在 USB 窗口之前）；若想看到新 App 真正运行，请在复位时**拔掉 OTG_FS USB**，使 8 s 窗口超时后跳转。
+4. 通知沙箱运行验收：
+   ```bash
+   python tools/verify_serial.py --port COM19 --expect upgrade   # 期望 HMAC-SHA256 verified OK + upgrade SUCCESS
+   python tools/verify_serial.py --port COM19 --expect jump      # 期望 app image OK v1.0.0.6 + TEST APP v1.0.0.6 + app alive @1Hz
+   ```
+
+### 8.3 openocd QSPI 直写排查记录（供后续参考）
+
+- 错误现象：`flash probe stm32h7x.qspi` 先报 `No QSPI, no OCTOSPI at 0x52005000`，配置 QUADSPI CR/DCR+EN 后变为 `timeout`。
+- 已尝试：`reset halt` + 手动开时钟(AHB3 QSPIEN / AHB4 GPIOF,G) + 配 GPIO AF(PF6 漏配已修，MODER 由 `0x002A8000`→`0x002AA000`) + 配 QUADSPI CR(`0x05800018`)/DCR(`0x00160200`, FSIZE=0x16)/ABORT/EN；以及 `reset run` 让固件自初始化 QSPI 后 `halt` + ABORT 再 probe。
+- 结论：本 Sysprogs openocd 0.12 的 `stmqspi` 在 H743+W25Q64 下无法稳定通信，放弃直写，改走 U 盘路径。
+
+---
+
+## 9. 关键源码索引
+
+- Boot 状态机：`app/boot.c :: BSP_Boot_Enter()` / `jump_to_app()` / `app_hmac_check()`
+- 升级流程：`app/upgrade.c :: BSP_Upgrade_Check()`（HMAC/版本/擦写/配置更新）
+- Flash 引擎：`bsp/flash_upgrade.c/.h`（`BFLASH_EraseApp` / `ProgramBlock` / `VerifyBlock` / `ConfigRead`/`ConfigWrite` / `ConfigCrc` / `AppVersionRead`）
+- QSPI 驱动：`bsp/qspi.c/.h`（W25Q64 兼容，HAL 间接 + 映射 + QE）
+- 安全：`bsp/flash_secure.h`（`BOOT_HMAC_KEY`）、`third_party/hmac_sha256/`（RFC2104）
+- USB U 盘：`bsp/usb_board.c` / `bsp/msc_qspi.c` / `bsp/tusb_config.h`
+- Test App：`test_app/app/main.c`（1 Hz 心跳 + 动态版本 banner）、`test_app/app/app_version.c`
+- 链接脚本：`stm32h743xix_flash.ld`（Bootloader）、`test_app/stm32h7_app.ld`（App @0x08020000，版本槽 @0x08021000）
