@@ -13,7 +13,7 @@ agent_created: true
 
 | 工具 | 用途 | 下载/安装 |
 |---|---|---|
-| `arm-none-eabi-gcc` ≥13 | 交叉编译器（本机验证 15.3.1） | ARM 官方 GNU toolchain releases |
+| `arm-none-eabi-gcc` ≥13 | 交叉编译器（建议 ≥13，已验证 15.3.1 可用） | ARM 官方 GNU toolchain releases |
 | `cmake` ≥3.20 | 构建系统 | MSYS2：`pacman -S mingw-w64-ucrt-x86_64-cmake` |
 | `ninja` | 构建后端 | MSYS2：`pacman -S mingw-w64-ucrt-x86_64-ninja` |
 | `openocd` 0.12.0 | 烧录/调试 | SourceForge openocd 0.12.0-rc1 |
@@ -37,9 +37,9 @@ python --version
 
 ## 三、Zephyr 工程的 west 调用
 
-本机 `west.exe` **不在 PATH**，不能直接 `west build`。必须走 python 模块：
+若 `west.exe` **不在 PATH**，不能直接 `west build`。必须走 python 模块：
 ```bash
-python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .
+python -m west build -b <board>/<soc> -d build -s .
 ```
 每次新 shell 需注入：
 ```bash
@@ -48,8 +48,8 @@ export GNUARMEMB_TOOLCHAIN_PATH=<arm-none-eabi 安装路径>
 export PATH="$GNUARMEMB_TOOLCHAIN_PATH/bin:$PATH"
 ```
 - `ZEPHYR_BASE` 优先取环境变量（west 自动注入）；未设置时回退到工程内 `zephyr/zephyr`。
-- 若在 MSYS2/Git Bash 手动 export `ZEPHYR_BASE`，**务必用 Windows 路径**（`D:/...`）
-  而非 POSIX（`/d/...`），否则原生 cmake 无法解析。
+- 若在 MSYS2/Git Bash 手动 export `ZEPHYR_BASE`，**务必用 Windows 风格绝对路径**（如 `C:/...`）
+  而非 POSIX 风格（`/c/...`），否则原生 cmake 无法解析。
 
 ## 四、Windows / Git Bash 平台坑（高频）
 
@@ -102,6 +102,6 @@ taskkill /F /PID <pid>     # 结束残留再重试
 add_compile_options(-Wall -Wextra)
 ```
 - 链接脚本 `.ld` 改动后必须让 CMake 跟踪（见 `stm32-project-scaffold` 的 LINK_DEPENDS）。
-- `-specs=nano.specs` 默认不链浮点 printf，需加 `-u _printf_float`（否则 MPU9250 九轴显示空白）。
+- `-specs=nano.specs` 默认不链浮点 printf，需加 `-u _printf_float`（否则含浮点打印时显示空白，例如 IMU 九轴数据）。
 - mbedTLS 3.x 的 `-Warray-bounds` 假阳性（common.h 128 位 union），在 config 头
   `#pragma GCC diagnostic ignored "-Warray-bounds"` 屏蔽。

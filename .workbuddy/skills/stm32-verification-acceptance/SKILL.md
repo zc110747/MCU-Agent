@@ -6,8 +6,8 @@ agent_created: true
 
 # STM32 端到端验收方法论
 
-嵌入式代码"生成"只是第一步，**跑通验证闭环**才是迭代基础。本 skill 把 11 个项目
-（001–010 + 101）的验收实践固化成可复制流程。配套：`stm32-project-scaffold`（构建）、
+嵌入式代码"生成"只是第一步，**跑通验证闭环**才是迭代基础。本 skill 把多个 STM32 项目的
+验收实践固化成可复制流程。配套：`stm32-project-scaffold`（构建）、
 `stm32-ai-dev-environment`（环境）。
 
 ## 一、标准验收链（每个模块必走）
@@ -65,7 +65,7 @@ openocd -f openocd/stm32h743_stlink.cfg \
 ## 四、真机功能验证（串口 / 网络）
 
 ### 4.1 串口控制台（最常用）
-- H7 调试串口 USART1 PA9/PA10（COM19 ST-Link 虚拟串口，或 TinyUSB CDC COM4）。
+- H7 调试串口 USART1 PA9/PA10（ST-Link 虚拟串口，端口号依本机分配；或 TinyUSB CDC 虚拟串口）。
 - 真机打印启动日志：时钟、版本、字库挂载状态、系统存活（LED 心跳）。
 - 命令式测试：用 python `pyserial` 发命令、收响应、断言。
 
@@ -80,7 +80,7 @@ openocd -f openocd/stm32h743_stlink.cfg \
 
 **核心原则：脚本给出 pass/fail 计数**，而非人肉看日志。本项目实测有效的几种形态：
 
-### 5.1 Python 串口自测（例：008 NES 菜单，28/28 PASS）
+### 5.1 Python 串口自测（例：某 NES 菜单项目，28/28 PASS）
 ```python
 import serial, sys
 port = sys.argv[sys.argv.index("--port")+1]
@@ -95,7 +95,7 @@ print(f"\n** {passed}/{checks} checks passed **")
 sys.exit(0 if passed==checks else 1)
 ```
 
-### 5.2 C# 批量验证（例：101 SNMP，31/31 PASS）
+### 5.2 C# 批量验证（例：某 SNMP 项目，31/31 PASS）
 - 构造 Get/GetNext/Set 请求，解析 VarBind，对每项错误计数。
 - `dotnet run` 后打印 `31/31 PASS` 或失败项明细。
 
@@ -129,11 +129,11 @@ sys.exit(0 if passed==checks else 1)
 
 ## 八、高级调试：openocd + gdb 函数级验证与挂死定位
 
-当某个函数（如 Flash 擦写引擎）在真机上一跑就死、靠加日志难以定位时，用 **gdb 直调该函数** 做隔离验证，并用 **超时挂死检测** 自动抓 PC。这是 H743 Bootloader 项目验证 `BFLASH_ProgramBlock` 是否修复的核心手段（详见 `stm32-peripheral-drivers` 第九节）。
+当某个函数（如 Flash 擦写引擎）在真机上一跑就死、靠加日志难以定位时，用 **gdb 直调该函数** 做隔离验证，并用 **超时挂死检测** 自动抓 PC。这是 Bootloader 项目验证 `BFLASH_ProgramBlock` 是否修复的核心手段（详见 `stm32-peripheral-drivers` 第九节）。
 
 ### 8.1 起常驻 openocd 调试服务器（gdb :3333 / tcl :6666 / telnet :4444）
 ```bash
-openocd -s <openocd scripts dir> -f openocd.cfg > /tmp/ocd.log 2>&1 &
+openocd -s <openocd scripts dir> -f openocd.cfg > ocd.log 2>&1 &
 # openocd.cfg: interface/stlink.cfg + transport select swd + target/stm32h7x.cfg
 ```
 后续 gdb / telnet 烧写都连这个服务器，**不要重复起 openocd**（ST-Link 被独占，第二个实例会失败）。
@@ -153,7 +153,7 @@ x/8xw 0x08040000                    # 回读 8 字，应等于写入 pattern
 ```
 若 `call` 后 gdb 长时间不返回 → 真机挂死（见 8.3 抓 PC）。
 
-⚠️ **GDB 可靠性边界（来自 005/006 项目真机教训）**：`-O2`/Release 下 GDB 读取局部变量不可靠，
+⚠️ **GDB 可靠性边界（来自真机教训）**：`-O2`/Release 下 GDB 读取局部变量不可靠，
 且 Cortex-M **勿用 `call` 触发复杂函数**（易 HardFault，尤其涉及 OS 调度/中断/浮点）。隔离验证
 优先用 hw-bp + `finish` + `call` 简单函数；复杂路径改用"直调 + 8.3 超时挂死检测"而非交互式 `call`。
 
@@ -192,9 +192,9 @@ send('reset run')
 ### 8.6 串口捕获与端口占用排查
 ```python
 import serial
-s = serial.Serial('COM19', 115200, timeout=0.3)   # H7: ST-Link VCP
+s = serial.Serial('<COM端口>', 115200, timeout=0.3)   # H7: ST-Link VCP
 ```
-- 若 `serial.Serial` 抛 `PermissionError` → 端口被**残留 python/捕获进程**占用。先 `tasklist` / `wmic process` 找占用者并结束，再抓。本项目曾因后台 capture 进程未退出导致 COM19 抓不到。
+- 若 `serial.Serial` 抛 `PermissionError` → 端口被**残留 python/捕获进程**占用。先 `tasklist` / `wmic process` 找占用者并结束，再抓。曾因后台 capture 进程未退出导致串口抓不到。
 - 抓日志要在 `reset run` **之后**开始，否则错过启动 banner。
 - **ST-Link 被 openocd/gdb 残留占用**：烧录报 `Error: init mode failed` / `ST-Link not found` →
   `tasklist | findstr openocd`（或 `findstr arm-none-eabi-gdb`）找残留 PID，`taskkill /F /PID <pid>`
@@ -202,7 +202,7 @@ s = serial.Serial('COM19', 115200, timeout=0.3)   # H7: ST-Link VCP
 
 ### 8.7 沙箱 / 环境局限（验收设计必知）
 - **QSPI 直写不可行**：openocd `stmqspi` 在本类环境常拉不起 H743 QSPI（probe 后 timeout / No QSPI）。升级包改走**设计的 U 盘路径**（QSPI FatFs + TinyUSB MSC，用户机器拷包）。
-- **COM 映射**：Windows 下 COM19 ≈ `/dev/ttyS18`（Git Bash）；原生 python 用 `COM19`。
+- **COM 映射**：Windows 下串口号近似 `/dev/ttyS<N-1>`（Git Bash）；原生 python 用 `COM<N>`，端口号依本机分配。
 
 ## 九、双固件 Bootloader 端到端验证
 
@@ -213,6 +213,5 @@ Bootloader + App 是**两套独立构建、固定地址共存**，验收分三�
 3. **引擎级验证**：见第八节 gdb 直调 `BFLASH_ProgramBlock`，确认不再挂死、回读一致。
 
 - 任何校验失败都**在擦写前 abort**，已运行 App 不会被破坏（防砖设计，验收时重点确认"坏包不破坏"）。
-- 黄金外部参考样本：`7.stm32h7_iap`（同芯片已验证的 `drv_flash.c` / `upload_frame.c`，外部路径
-  `D:/user_project/coding_git/embeds/stm32h7_project/7.stm32h7_iap`，非本仓 skill）。
+- 黄金外部参考样本：`7.stm32h7_iap`（同芯片已验证的 `drv_flash.c` / `upload_frame.c`，可作为外部参考，非本仓 skill）。
 - 防砖设计与坏包验证见 `stm32-project-scaffold` 第八节。

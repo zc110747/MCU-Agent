@@ -6,14 +6,14 @@ agent_created: true
 
 # STM32 外设驱动速查与实测踩坑
 
-已验证的两套硬件：STM32H743ZIT6（鹿小班核心板，HSE 25MHz 无源晶振）与
+已验证的两套硬件：STM32H743ZIT6（核心板，HSE 25MHz 无源晶振）与
 STM32F429IGT6（HSE 25MHz）。所有引脚均来自真机原理图，可直接复用。
 
 ## 一、STM32H743ZIT6 引脚速查
 
 | 功能 | 引脚 | 备注 |
 |---|---|---|
-| 调试串口 USART1 | PA9(TX)/PA10(RX) | 115200 8N1，ST-Link 虚拟串口 COM19 |
+| 调试串口 USART1 | PA9(TX)/PA10(RX) | 115200 8N1，ST-Link 虚拟串口（端口号依本机分配，如 COMx） |
 | LED | PG7 | 低电平点亮（状态灯） |
 | USB FS | PA11(D-)/PA12(D+) | OTG_FS 内部全速 PHY；HS 走 PB14/PB15 |
 | QSPI(W25Q64) | CS=PG6/AF10, CLK=PF10/AF9, IO0=PF8/AF10, IO1=PF9/AF10, IO2=PF7/AF9, IO3=PF6/AF9 | 4 线 |
@@ -27,7 +27,7 @@ STM32F429IGT6（HSE 25MHz）。所有引脚均来自真机原理图，可直接�
 
 | 功能 | 引脚 | 备注 |
 |---|---|---|
-| 调试串口 USART1 | PA9(TX)/PA10(RX) | COM3，115200 8N1 |
+| 调试串口 USART1 | PA9(TX)/PA10(RX) | 115200 8N1（端口号依本机分配，如 COMx） |
 | LED | PB0/PB1 | 低电平点亮（PB0=受控，PB1=心跳） |
 | BEEP | PCF8574T P0 | 低电平发声 |
 | SDMMC(SDIO) | SCK=PC12, CMD=PD2, D0-3=PC8-11 | 4-bit |
@@ -86,7 +86,7 @@ ETH/DMA 访问不到。
 - Zephyr FatFs：`FF_STR_VOLUME_ID=1` + `CONFIG_SDMMC_VOLUME_NAME="SD"`，必须用 `SD:`，
   用 `1:` 挂载失败。
 
-### 5.5 中文字符编码坑（008 项目真机验证）
+### 5.5 中文字符编码坑（真机验证）
 - FatFs `FF_CODE_PAGE` 必须 `936`（GBK），**绝不可改 437**（否则中文长文件名/字库路径乱码）。
 - 文本渲染前用 `utf8_is_valid()` 识别"无 BOM 的合法 UTF-8"，避免把 GBK 字节误当 UTF-8 转码
   （GBK 双字节高字节 0x81–0xFE 常被误判 UTF-8 续字节 → 乱码）。
@@ -115,8 +115,8 @@ while (!__HAL_PWR_GET_FLAG(PWR_FLAG_USB33RDY)) { }
 - USB 座接错控制器：默认 OTG_FS(PA11/PA12)，若实际连 PB14/PB15 需改用 HS 预设。
 - 换能传数据的线（很多充电线只有 VBUS+GND）；避免 Hub；CMSIS-DAP v1 是 HID 免驱。
 
-### 7.1 CMSIS-DAP 探针接线（007 项目）
-自研 CMSIS-DAP v1 探针（H743 鲁小板 + TinyUSB HID）访问目标时，SWD 目标线接到：
+### 7.1 CMSIS-DAP 探针接线（自研探针）
+自研 CMSIS-DAP v1 探针（H7 核心板 + TinyUSB HID）访问目标时，SWD 目标线接到：
 SWCLK=PA0 / SWDIO=PA1 / nRESET=PA2 / SWO=PA3 / 闲置=PA5 / 目标供电检测=PA7。
 **三处线勿混**：烧写线 / USB 上行线 / SWD 目标线。SWD 时序延时不可用 Keil `__asm` `_DELAY`，
 改用 DWT 周期计数（`DELAY_SLOW_CYCLES=1` 级）做精确延时。
@@ -168,5 +168,4 @@ H7 的 read-while-write 会让总线停滞但**不 HardFault**。所以从 bank1
 跳前必须：`HAL_DeInit` / 关全局中断 / 关 MPU / 关 I-D Cache / 设 MSP / 重定位 VTOR / `__enable_irq`（清 PRIMASK 残留）。
 - **App 工程必须提供 `SysTick_Handler`** 且 `main()` 开头 `__enable_irq()`，否则 `HAL_Delay` 卡死（缺 handler → 链到 `Default_Handler` 死循环；bootloader 留 PRIMASK=1 未恢复 → 全局中断关死）。
 - 验证链路见 `stm32-verification-acceptance` 第八、九节；黄金外部参考样本：`7.stm32h7_iap`
-  （同芯片已验证的 `drv_flash.c` / `upload_frame.c`，外部路径
-  `D:/user_project/coding_git/embeds/stm32h7_project/7.stm32h7_iap`，**非本仓 skill**）。
+  （同芯片已验证的 `drv_flash.c` / `upload_frame.c`，可作为外部参考，非本仓 skill）。

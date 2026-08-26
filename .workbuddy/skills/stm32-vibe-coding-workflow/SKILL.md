@@ -17,7 +17,7 @@ agent_created: true
 AI Agent 要在 Windows 下**直接构建、烧录、仿真**，必须满足：
 
 1. **工具链五件套全部进系统 PATH**（命令行可直接调用，不要写死绝对路径）：
-   - `arm-none-eabi-gcc`（≥13，本机验证 15.3.1）
+   - `arm-none-eabi-gcc`（≥13，建议 ≥13，已验证 15.3.1 可用）
    - `cmake`（≥3.20）+ `ninja`
    - `openocd`（0.12.0，烧录/调试）
    - `python`（用于生成测试代码、跑 verify 脚本）
@@ -68,12 +68,11 @@ AI Agent 要在 Windows 下**直接构建、烧录、仿真**，必须满足：
 原理图.pdf、<已验证的驱动.c/.h，尽量提供源码而非让AI生成>
 ```
 
-**关键经验（来自 11 个项目 001–010 + 101 的血泪）**：
+**关键经验（来自多个 STM32 项目的血泪）**：
 - 🏷️ **对硬件有清晰认知**：功能需求、硬件信息、开发步骤、验证手段都要给。
 - 🏷️ **已验证的驱动源码尽可能提供**：简单内部模块（RTC/GPIO/I2C）AI 直接写没问题；
   但**外部器件（LCD、CMOS）让 AI 从零生成参数常卡一小时以上**。提供已调试的驱动，
-  效率远超让它"猜"。本项目 `support_tools/env_support_for_stm32h743.zip` 沉淀了
-  Drivers/third_party，解压即用。
+  效率远超让它"猜"。建议把验证过的 `Drivers/` / `third_party/` 打包沉淀，随工程分发解压即用。
 - 🏷️ **分阶段交付**：先最小单元跑通，再扩展。AI 上限很高（曾 3 小时跑通人脸检测，
   含自训模型），但下限也低（CMOS/OLED 参数错、cmake 漏链接入口，卡半小时）。
 
@@ -126,7 +125,7 @@ Debug + Release 双构零警告（ninja）
 
 ## 七、项目经验沉淀位置
 
-- 总纲：`README.md`（11 个 STM32H7/F4 项目索引 + 开发经验总结）
-- 硬件配置：`document/stm32h7_hw.md`、`document/stm32f4_hw.md`
+- 总纲：`README.md`（项目索引 + 开发经验总结）
+- 硬件配置：`document/stm32h7_hw.md`、`document/stm32f4_hw.md`（示例，按实际文档结构放置）
 - 环境说明：`document/support.md`
 - 各项目提示词：`*/prompter.md`（可直接复制微调）

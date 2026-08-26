@@ -22,12 +22,12 @@ app/  main.c ui.c shell_cmds.c
 bsp/  drv_oled_fonts.* drv_oled_text.* lv_port_font.* ascii_*.c
 ```
 
-**west 调用**（本机 west 不在 PATH，必须 python 模块）：
+**west 调用**（若 `west` 不在 PATH，必须 python 模块）：
 ```bash
-python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .
+python -m west build -b <board>/<soc> -d build -s .
 ```
 - `ZEPHYR_BASE` 优先取环境变量（west 自动注入）；未设回退工程内 `zephyr/zephyr`。
-- MSYS2 下手动 export `ZEPHYR_BASE` 用 Windows 路径（`D:/...`），非 POSIX（`/d/...`）。
+- MSYS2 下手动 export `ZEPHYR_BASE` 用 Windows 风格绝对路径（如 `C:/...`），非 POSIX 风格（`/c/...`）。
 
 ## 二、设备树 overlay 要点
 

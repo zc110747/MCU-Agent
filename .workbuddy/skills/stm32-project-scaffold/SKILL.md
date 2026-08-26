@@ -29,8 +29,8 @@ agent_created: true
 **铁律**：
 - HAL 驱动只放 `Drivers/`，用户驱动放 `bsp/`，第三方库放 `third_party/`（统一管理，便于复用）。
 - 调试/构建产物**一律相对路径**，不写死本机绝对路径（换机器即失效）。
-- `third_party` 体积大，本项目打包在 `support_tools/env_support_for_stm32h743.zip`，
-  Zephyr 另包 `env_support_for_zephyr.zip`，解压到工程即用。
+- `third_party` 体积大，建议把可复用的 `Drivers/` / `third_party/` 打包成压缩包随工程分发，
+  解压即用（路径一律相对引用）。
 
 ## 二、CMake 交叉编译骨架
 
@@ -103,14 +103,15 @@ openocd -f openocd/stm32h743_stlink.cfg -c "program build/debug/xxx.elf verify r
 ```json
 {
   "executable": "build/debug/xxx.elf",
-  "serverpath": "D:/Software/openocd/bin/openocd.exe",
-  "searchDir": "D:/Software/openocd/share/openocd/scripts",
+  "serverpath": "<openocd 安装目录>/bin/openocd.exe",
+  "searchDir": "<openocd 安装目录>/share/openocd/scripts",
   "configFiles": ["openocd/stm32h743_stlink.cfg"],
   "device": "STM32H743ZI",
   "rtos": "auto",           // Zephyr 工程填 "Zephyr"
   "preLaunchTask": "build"  // F5 先编译再调试
 }
 ```
+- ⚠️ `openocd` 安装路径各机不同，**用变量或占位符，不要写死绝对路径**；CI/他人机器上用环境变量注入。
 - `tasks.json` 提供 `build`/`clean`/`flash` 等任务供 preLaunchTask 调用。
 - `settings.json`：`cmake.useCMakePresets=always`，指定工具链/OpenOCD 路径。
 
