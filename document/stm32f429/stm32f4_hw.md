@@ -17,10 +17,15 @@
 
 - BEEP：PCF8574T的P0，低电平发出声音
 
-### USART
+### USART1(未连接)
 
 - USART1_RX：PA10
 - USART1_TX：PA9
+
+### USART3(输出串口)
+
+- USART3_RX: PB11
+- USART3_TX: PB10
 
 ### SDMMC (SD卡, 4-bit模式)
 
