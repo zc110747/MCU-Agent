@@ -8,13 +8,15 @@
 ❓ **提示词如何实现，才能让AI更好的规划单片机任务处理**  
 ❓ **AI完成的项目，如何进行验收测试，遇到问题如何解决**  
 
-带着这些疑问，我使用了不算太强的Vibe Coding产品，完成本系列的项目。
+带着这些疑问，我使用主流的Vibe Coding产品，完成本系列的项目。
 
-⚠️注意：**项目中使用的Drivers和third_party目录为重复且占用空间较大，因此打包保存为support_tools/env_support_for_stm32h743.zip/env_support_for_stm32f429.zip中，解压后放在具体工程项目中即可使用**  
+⚠️注意：**项目编译需要支持编译下载环境，python、vscode(Cortex-Debug)、arm-none-eabi-gcc、cmake、ninja、openocd，且需要添加到系统环境中，可让agent安装，使用stlink连接，使用其它硬件如jlink、dap-link，需要修改cfg文件**
 
-⚠️注意：**RTOS环境zephyr的支持占用也十分巨大，已经打包为support_tools/env_support_for_zephyr.zip，解压后放在具体工程项目中即可使用**  
+⚠️注意：**项目中使用的Drivers、third_party目录为重复且占用空间较大，因此将共同内容打包保存在support_tools/中，需要解压后放在具体工程项目中使用，另外zephyr有关项目也需要解压，否则编译会报缺少环境**  
 
-⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝**  
+⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝到内存卡内访问**
+
+⚠️注意：**项目.workbuddy/skills整理提炼了开发这些项目过程中的技能，可以优化后续开发过程**
 
 ## 项目说明
 
@@ -214,8 +216,20 @@
 
 🚀 [010.基于QSPI虚拟U盘与安全升级的Bootloader](./010.stm32h743_boot/README.md)
 
-**AI开发**：工程骨架、QSPI FatFs、TinyUSB MSC、HMAC-SHA256 安全升级、双固件跳转、openocd+gdb 函数级验证 - 90%  
+**AI开发**：工程骨架、QSPI FatFs、TinyUSB MSC、HMAC-SHA256 安全升级、固件跳转、openocd+gdb函数级验证 - 90%  
 **个人参与**: 仿真环境、提示词、真机验收 - 10%
+
+- **boot跳转app执行**
+
+![image](./document/image/010-01.jpg)
+
+- **boot升级后跳转执行**
+
+![image](./document/image/010-02.jpg)
+
+- **将qspi flash虚拟成带升级的u盘**
+
+![image](./document/image/010-03.jpg)
 
 提示词内容：[项目提示词](./010.stm32h743_boot/prompter.md)
 

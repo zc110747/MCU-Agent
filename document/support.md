@@ -5,6 +5,16 @@
 ❗ `arm-xxx-gcc + cmake + ninja + openocd + stlink/jlink`仿真的方案。  
 ❗ 需要支持Python用于生成测试代码，执行修改、测试任务。  
 
+可使用如下语句，在agent中一键安装。
+
+```shell
+项目添加嵌入式在线仿真调试安装环境，具体如下。
+
+1. 工具内容python、vscode(Cortex-Debug)、arm-none-eabi-gcc、cmake、ninja、openocd，且需要添加到系统环境中
+2. 命令行测试直接指令访问检查当前环境，不存在则安装到D:/software/embed-tools中，存在则不需要安装
+3. 完成后通过命令行测试，并告知全部结果
+```
+
 只要系统中存在这些工具，Agent可以直接在windows下构建环境。
 
 ⚠️注意：**开发环境程序都需要添加到系统环境变量中，可以直接在命令行访问，才能后续被项目使用。**

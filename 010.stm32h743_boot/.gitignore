@@ -16,3 +16,6 @@ th/
 *.swp
 *.cfg
 *.txt
+
+!stm32h7_test.bin
+
