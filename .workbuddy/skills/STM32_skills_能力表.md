@@ -9,7 +9,7 @@
 |---|---|---|---|
 | stm32-vibe-coding-workflow | STM32 AI Agent(Vibe Coding) 总方法论：环境要求 / 提示词模板 / 分阶段验收 / 人工干预时机 | "用 AI 写 STM32""给 Agent 下嵌入式任务""规划 AI 开发流程" | 其余 5 个 |
 | stm32-ai-dev-environment | 工具链安装与 PATH、west 调用、Git Bash 吞花括号 / GBK 编码 / openocd swd 等 Windows 平台坑 | "配置 AI 能构建的嵌入环境""排查 Agent 构建失败""west 不在 PATH" | workflow |
-| stm32-project-scaffold | app/bsp/Drivers/third_party 分层、CMake+Ninja、OpenOCD、链接脚本、CMakePresets、Cortex-Debug | "搭建新 STM32 工程""规范化工程结构""修链接脚本 / 烧录配置" | environment / acceptance |
+| stm32-project-scaffold | app/bsp/Drivers/third_party 分层、CMake+Ninja、OpenOCD、链接脚本、CMakePresets、Cortex-Debug，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根、排除 .gitignore 检索） | "搭建新 STM32 工程""规范化工程结构""修链接脚本 / 烧录配置""批量统一多个工程的 .vscode" | environment / acceptance |
 | stm32-peripheral-drivers | H7/F4 引脚速查、OV5640/ST7789/SD+GBK 字库/QSPI/USB/网络/I2C、Bootloader Flash 引擎坑 | "查 STM32 引脚""移植摄像头/OLED/SD 卡""USB 枚举不上""I2C 死锁" | scaffold |
 | stm32-verification-acceptance | 双构零警告、OpenOCD 烧录、串口/网络真机验证、verify 脚本 pass/fail、gdb 函数级验证、Bootloader 验收 | "验收 STM32 固件""写自测脚本""定义验收标准""真机验证" | scaffold / environment |
 | zephyr-stm32-porting | Zephyr+STM32+LVGL 移植：west/设备树 overlay/25MHz HSE/SDMMC 卷名/GBK 字库/ST7789 DISPON/Zephyr shell | "在 STM32 跑 Zephyr""Zephyr 移植 LVGL""设备树配置 ST7789/SD" | environment / scaffold |

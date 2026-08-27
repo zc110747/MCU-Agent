@@ -1,0 +1,75 @@
+@echo off
+REM ============================================================
+REM  One-click build script
+REM  Project : 007.stm32h743_cmsis_dap
+REM  Type    : STM32 CMake preset
+REM  Flow    : configure -  clean -  build cmake --preset debug; build/debug
+REM  Notes   : English output only; every exit pauses.
+REM ============================================================
+setlocal
+set "ERR=0"
+cd /d "%~dp0"
+
+echo ============================================================
+echo [Build] 007.stm32h743_cmsis_dap
+echo ============================================================
+
+REM --- Step 1: check required tools ---
+set "TOOLMISS=0"
+for %%T in (cmake ninja openocd arm-none-eabi-gcc) do (
+    where %%T >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Required tool not found: %%T
+        set "TOOLMISS=1"
+    )
+)
+if not "%TOOLMISS%"=="0" (
+    echo         Please refer to document/support.md for installation instructions.
+    set "ERR=1"
+    goto END
+)
+
+REM --- Step 2: check required source directories ST only ---
+if not exist "Drivers" (
+    echo [ERROR] Drivers directory not found in project root.
+    echo         Extract Drivers from ..\support_tools\env_support_for_stm32h743.zip
+    echo         Or copy ..\support_tools\env_support_for_stm32h743\Drivers into this folder, then re-run.
+    set "ERR=1"
+    goto END
+)
+if not exist "third_party" (
+    echo [ERROR] third_party directory not found in project root.
+    echo         Extract third_party from ..\support_tools\env_support_for_stm32h743.zip
+    echo         Or copy ..\support_tools\env_support_for_stm32h743\third_party into this folder, then re-run.
+    set "ERR=1"
+    goto END
+)
+
+REM --- Step 3: build ---
+echo [STEP] Configure cmake --preset debug...
+cmake --preset debug
+if errorlevel 1 (
+    echo [ERROR] Configure cmake --preset debug failed.
+    set "ERR=1"
+    goto END
+)
+echo [STEP] Clean...
+cmake --build build/debug --target clean
+if errorlevel 1 (
+    echo [ERROR] Clean failed.
+    set "ERR=1"
+    goto END
+)
+echo [STEP] Build...
+cmake --build build/debug
+if errorlevel 1 (
+    echo [ERROR] Build failed.
+    set "ERR=1"
+    goto END
+)
+
+echo.
+if %ERR%==0 ( echo [DONE] Build succeeded. ) else ( echo [DONE] Build FAILED - see errors above. )
+:END
+pause
+exit /b %ERR%

@@ -1,6 +1,6 @@
 ---
 name: stm32-project-scaffold
-description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、STM32 工程模板、startup 向量表。
+description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表。
 agent_created: true
 ---
 
@@ -19,9 +19,10 @@ agent_created: true
 ├── third_party/    第三方库（tinyusb / lvgl / FatFs / LwIP / FreeRTOS / mbedTLS）
 ├── ldscript/       stm32xxxx_flash.ld 链接脚本
 ├── cmake/          arm-none-eabi.cmake 交叉工具链文件
-├── openocd/        *.cfg 烧录/调试配置（stlink 本板 / cmsisdap 目标板）
+├── openocd.cfg     OpenOCD 烧录/调试配置（stlink 本板 / cmsisdap 目标板），放工程根（与 .vscode 同级，不再用 openocd/ 子目录）
+├── *.svd           MCU SVD 寄存器描述（如 STM32H743.svd / STM32F429.svd），放工程根，供 cortex-debug 加载
 ├── tools/          PC 端工具与 verify 脚本（python / C#）
-├── .vscode/        c_cpp_properties.json / launch.json / tasks.json / settings.json / *.svd
+├── .vscode/        c_cpp_properties.json / launch.json / tasks.json / settings.json
 ├── CMakeLists.txt
 └── CMakePresets.json   # 可选，推荐（debug/release/debug-hs 预设）
 ```
@@ -29,6 +30,7 @@ agent_created: true
 **铁律**：
 - HAL 驱动只放 `Drivers/`，用户驱动放 `bsp/`，第三方库放 `third_party/`（统一管理，便于复用）。
 - 调试/构建产物**一律相对路径**，不写死本机绝对路径（换机器即失效）。
+- `*.svd` / `*.cfg` 放**工程根目录**（与 `.vscode`、`CMakeLists.txt` 同级），**不再需要 `openocd/` 子目录**。
 - `third_party` 体积大，建议把可复用的 `Drivers/` / `third_party/` 打包成压缩包随工程分发，
   解压即用（路径一律相对引用）。
 
@@ -68,9 +70,9 @@ ninja 增量不会自动重扫，否则新文件不进编译）。
 - 栈顶 `_estack` 与 `RAM LENGTH` 必须按芯片真实容量（ST 官方模板常带错尺寸，如 F429 误写
   256K/2048K，实际连续 SRAM 仅 192K）；否则内存越界 HardFault，详见本节上文边界实测。
 
-## 四、OpenOCD 烧录配置
+## 四、OpenOCD 烧录配置（放工程根）
 
-`openocd/stm32h743_stlink.cfg`（烧写本板）：
+`openocd.cfg`（烧写本板，**放工程根，不放 openocd/ 子目录**）：
 ```tcl
 source [find interface/stlink.cfg]
 transport select swd
@@ -78,10 +80,13 @@ source [find target/stm32h7x.cfg]
 ```
 烧录命令：
 ```bash
-openocd -f openocd/stm32h743_stlink.cfg -c "program build/debug/xxx.elf verify reset exit"
+openocd -f openocd.cfg -c "program build/debug/xxx.elf verify reset exit"
 ```
 - OpenOCD 0.12 用 `transport select swd`（**不支持旧 `hla_swd`**）。
-- 通过本板作探针访问目标时，另写 `stm32f429_cmsisdap.cfg`（`cmsis_dap` interface）。
+- 通过本板作探针访问目标（CMSIS-DAP v1 自研探针）时，另写 `openocd_cmsisdap.cfg`
+  （`cmsis_dap` interface），也放工程根，并在 `launch.json` 多配一条 `attach` 配置。
+- 缺 `openocd.cfg` 的工程按芯片补建：H7 用 `stm32h7x.cfg`，F4 用 `stm32f4x.cfg`；
+  找不到 `[find ...]` 脚本或路径错误属配置错误，需修正；仅 "no probe attached" 类 adapter 报错属正常（需真机）。
 
 ## 五、CMakePresets（推荐）
 
@@ -96,24 +101,33 @@ openocd -f openocd/stm32h743_stlink.cfg -c "program build/debug/xxx.elf verify r
 }
 ```
 构建：`cmake --preset debug && cmake --build build/debug`。
+⚠️ 预设工程的 build 子目录（如 `build/debug`）必须与 CMakePresets 的 `binaryDir` 一致，
+否则 `tasks.json` 的 `build`/`flash` 路径对不上。
 
-## 六、VSCode Cortex-Debug 集成
+## 六、VSCode Cortex-Debug 集成（裸工具名 + 根级 cfg/svd）
+
+**工具链已加入系统 PATH，所有引用只写裸程序名**（不加安装目录、不带 `.exe`）：
+- `launch.json`：`"openocdPath": "openocd"`、`"gdbPath": "arm-none-eabi-gdb"`
+- `settings.json`：`"cortex-debug.openocdPath": "openocd"`、`"cortex-debug.gdbPath": "arm-none-eabi-gdb"`、`"C_Cpp.default.compilerPath": "arm-none-eabi-gcc"`
+- `configFiles` / `svdFile` 用 `${workspaceFolder}` 指向**工程根**的 `openocd.cfg` / `*.svd`
 
 `launch.json` 关键字段：
 ```json
 {
-  "executable": "build/debug/xxx.elf",
-  "serverpath": "<openocd 安装目录>/bin/openocd.exe",
-  "searchDir": "<openocd 安装目录>/share/openocd/scripts",
-  "configFiles": ["openocd/stm32h743_stlink.cfg"],
+  "executable": "${workspaceFolder}/build/debug/xxx.elf",
+  "configFiles": ["${workspaceFolder}/openocd.cfg"],
+  "openocdPath": "openocd",
+  "gdbPath": "arm-none-eabi-gdb",
   "device": "STM32H743ZI",
+  "interface": "swd",
   "rtos": "auto",           // Zephyr 工程填 "Zephyr"
+  "svdFile": "${workspaceFolder}/STM32H743.svd",
   "preLaunchTask": "build"  // F5 先编译再调试
 }
 ```
-- ⚠️ `openocd` 安装路径各机不同，**用变量或占位符，不要写死绝对路径**；CI/他人机器上用环境变量注入。
-- `tasks.json` 提供 `build`/`clean`/`flash` 等任务供 preLaunchTask 调用。
-- `settings.json`：`cmake.useCMakePresets=always`，指定工具链/OpenOCD 路径。
+- ⚠️ **严禁**写死 `<openocd 安装目录>/bin/openocd.exe`、`${env:ARM_GNU_TOOLCHAIN_BIN}/...` 等本机/
+  环境变量路径（换机器即失效，与「铁律：一律相对路径」冲突）。
+- `tasks.json` 提供 `configure`/`build`/`clean`/`flash` 任务供 `preLaunchTask` 调用，详见第九节。
 
 ## 七、startup 向量表（FreeRTOS 工程必改）
 
@@ -144,3 +158,160 @@ Bootloader + App 共存于同一片内部 Flash，需**两套独立构建 + 固�
 - **擦写引擎放 AXI SRAM**：见 `stm32-peripheral-drivers` 第九节 —— 绝不放 DTCM。
 - **防砖**：任何校验失败在擦写前 abort，已运行 App 不被破坏。
 - 验收方法见 `stm32-verification-acceptance` 第八、九节（含 gdb 直调 `BFLASH_ProgramBlock` 与 Flash 回读）。
+
+## 九、多工程 .vscode 批量统一规范
+
+仓库下有多个 STM32 工程（不同芯片 / 不同构建机制）需统一 `.vscode` 与仿真配置时，遵循以下铁律：
+
+### 规则 1 — 工具走系统 PATH（裸程序名）
+`cmake` / `ninja` / `openocd` / `arm-none-eabi-gcc` / `arm-none-eabi-gdb` 已加入系统 PATH。
+所有引用只写**裸程序名**，不加安装目录、不带 `.exe`：
+- `tasks.json`：`command: "cmake ..."`、`"openocd ..."`、`"arm-none-eabi-gdb ..."`
+- `settings.json`：`"cortex-debug.openocdPath": "openocd"`、`"cortex-debug.gdbPath": "arm-none-eabi-gdb"`、`"C_Cpp.default.compilerPath": "arm-none-eabi-gcc"`
+- `launch.json`：`"openocdPath": "openocd"`、`"gdbPath": "arm-none-eabi-gdb"`
+- ❌ 严禁写死 `<openocd 安装目录>/bin/openocd.exe`、`${env:ARM_GNU_TOOLCHAIN_BIN}/...` 等本机/环境变量路径。
+
+### 规则 2 — tasks.json 只保留 4 个任务
+统一为 `configure` / `build` / `clean` / `flash`，其余（release / erase / reset / dap-test / serial /
+OpenOCD server / 模型导出等）全部删除。
+- `build` 设为默认构建组：`"group": {"kind":"build","isDefault":true}`，供 `preLaunchTask` 调用。
+- `flash` 用 `"dependsOn": "build"` 先编译再烧录。
+- **构建机制按工程现状保留**（下表），不要强行统一成一种：
+
+| 工程类型 | configure | build | clean | flash 的 elf 路径 |
+|---|---|---|---|---|
+| 预设工程（有 CMakePresets.json） | `cmake --preset debug` | `cmake --build build/debug` | `cmake --build build/debug --target clean` | `build/debug/xxx.elf` |
+| 普通 CMake（无预设） | `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug` | `cmake --build build` | `cmake --build build --target clean` | `build/xxx.elf` |
+| Zephyr（west） | `python -m west build -b <board>/<soc> -d build -s .` | `python -m west build -d build` | `python -m west build -t clean -d build` | `build/zephyr/zephyr.elf` |
+
+- ⚠️ 预设工程的 build 子目录（如 `build/debug`）必须与 CMakePresets 的 `binaryDir` 一致。
+- ⚠️ 旧 `CMakeCache.txt` 路径不匹配（大小写 / 旧仓库路径）会导致 regenerate 失败；
+  跑一次 `clean`（或删 `build/debug`）即可恢复——保留 `clean` 任务正是为此。
+
+### 规则 3 — *.svd / *.cfg 放工程根目录（与 .vscode 同级），不再需要 openocd/ 子目录
+- `openocd.cfg`（及可选的 `openocd_cmsisdap.cfg`）直接放工程根，与 `CMakeLists.txt` / `.vscode/` 同级。
+- `*.svd`（如 `STM32H743.svd` / `STM32F429.svd`）也放工程根。
+- `launch.json` 用 `${workspaceFolder}/openocd.cfg`、`${workspaceFolder}/STM32H743.svd` 引用。
+- 原散落在 `openocd/`、`debug/`、`tools/` 下的同名文件应迁移到根并删除已清空的子目录。
+- 缺失 `openocd.cfg` 的工程按芯片补建（H7：`stm32h7x.cfg`；F4：`stm32f4x.cfg`；均 `interface/stlink.cfg` + `transport select swd`）。
+- 经自研 CMSIS-DAP 探针调目标板时，保留额外 `openocd_cmsisdap.cfg` + 一条 `attach` 配置（`cmsis_dap` interface）。
+
+### 批量检索时排除 .gitignore
+- 处理 / 搜索文件时，排除 `.gitignore` 中声明的路径（如 `third_party/`、`Drivers/STM32H7xx_HAL_Driver/`、`build/`），
+  它们多是未检出的子模块 / 第三方库，缺失是正常的，不要当作错误。
+- 校验脚本应只对「源码完整、可独立构建」的工程判定 PASS/FAIL，依赖缺失的标记为「环境依赖缺失」。
+- 示例：`git -C <proj> check-ignore <path>` 可快速判定某缺失文件是否属被忽略项。
+
+### 统一模板
+
+`tasks.json`（4 任务，普通 CMake 示例；预设工程把命令换成 `cmake --preset debug` / `cmake --build build/debug`）：
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label":"configure","type":"shell","command":"cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug","problemMatcher":[],"group":"build"},
+    {"label":"build","type":"shell","command":"cmake --build build","group":{"kind":"build","isDefault":true},"problemMatcher":["$gcc"],"presentation":{"reveal":"always","panel":"shared","clear":true}},
+    {"label":"clean","type":"shell","command":"cmake --build build --target clean","problemMatcher":[]},
+    {"label":"flash","type":"shell","command":"openocd -f openocd.cfg -c \"program build/xxx.elf verify reset exit\"","dependsOn":"build","problemMatcher":[],"presentation":{"reveal":"always","panel":"shared"}}
+  ]
+}
+```
+
+`settings.json`：
+```json
+{
+  "cmake.generator": "Ninja",
+  "cmake.configureOnOpen": false,
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.useCMakePresets": "always"
+}
+```
+
+`launch.json`（cortex-debug，根级 cfg/svd）：
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {"name":"Debug (OpenOCD + ST-Link)","type":"cortex-debug","request":"launch","servertype":"openocd",
+     "cwd":"${workspaceFolder}","executable":"${workspaceFolder}/build/debug/xxx.elf",
+     "configFiles":["${workspaceFolder}/openocd.cfg"],"openocdPath":"openocd","gdbPath":"arm-none-eabi-gdb",
+     "device":"STM32H743ZI","interface":"swd","runToEntryPoint":"main","preLaunchTask":"build",
+     "showDevDebugOutput":"none","svdFile":"${workspaceFolder}/STM32H743.svd"},
+    {"name":"Attach (no reflash)","type":"cortex-debug","request":"attach","servertype":"openocd",
+     "cwd":"${workspaceFolder}","executable":"${workspaceFolder}/build/debug/xxx.elf",
+     "configFiles":["${workspaceFolder}/openocd.cfg"],"openocdPath":"openocd","gdbPath":"arm-none-eabi-gdb",
+     "device":"STM32H743ZI","interface":"swd","showDevDebugOutput":"none","svdFile":"${workspaceFolder}/STM32H743.svd"}
+  ]
+}
+```
+
+### 批量验证脚本思路（一次性，给出 pass/fail 计数）
+- **仿真链路**：对每个工程 `openocd -f openocd.cfg -c "init; exit"`，预期「脚本/路径解析 OK」；
+  仅缺物理探针的 adapter 报错属正常（需真机才能 flash）。
+- **编译链路**：跑 `configure` + `build`，记录 PASS/FAIL + 警告数；`third_party`/`Drivers` 缺失
+  （被 gitignore）导致的 FAIL 标记为「环境依赖缺失」，与「配置改动导致」区分开。
+
+---
+
+## 十、一键编译 bat 规范（每个工程根目录 `build_oneclick.bat`）
+
+需求：① 全英文输出；② 先检查工具（ST 工程检查 `cmake/ninja/openocd/arm-none-eabi-gcc`，ESP 走各自
+工具），ST 工程还要检查根目录 `Drivers`、`third_party`，缺失则提示从 `..\support_tools\env_support_for_*.zip`
+解压；③ 流程 `configure → clean → build`（ESP 按自身流程：`arduino-cli compile` / `idf.py build`）；
+④ 失败立即 `goto END` 中止；⑤ 所有出口（成功/失败/中止）都 `goto END → pause → exit /b %ERR%`，
+双击即可停留查看错误。
+
+**⚠️ 致命坑 1 —— 禁止用 `!MISSING!` 延迟展开打印缺失工具名**
+旧写法先 `set "MISSING=!MISSING! cmake"` 累积、再 `echo ...:!MISSING!`。一旦该分支被触发且延迟展开未生效
+（或 `setlocal enabledelayedexpansion` 未真正生效），`!MISSING!` 会被原样打印成 `:!MISSING!` 字面量。
+正确做法：用 `for %%T` 循环逐个 `where %%T`，缺失时**直接 `echo` 出该工具名**，再用 `set "TOOLMISS=0/1"`
+标记，循环结束后在**顶层**用 `%TOOLMISS%` 判定（顶层 `%VAR%` 在执行时展开，无需延迟展开）：
+
+```bat
+set "TOOLMISS=0"
+for %%T in (cmake ninja openocd arm-none-eabi-gcc) do (
+    where %%T >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Required tool not found: %%T
+        set "TOOLMISS=1"
+    )
+)
+if not "%TOOLMISS%"=="0" (
+    echo         Please refer to document/support.md for installation instructions.
+    set "ERR=1"
+    goto END
+)
+```
+
+**⚠️ 致命坑 2 —— 用 Python 生成 .bat 时 `%` 格式化会把 `%%` 吞成 `%`**
+Python `"for %%T in (%s)" % tools` 中 `%%` 是 `%` 转义，结果会变成单 `%T`，导致 `for` 循环语法错误。
+生成该行的正确写法：避开 `%` 格式化，用字符串拼接：
+`"for %%T in (" + " ".join(tools) + ") do ("`（其余 `%%T` 在普通字符串里保留为 `%%`，不受影响）。
+
+构建命令与已验证的 `tasks.json` 完全一致：预设工程 `cmake --preset debug` + `build/debug`；
+普通 CMake `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug` + `build`；Zephyr `west build`；
+ESP32 各自流程。结尾判定 `if %ERR%==0 ( ... ) else ( ... )` + `:END` + `pause` + `exit /b %ERR%`。
+
+**⚠️ 致命坑 3 —— `echo`/`REM` 行里的 `& ( ) | < >` 在 cmd 下全部危险，必须清除**
+- `(` 出现在 `echo` 参数**行首**（首个非空格字符）会被当成命令组起始：`echo (or copy ...)` → 遇到 `)` 提前结束，
+  后面 `into this folder` 变成非法命令，报 `此时不应有 into。`。
+- `&` 是命令分隔符：`echo [STEP] Configure & Build ...` → `&` 把行拆成两条命令，后半段 `Build ...` 被当成
+  外部命令执行，报 `'Build' 不是内部或外部命令`。
+- `( ) | < >` 同理会在 `echo`/`REM` 文本里被 cmd 解析。
+正确做法：生成脚本时对**所有 `echo`/`REM` 行**做清洗，把 `&`→`and`、`| < > ( )`→删除（仅清洗这两类行，
+`if/for/cmake` 等命令行的括号必须保留）。示例清洗函数（Python）：
+
+```python
+def sanitize(line):
+    s = line.lstrip()
+    if s.startswith("echo") or s.startswith("REM"):
+        return (line.replace("&","and").replace("|"," ").replace("<"," ")
+                    .replace(">","").replace("(","").replace(")",""))
+    return line
+```
+
+反斜杠 `\`（如 `..\support_tools\...` 路径）在 cmd 的 `echo` 中是字面量，**不受影响**，无需处理。

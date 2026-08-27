@@ -1,11 +1,14 @@
-# Mcu_Project_Design_By_Agent
+# MCU-Agent
+
+AI Agent for real-world MCU firmware development, simulation, debugging, and testing.
 
 在AI Agent快速发展的当下，前端和桌面端程序已经可以大幅度被AI取代，嵌入式看起来有壁垒，其实作为固定的知识，也已经没有壁垒，使用AI Agent进行单片机开发其实也成为了现实。
 
 开发硬件:
 
-- **STM32H743ZIT6：鹿小班**
-- **STM32F429IGT6: 正点原子**
+- **STM32H743ZIT6：鹿小班STM32H743ZIT6核心板**
+- **STM32F429IGT6: 正点原子阿波罗STM32F429IGT开发板**
+- **esp32s3: ESP32-S3-DevKitC-1开发板 N16R8**
 
 对于AI来说，生成代码不困难，不过单片机交叉编译的特性也有其难点，需要解决如下问题。
 
@@ -47,7 +50,7 @@
 ✅ 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)  
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
-✅ 009.基于zephyr系统实现lvgl显示功能
+✅ 009.基于zephyr系统实现lvgl显示功能  
 ✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
 
 🚀 **STM32F429IGT6项目**
