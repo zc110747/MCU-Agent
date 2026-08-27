@@ -17,6 +17,13 @@ typedef enum
 
 extern volatile usb_state_t g_usb_state;
 
+/* FatFs access serialization lock.  ALL FatFs entry points (file_task's
+ * explore AND the UI font task's open/glyph-read) must be wrapped with these,
+ * otherwise concurrent access from two tasks corrupts the shared MSC
+ * _disk_busy flag and deadlocks the disk I/O.  Defined in usb_host_app.c. */
+void fs_lock(void);
+void fs_unlock(void);
+
 /* Called from main() BEFORE vTaskStartScheduler: creates the file task and
  * prepares the USB Host state.  tusb_init() itself is done in main() so the
  * init ordering (SDRAM -> FreeRTOS heap -> USB) is explicit. */

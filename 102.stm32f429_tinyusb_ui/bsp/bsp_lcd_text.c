@@ -20,6 +20,13 @@
 #include <stddef.h>
 #include <string.h>
 
+/* FatFs serialization lock (defined in usb_host_app.c).  The U-disk is mounted
+ * by the USB host file task; opening font files / reading glyphs here runs in
+ * the UI task and MUST be serialized against that task's filesystem activity
+ * or the shared MSC disk-IO flag deadlocks. */
+extern void fs_lock(void);
+extern void fs_unlock(void);
+
 #define FONT_NUMS       5
 #define FONT_MAX_BYTES  192     /* 32x32 needs 128, leave headroom */
 
@@ -62,14 +69,13 @@ GlobalType_t lcd_driver_font_init(void)
 
     memset(&g_lcd_fs_info, 0, sizeof(g_lcd_fs_info));
 
-    /* Mount immediately (opt = 1) so a missing card is reported here */
-    res = f_mount(&g_lcd_fs_info.fs, "0:", 1);
-    if (res != FR_OK)
-    {
-        return RT_FAIL;
-    }
-    g_lcd_fs_info.mounted = 1;
-
+    /* Volume 0: is mounted by the USB host file task (usb_host_app.c) before
+     * g_usb_state becomes USB_MOUNTED, so we must NOT call f_mount() again here:
+     * a second mount would reassign the drive's FATFS work area while that task
+     * may still be using it, and concurrent FatFs access from two tasks corrupts
+     * the single _disk_busy flag in the MSC diskio glue -> deadlock.  We only
+     * open the font files, serialized by the shared FS lock. */
+    fs_lock();
     for (index = 0; index < FONT_NUMS; index++)
     {
         res = f_open(&g_lcd_fs_info.fil_list[index], font_name[index], FA_READ);
@@ -78,6 +84,8 @@ GlobalType_t lcd_driver_font_init(void)
             g_lcd_fs_info.fil_valid[index] = 1;
         }
     }
+    fs_unlock();
+    g_lcd_fs_info.mounted = 1U;
 
     /* UNIGBK.BIN alone is useless - we need at least one glyph file */
     if (g_lcd_fs_info.fil_valid[FONT_IDX_GBK12] ||
@@ -200,13 +208,13 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
         return RT_FAIL;
     }
 
+    fs_lock();
     res = f_lseek(&g_lcd_fs_info.fil_list[file_index], foffset);
-    if (res != FR_OK)
+    if (res == FR_OK)
     {
-        return RT_FAIL;
+        res = f_read(&g_lcd_fs_info.fil_list[file_index], dst, font->Sizes, &bytes_read);
     }
-
-    res = f_read(&g_lcd_fs_info.fil_list[file_index], dst, font->Sizes, &bytes_read);
+    fs_unlock();
     if (res != FR_OK || bytes_read != font->Sizes)
     {
         return RT_FAIL;

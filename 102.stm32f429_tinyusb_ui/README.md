@@ -238,10 +238,22 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 | USB 初始化时序（OS 启动后） | ✅ 硬件验证通过 | 修正中断触发 FromISR queue 破坏 RTOS 的问题（§3.1） |
 | LCD 驱动（FMC Bank1 NE1 8080 16-bit）集成 | ✅ 编译验证通过 | `bsp_lcd.c` 内联 F429 FMC GPIO 配置 + NT35510/ILI9806E 初始化序列（§3.4） |
 | LVGL v8 显示端口 + SDRAM 内存布局 | ✅ 编译验证通过 | `LV_MEM_ADR=0xC0100000U`/`256KB` 避开 FreeRTOS 堆；draw buffer 经 `pvPortMalloc` 落 SDRAM（§3.4） |
-| GBK 字库桥（U 盘 `0:/SYSTEM/FONT/`） | ✅ 编译验证通过 | `lv_font_gbk` 回调 + `lcd_driver_font_init()` 挂载 0: 并打开 GBKxx.FON/UNIGBK.BIN（§3.4） |
-| UI 线程端到端（LCD 探测 ID → 挂载 → LVGL 渲染面板） | ⏳ 待硬件验证 | 编译/链接/双构建零警告已 PASS；真机 LCD 点亮 + 字库回显需 OpenOCD 烧录 + COM5 实测 |
+| GBK 字库桥（U 盘 `0:/SYSTEM/FONT/`） | ✅ 硬件验证通过 | `lv_font_gbk` 回调 + `lcd_driver_font_init()` 打开 GBKxx.FON（§3.4）；**UNIGBK.BIN 非渲染必需**（Unicode→GBK 走编译期表 `lv_gbk_map.c`） |
+| UI 线程端到端（LCD 探测 ID → 挂载 → LVGL 渲染面板） | ✅ 硬件验证通过 | 2026-08-27 COM5 实测：`[LCD ] controller ID = 0x8000` → `[FONT] font status mask = 0x1E` → 中文面板渲染，无卡死 |
+| **FatFs 并发死锁修复** | ✅ 硬件验证通过 | `file_task`(explore) 与 `ui_task`(字体挂载/渲染) 并发访问同一 U 盘 → 共享 `_disk_busy` 丢唤醒死锁；已用 `xFsLock` 互斥量串行化所有 FatFs 入口（见下「已知问题」） |
 
 > 详细证据与「编译验证 vs 硬件验证」标签见 **`ACCEPTANCE_REPORT.md`**。
+
+### 6.1 已知问题与修复
+
+**FatFs 并发死锁（字体挂载阶段卡死，2026-08-27 已修复）**
+- 现象：启动到 `[FONT] mounting U-disk fonts` 后卡死，中文字库无法加载（`mask` 永不打印）。
+- 根因：`file_task` 与 `ui_task` 同为 `idle+2` 优先级，二者在 `g_usb_state=USB_MOUNTED` 后**同时对同一 U 盘做 FatFs I/O**（前者 `usb_disk_explore` 递归遍历+dump，后者 `lcd_driver_font_init` 二次 `f_mount`+`f_open`，且渲染期 `font_read_raw` 持续读字模）。底层 `disk_read/disk_write` 用单个全局 `_disk_busy[0]` 标志 + `wait_for_disk_io` 自旋等 MSC 完成回调，并发时 **完成回调清错标志 → 丢唤醒 → 一方永久自旋**，盘 I/O 整体死锁。
+- 修复：`usb_host_app.c` 新增 FreeRTOS 互斥量 `xFsLock`，`fs_lock()/fs_unlock()` 串行化所有 FatFs 入口；`file_task` 的 `f_mount`+`usb_disk_explore` 整段加锁；`lcd_driver_font_init` 去除多余 `f_mount`（盘已由 file_task 挂载，二次挂载会换掉 FATFS 工作区指针）、仅 `fs_lock` 包住 `f_open`；`font_read_raw` 的 `f_lseek+f_read` 也加 `fs_lock`。
+- 验证：COM5 实测 `[FONT] font status mask = 0x1E`（GBK12/16/24/32 全开），无卡死，中文面板正常渲染。
+
+**UNIGBK.BIN 缺失无害**
+- `mask` 的 bit0（UNIGBK.BIN）为 0 属正常：渲染路径经编译期表 `lv_gbk_map.c`（`lv_gbk_from_unicode`）做 Unicode→GBK，再读 `GBKxx.FON` 取字模；`UNIGBK.BIN` 仅被打开、从未被读取。字库目录放齐 `GBK12/16/24/32.FON` 即可显示中文。
 
 ---
 

@@ -62,6 +62,29 @@ static FATFS        fatfs[1];
 static volatile bool _disk_busy[1];
 static SemaphoreHandle_t xUsbMountSem = NULL;
 
+/* Serializes ALL FatFs access (file_task explore + ui_task font load/render)
+ * so two tasks never issue MSC reads/writes on the same LUN concurrently.
+ * The MSC diskio glue uses a single shared _disk_busy flag; concurrent access
+ * from two tasks corrupts it (lost wakeup -> permanent spin).  This mutex is
+ * taken around every FatFs entry point. */
+static SemaphoreHandle_t xFsLock = NULL;
+
+void fs_lock(void)
+{
+    if (xFsLock != NULL)
+    {
+        (void)xSemaphoreTake(xFsLock, portMAX_DELAY);
+    }
+}
+
+void fs_unlock(void)
+{
+    if (xFsLock != NULL)
+    {
+        (void)xSemaphoreGive(xFsLock);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* FatFs <-> USB MSC diskio glue                                       */
 /* ------------------------------------------------------------------ */
@@ -344,6 +367,9 @@ static void file_task(void *arg)
     }
     g_usb_state = USB_MSC_READY;
 
+    /* Serialize all FatFs work for this LUN with the UI font task. */
+    fs_lock();
+
     rc = f_mount(&fatfs[0], path, 1);
     if (rc != FR_OK)
     {
@@ -360,12 +386,15 @@ static void file_task(void *arg)
       {
         printf("f_mount failed: %d\r\n", rc);
         g_usb_state = USB_ERROR;
+        fs_unlock();
         continue;
       }
     }
 
     g_usb_state = USB_MOUNTED;
     usb_disk_explore();
+
+    fs_unlock();
   }
 }
 
@@ -402,6 +431,9 @@ bool usbh_app_init(void)
   _disk_busy[0] = false;
   xUsbMountSem = xSemaphoreCreateBinary();
   if (xUsbMountSem == NULL) return false;
+
+  xFsLock = xSemaphoreCreateMutex();
+  if (xFsLock == NULL) return false;
 
   if (xTaskCreate(file_task, "file", 2048, NULL,
                  tskIDLE_PRIORITY + 2, NULL) != pdPASS)

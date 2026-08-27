@@ -449,3 +449,10 @@
 41	1749	8095452979095338	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/app/app_ui.c.obj	6d89bbcb5f438baa
 47	1774	8095452979166593	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/app/ui_task.c.obj	ed378d9f385593e2
 1774	4515	8095452996431126	stm32f429_tinyusb_ui.elf	5b58b678d91c3a7
+24	1610	8095465666351838	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/app/app_ui.c.obj	6d89bbcb5f438baa
+47	1644	8095465666581817	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/bsp/bsp_lcd.c.obj	b58dcbff7286df0d
+52	1669	8095465666631796	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/bsp/bsp_lcd_text.c.obj	98d7456f78e5a165
+36	1696	8095465666481829	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/app/ui_task.c.obj	ed378d9f385593e2
+32	1721	8095465666431828	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/app/main.c.obj	91de85ee546aecf0
+41	1748	8095465666531837	CMakeFiles/stm32f429_tinyusb_ui.elf.dir/app/usb_host_app.c.obj	a64d1eeb283a1303
+1748	4451	8095465683590263	stm32f429_tinyusb_ui.elf	5b58b678d91c3a7
