@@ -56,14 +56,18 @@ add_link_options(
 # TinyUSB / board selection
 set(BOARD_TUD_RHPORT 0)   # OTG_FS on PA11/PA12 (internal FS PHY)
 
-# CMSIS + Startup
-file(GLOB_RECURSE CMSIS_SOURCES
-  "Drivers/CMSIS/Device/*.c"
-  "Drivers/CMSIS/Device/*.s"
+# CMSIS + Startup: only the files this MCU needs.
+# The Device tree ships ~60 startup .s files (arm/gcc/iar x every H7 variant)
+# and several system_*.c variants; globbing them all causes duplicate
+# Reset_Handler/SystemInit symbols and non-GCC assembler syntax errors.
+set(CMSIS_DEVICE_DIR "${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32H7xx")
+set(CMSIS_SOURCES
+  ${CMSIS_DEVICE_DIR}/Source/Templates/gcc/startup_stm32h743xx.s
+  ${CMSIS_DEVICE_DIR}/Source/Templates/system_stm32h7xx.c
 )
 
 # HAL sources (all available; unused ones are dropped by --gc-sections)
-file(GLOB HAL_SOURCES "Drivers/HAL/Src/*.c")
+file(GLOB HAL_SOURCES "Drivers/STM32H7xx_HAL_Driver/Src/*.c")
 # Exclude CubeMX template files (they redefine HAL_InitTick etc.)
 list(FILTER HAL_SOURCES EXCLUDE REGEX "[Tt]emplate")
 
@@ -120,7 +124,7 @@ target_include_directories(${CMAKE_PROJECT_NAME}.elf PUBLIC
   bsp
   Drivers/CMSIS/Include
   Drivers/CMSIS/Device/ST/STM32H7xx/Include
-  Drivers/HAL/Inc
+  Drivers/STM32H7xx_HAL_Driver/Inc
   ${TINYUSB_DIR}/src
   ${CMAKE_SOURCE_DIR}/third_party/FatFs
   ${CMAKE_SOURCE_DIR}/third_party/hmac_sha256

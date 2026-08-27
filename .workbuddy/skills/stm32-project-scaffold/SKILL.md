@@ -1,6 +1,6 @@
 ---
 name: stm32-project-scaffold
-description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、开发流程文档编写、工程 README 规范。
+description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、开发流程文档编写、工程 README 规范、CMSIS 启动文件 GLOB_RECURSE 禁止、HAL 目录 Cube 标准命名、startup_stm32h7xx 显式列出。
 agent_created: true
 ---
 
@@ -15,7 +15,7 @@ agent_created: true
 <project>/
 ├── app/            应用逻辑（main.c、业务模块、FreeRTOS/LwIP 移植、shell）
 ├── bsp/            用户开发的板级驱动（bsp_uart / bsp_led / bsp_i2c / bsp_sdram ...）
-├── Drivers/        CMSIS-Core / CMSIS-Device(ST) / STM32x HAL 驱动（ST 官方，不手改）
+├── Drivers/        CMSIS-Core / CMSIS-Device(ST) / STM32x_HAL_Driver（ST 官方，不手改；HAL 用 Cube 标准子目录名，如 STM32H7xx_HAL_Driver）
 ├── third_party/    第三方库（tinyusb / lvgl / FatFs / LwIP / FreeRTOS / mbedTLS）
 ├── ldscript/       stm32xxxx_flash.ld 链接脚本
 ├── cmake/          arm-none-eabi.cmake 交叉工具链文件
@@ -59,6 +59,35 @@ set_target_properties(${PROJECT_NAME}.elf PROPERTIES LINK_DEPENDS ${LINKER_SCRIP
 
 **新增 `.c` 源文件必须重跑 `cmake` 重新 GLOB**（`file(GLOB app/*.c)` 在配置时展开并缓存，
 ninja 增量不会自动重扫，否则新文件不进编译）。
+
+### 2.1 CMSIS Device 启动文件必须显式列出（禁止 GLOB_RECURSE）
+
+**坑（010.stm32h743_boot 真机教训）**：CMSIS-Device 树为每个 H7 型号都提供 startup 文件
+（arm/gcc/iar 三套汇编器语法 × 几十个型号），还有多个 `system_*.c` 变体。若用
+`file(GLOB_RECURSE ... "Drivers/CMSIS/Device/*.c" "*.s")`，会把约 60 个 startup.s + 多个
+`system_*.c` 全收进来，导致：
+- 重复定义 `Reset_Handler` / `SystemInit` 符号（multiple definition 链接错误）；
+- iar/arm 语法的 `.s` 被 GCC 汇编器解析 → 汇编语法错误。
+
+**正确做法——只列本芯片需要的两个文件**（Cube 标准路径）：
+```cmake
+set(CMSIS_DEVICE_DIR "${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32H7xx")
+set(CMSIS_SOURCES
+  ${CMSIS_DEVICE_DIR}/Source/Templates/gcc/startup_stm32h743xx.s
+  ${CMSIS_DEVICE_DIR}/Source/Templates/system_stm32h7xx.c
+)
+```
+
+### 2.2 HAL 源文件收集（用 Cube 标准子目录名）
+
+HAL 用 Cube 标准子目录名 `Drivers/STM32H7xx_HAL_Driver/`（F4 对应 `Drivers/STM32F4xx_HAL_Driver/`），
+不再用扁平的 `Drivers/HAL/`。整目录 GLOB 即可，未使用的 HAL 源会被 `-Wl,--gc-sections` 丢弃：
+```cmake
+file(GLOB HAL_SOURCES "Drivers/STM32H7xx_HAL_Driver/Src/*.c")
+# 排除 CubeMX 模板文件（它们重定义 HAL_InitTick 等，导致符号冲突）
+list(FILTER HAL_SOURCES EXCLUDE REGEX "[Tt]emplate")
+```
+对应 include 目录：`Drivers/STM32H7xx_HAL_Driver/Inc`。
 
 ## 三、链接脚本（.ld）边界必须实测
 
