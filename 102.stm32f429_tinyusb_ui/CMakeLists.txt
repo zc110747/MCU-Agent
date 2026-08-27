@@ -42,6 +42,10 @@ include_directories(
   third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F
   third_party/FatFs
   third_party/tinyusb/src
+  # LVGL: both the top dir (for lvgl.h -> "lv_conf.h") and src/ (for the
+  # internal "#include ../lvgl.h" relative form used inside lvgl sources).
+  third_party/lvgl
+  third_party/lvgl/src
 )
 
 # TinyUSB configuration: host stack on STM32F4, FreeRTOS OSAL.
@@ -63,6 +67,13 @@ file(GLOB BSP_SOURCES
   bsp/bsp_pcf8574.c
   bsp/bsp_sdram.c
   bsp/bsp_usb_hw.c
+  # LCD (FMC 8080 16-bit) + GBK font stack + LVGL display port
+  bsp/bsp_lcd.c
+  bsp/bsp_lcd_text.c
+  bsp/lcd_ascii_font.c
+  bsp/lv_font_gbk.c
+  bsp/lv_gbk_map.c
+  bsp/lv_port_disp.c
 )
 
 set(CMSIS_SOURCES
@@ -87,6 +98,7 @@ set(HAL_SOURCES
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sdram.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sram.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_fmc.c
 )
 
@@ -122,6 +134,15 @@ set(FATFS_SOURCES
   third_party/FatFs/ffsystem.c
 )
 
+# LVGL v8 (recursive: every .c under src/).  Both include dirs above are
+# needed so "lv_conf.h" and the internal "../lvgl.h" resolve.
+file(GLOB_RECURSE LVGL_SOURCES third_party/lvgl/src/*.c)
+
+# Third-party library: keep its warnings out of the build so the project's own
+# code stays strictly warning-clean under -Wall -Wextra.  LVGL is mature and
+# vendored, so silencing it here does not hide issues in our source.
+set_source_files_properties(${LVGL_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+
 # ------------------------------------------------------------------
 # Executable
 # ------------------------------------------------------------------
@@ -135,6 +156,7 @@ add_executable(${PROJECT_NAME}.elf
   ${FREERTOS_SOURCES}
   ${TINYUSB_SOURCES}
   ${FATFS_SOURCES}
+  ${LVGL_SOURCES}
 )
 
 # FreeRTOS ARM_CM4F port has unconditional vstmdbeq/vldmiaeq {s16-s31} in

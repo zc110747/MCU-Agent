@@ -75,7 +75,58 @@ HAL_Init
 |------|--------|------|
 | `usbh_host_task` | idle+3 | 运行 `tuh_task()`，驱动 TinyUSB 主机协议栈；空闲时阻塞让出 CPU |
 | `file_task` | idle+2 | 等待挂载信号量 → `f_mount` → `usb_disk_explore()`：递归遍历 U 盘并打印每个文件内容到 USART |
+| `ui_task` | idle+2 | 等待 U 盘挂载 → 初始化 FMC/8080 LCD + GBK 字库 → 启动 LVGL → 渲染状态面板；每 5 ms 泵 `lv_timer_handler()` |
 | `led_task` | idle+1 | LED0 心跳（~500 ms）；LED1 反映 USB 状态（枚举/挂载/错误） |
+
+> `ui_task` 与 `file_task` 同优先级（idle+2），二者均无忙等：USB 硬件/字体文件就绪前
+> `ui_task` 阻塞在状态轮询 + `vTaskDelay`，`file_task` 阻塞在挂载信号量。LVGL 的渲染泵
+> `lv_timer_handler()` 每 5 ms 调用一次，足够驱动刷新且不会饿死其它任务。
+
+### 3.4 UI 线程（FMC/8080 LCD + LVGL + GBK 字库）
+
+在 **800×400 正点原子 LCD（NT35510 / ILI9806E，FMC Bank1 NE1，16-bit 8080 接口）**
+上，用 **LVGL v8** 渲染一块极简深色信息面板（无色彩点缀，统一浅色文字）。字库放在
+**U 盘 `0:/SYSTEM/FONT/`**（GBK 点阵 `GBK12/16/24/32.FON` + `UNIGBK.BIN`），不烧进 Flash。
+
+#### 硬件接口（LCD，FMC Bank1 NE1，8080 16-bit）
+
+| 信号 | 引脚 | 备注 |
+|------|------|------|
+| 数据总线 | PD0–15 / PE7–15 | FMC D0–D15（与 SDRAM 共享 FMC，重配置为 AF12 幂等安全） |
+| 地址/控制 | PF0–5/12–15、PG0–5、PD11–15 | FMC A0–A18（RS=A18 → `LCD_BASE=0x60000000\|0x0007FFFE`） |
+| 背光 | PB5 | 高有效，初始化末打开；低电平有效 LED 同板不冲突 |
+| NE1 片选 | FMC_NE1 | Bank1、16-bit、`ExtendedMode=ENABLE`、写时序收紧 |
+
+#### 启动流程（`app/ui_task.c`）
+
+```
+ui_task (OS 已启动)
+  → lcd_driver_init()        FMC SRAM 初始化 + 面板 ID 探测(0x8000→NT35510 完整序列 / 否则 ILI9806E 回退)
+                              → 清屏(黑) + 背光打开
+  → lv_init() + lv_port_disp_init()   注册 800×400 面板；draw buffer 经 pvPortMalloc 落在 SDRAM
+  → app_ui_show_fault("等待 U 盘字库...")   插入磁盘前的占位提示
+  → 轮询 g_usb_state：
+       USB_MOUNTED → lcd_driver_font_init() 挂载 0: + 打开 GBKxx.FON / UNIGBK.BIN
+                   → 字库就绪则 app_ui_create()（中文标题「STM32F429 信息面板」）
+                      否则 app_ui_show_fault()（ASCII 错误页，列出预期路径）
+       USB_ERROR    → app_ui_show_fault("U 盘错误")
+       其它        → 保持占位提示
+  → for(;;) { lv_timer_handler(); vTaskDelay(5ms); }   ★ LV_TICK_CUSTOM 走 HAL_GetTick()，无需 lv_tick_inc()
+```
+
+#### 关键设计点
+
+- **LVGL 内存放 SDRAM**：`lv_conf.h` 设 `LV_MEM_ADR=0xC0100000U`、`LV_MEM_SIZE=256KB`，
+  位于 FreeRTOS 堆（`ucHeap` @0xC0000000~0xC007FFFF）之后，避免 256 KB 静态 BSS 数组塞爆
+  内部 192 KB SRAM（早期一版误把 `LV_MEM_ADR` 重新定义成 0，会导致链接失败/内存越界，已修）。
+- **draw buffer 放 SDRAM**：`lv_port_disp.c` 中 `pvPortMalloc(800×60×2B≈96KB)`，不占内部 SRAM；
+  `disp_flush` 经 `lcd_color_fill()` 把渲染区整块写入面板。
+- **GBK 字库桥**：`lv_font_gbk.c` 的 `get_glyph_dsc/get_glyph_bitmap` 回调 —— ASCII 用编译期
+  表（来自 `lcd_ascii_font.c`），中文走编译期 `lv_gbk_map.c` 的 Unicode→GBK 映射，再从 U 盘
+  文件读原始 MSB/列扫字模、单遍转 LVGL 连续行位流；`lcd_driver_get_hzmat_raw()` 提供免重排原始数据。
+- **字库路径收敛为 `0:`**：原 `drv_oled_text` 参考为 SD 卡 `1:`，本项目全部改为 U 盘 `0:`。
+- **零警告**：第三方 LVGL 源码经 `set_source_files_properties(... COMPILE_OPTIONS "-w")` 静默，
+  工程自有代码保持 `-Wall -Wextra` 严格零警告。
 
 ### 3.3 USB 主机数据流
 
@@ -147,14 +198,19 @@ cmake --build build_dbg --target stm32f429_tinyusb_ui.elf
   Debug 用 `-Og`，Release 用 `-Os`。
 - 链接：`--gc-sections --no-warn-rwx-segments --print-memory-usage -specs=nano.specs`。
 - 后置步骤：生成 `.hex` / `.bin` / `.map`。
-- **零警告**为硬性要求（已通过双构建验证）。
+- **零警告**为硬性要求（已通过双构建验证）。第三方 **LVGL** 源码经
+  `set_source_files_properties(... COMPILE_OPTIONS "-w")` 静默，工程自有代码保持
+  `-Wall -Wextra` 严格零警告。
 
 ### 5.3 产物（双构建，零警告）
 
+> 注：下表为接入 **LCD（FMC 8080）+ LVGL v8 + GBK 字库** 后的最新占用；相比纯 USB 版本
+> FLASH 增长来自 LVGL 内核与字体层，RAM 增长来自 LVGL 句柄/栈，SDRAM 堆仍为 512 KB。
+
 | 构建 | FLASH | RAM (内部) | SDRAM 堆 | 警告 |
 |------|-------|-----------|----------|------|
-| Release | 68,176 B / 1 MB (6.50%) | 15,792 B / 192 KB (8.03%) | 512 KB / 32 MB (1.56%) | 0 |
-| Debug   | 58,296 B / 1 MB (5.56%) | 15,776 B / 192 KB (8.02%) | 512 KB / 32 MB (1.56%) | 0 |
+| Release | 259,508 B / 1 MB (24.75%) | 23,360 B / 192 KB (11.88%) | 512 KB / 32 MB (1.56%) | 0 |
+| Debug   | 225,480 B / 1 MB (21.50%) | 23,344 B / 192 KB (11.87%) | 512 KB / 32 MB (1.56%) | 0 |
 
 ### 5.4 exFAT 验证工具
 
@@ -180,6 +236,10 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 | **U 盘真实枚举 + 目录递归遍历 + 文件内容串口打印** | ✅ 硬件验证通过 | 2026-08-26 COM5 实测：枚举→挂载→遍历(含子目录)→逐文件正文打印全链路 PASS（§7.5） |
 | **SDRAM/FMC 运行时时序** | ✅ 硬件验证通过 | 自测通过；`Heap object @ 0xC0002F38` 证实堆在 SDRAM（§7.5） |
 | USB 初始化时序（OS 启动后） | ✅ 硬件验证通过 | 修正中断触发 FromISR queue 破坏 RTOS 的问题（§3.1） |
+| LCD 驱动（FMC Bank1 NE1 8080 16-bit）集成 | ✅ 编译验证通过 | `bsp_lcd.c` 内联 F429 FMC GPIO 配置 + NT35510/ILI9806E 初始化序列（§3.4） |
+| LVGL v8 显示端口 + SDRAM 内存布局 | ✅ 编译验证通过 | `LV_MEM_ADR=0xC0100000U`/`256KB` 避开 FreeRTOS 堆；draw buffer 经 `pvPortMalloc` 落 SDRAM（§3.4） |
+| GBK 字库桥（U 盘 `0:/SYSTEM/FONT/`） | ✅ 编译验证通过 | `lv_font_gbk` 回调 + `lcd_driver_font_init()` 挂载 0: 并打开 GBKxx.FON/UNIGBK.BIN（§3.4） |
+| UI 线程端到端（LCD 探测 ID → 挂载 → LVGL 渲染面板） | ⏳ 待硬件验证 | 编译/链接/双构建零警告已 PASS；真机 LCD 点亮 + 字库回显需 OpenOCD 烧录 + COM5 实测 |
 
 > 详细证据与「编译验证 vs 硬件验证」标签见 **`ACCEPTANCE_REPORT.md`**。
 

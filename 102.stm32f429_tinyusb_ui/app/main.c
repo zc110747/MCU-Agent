@@ -33,6 +33,7 @@
 #include "bsp_pcf8574.h"
 #include "bsp_sdram.h"
 #include "usb_host_app.h"
+#include "ui_task.h"
 
 /* Single SDRAM heap region, defined in sdram_heap.c. */
 extern HeapRegion_t xHeapRegions[];
@@ -131,6 +132,8 @@ int main(void)
   /* Create tasks (all allocate from the SDRAM heap, now valid). */
   xTaskCreate(usbh_host_task, "usbh", 1024, NULL, tskIDLE_PRIORITY + 3, NULL);
   xTaskCreate(led_task,        "led",  256,  NULL, tskIDLE_PRIORITY + 1, NULL);
+  xTaskCreate(ui_task,         "ui",   UI_TASK_STACK_WORDS, NULL,
+             tskIDLE_PRIORITY + 2, NULL);
 
   /* FreeRTOS V11 quirk: vPortEnterCritical (inside xTaskCreate before the
    * scheduler runs) leaves BASEPRI set; clear it so the TIM11 IRQ and
