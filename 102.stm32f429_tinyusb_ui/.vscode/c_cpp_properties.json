@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "STM32F429 Debug",
-      "compilerPath": "${env:ARM_GNU_TOOLCHAIN_BIN}/arm-none-eabi-gcc.exe",
+      "compilerPath": "arm-none-eabi-gcc",
       "cStandard": "c11",
       "cppStandard": "c++17",
       "intelliSenseMode": "gcc-arm",

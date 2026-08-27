@@ -2,26 +2,28 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "configure debug",
+      "label": "configure",
       "type": "shell",
       "command": "cmake --preset debug",
       "problemMatcher": [],
       "group": "build"
     },
     {
-      "label": "build debug",
+      "label": "build",
       "type": "shell",
       "command": "cmake --build build/debug",
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": ["$gcc"],
-      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
-    },
-    {
-      "label": "build release",
-      "type": "shell",
-      "command": "cmake --preset release && cmake --build build/release",
-      "group": "build",
-      "problemMatcher": ["$gcc"]
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
     },
     {
       "label": "clean",
@@ -32,29 +34,13 @@
     {
       "label": "flash",
       "type": "shell",
-      "command": "cmake --build build/debug --target flash",
-      "dependsOn": "build debug",
+      "command": "openocd -f openocd.cfg -c \"program build/debug/h743_cmsis_dap.elf verify reset exit\"",
+      "dependsOn": "build",
       "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "shared" }
-    },
-    {
-      "label": "erase chip",
-      "type": "shell",
-      "command": "cmake --build build/debug --target erase",
-      "problemMatcher": []
-    },
-    {
-      "label": "reset target",
-      "type": "shell",
-      "command": "cmake --build build/debug --target reset",
-      "problemMatcher": []
-    },
-    {
-      "label": "dap-test (probe an F429 through our CMSIS-DAP)",
-      "type": "shell",
-      "command": "cmake --build build/debug --target dap-test",
-      "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "shared" }
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }

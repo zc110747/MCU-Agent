@@ -1,76 +1,41 @@
 {
-    // Cortex-Debug + OpenOCD + ST-Link (SWD only, on the "SWD和USART1" header).
-    //
-    // The stock interface/target scripts are used directly - this is the
-    // combination verified on the LXB743ZI-P1.  openocd / arm-none-eabi-gdb are
-    // taken from PATH so the project can be cloned anywhere; no absolute paths.
-    //
-    // If a standalone `openocd -f debug/openocd.cfg` is already running it owns
-    // ports 3333/4444/6666 - stop it first, or use "Attach", or these launches
-    // fail with "couldn't bind to socket".
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug (ST-Link + OpenOCD)",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/debug/stm32h7_face_detect.elf",
-            "device": "STM32H743ZI",
-            "interface": "swd",
-            "configFiles": [
-                "interface/stlink.cfg",
-                "target/stm32h7x.cfg"
-            ],
-            "openOCDLaunchCommands": [
-                "adapter speed 4000"
-            ],
-            "svdFile": "${workspaceFolder}/tools/STM32H743.svd",
-            "runToEntryPoint": "main",
-            "preLaunchTask": "build (debug)",
-            "showDevDebugOutput": "none",
-            "liveWatch": {
-                "enabled": true,
-                "samplesPerSecond": 4
-            }
-        },
-        {
-            "name": "Attach (ST-Link + OpenOCD)",
-            "type": "cortex-debug",
-            "request": "attach",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/debug/stm32h7_face_detect.elf",
-            "device": "STM32H743ZI",
-            "interface": "swd",
-            "configFiles": [
-                "interface/stlink.cfg",
-                "target/stm32h7x.cfg"
-            ],
-            "svdFile": "${workspaceFolder}/tools/STM32H743.svd",
-            "showDevDebugOutput": "none"
-        },
-        {
-            "name": "Debug Release (ST-Link + OpenOCD)",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/release/stm32h7_face_detect.elf",
-            "device": "STM32H743ZI",
-            "interface": "swd",
-            "configFiles": [
-                "interface/stlink.cfg",
-                "target/stm32h7x.cfg"
-            ],
-            "openOCDLaunchCommands": [
-                "adapter speed 4000"
-            ],
-            "svdFile": "${workspaceFolder}/tools/STM32H743.svd",
-            "runToEntryPoint": "main",
-            "preLaunchTask": "build (release)",
-            "showDevDebugOutput": "none"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (OpenOCD + ST-Link)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/stm32h7_face_detect.elf",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32H743ZI",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build",
+      "showDevDebugOutput": "none",
+      "svdFile": "${workspaceFolder}/STM32H743.svd"
+    },
+    {
+      "name": "Attach (no reflash)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/stm32h7_face_detect.elf",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32H743ZI",
+      "interface": "swd",
+      "showDevDebugOutput": "none",
+      "svdFile": "${workspaceFolder}/STM32H743.svd"
+    }
+  ]
 }

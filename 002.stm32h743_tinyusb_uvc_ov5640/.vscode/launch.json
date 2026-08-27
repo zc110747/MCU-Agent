@@ -5,50 +5,37 @@
       "name": "Debug (OpenOCD + ST-Link)",
       "type": "cortex-debug",
       "request": "launch",
+      "servertype": "openocd",
       "cwd": "${workspaceFolder}",
       "executable": "${workspaceFolder}/build/stm32h743_uvc.elf",
-      "servertype": "openocd",
-      "configFiles": ["${workspaceFolder}/debug/openocd.cfg"],
-      "gdbPath": "arm-none-eabi-gdb.exe",
-      "device": "STM32H743ZI",
-      "svdFile": "${workspaceFolder}/debug/STM32H743.svd",
-      "preLaunchTask": "Build",
-      "runToEntryPoint": "main",
-      "showDevDebugOutput": "none",
-      "liveWatch": {
-        "enabled": true,
-        "samplesPerSecond": 4
-      },
-      "postLaunchCommands": [
-        "monitor arm semihosting disable"
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
       ],
-      "//": "Handy expressions to drop into the WATCH panel:",
-      "//watch": [
-        "g_boot_stage", "g_loop_count", "g_fault_id",
-        "g_cam_status", "g_cam_id",
-        "cam_frame_count", "cam_error_count",
-        "cam_start_count", "cam_start_fail_count",
-        "usb_mounted", "usb_mount_count", "usb_commit_count",
-        "uvc_frames_sent", "uvc_frames_dropped"
-      ]
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32H743ZI",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build",
+      "showDevDebugOutput": "none",
+      "svdFile": "${workspaceFolder}/STM32H743.svd"
     },
     {
-      "name": "Attach (no flash)",
+      "name": "Attach (no reflash)",
       "type": "cortex-debug",
       "request": "attach",
+      "servertype": "openocd",
       "cwd": "${workspaceFolder}",
       "executable": "${workspaceFolder}/build/stm32h743_uvc.elf",
-      "servertype": "openocd",
-      "serverpath": "openocd.exe",
-      "configFiles": ["${workspaceFolder}/debug/openocd.cfg"],
-      "gdbPath": "arm-none-eabi-gdb.exe",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
       "device": "STM32H743ZI",
-      "svdFile": "${workspaceFolder}/debug/STM32H743.svd",
+      "interface": "swd",
       "showDevDebugOutput": "none",
-      "liveWatch": {
-        "enabled": true,
-        "samplesPerSecond": 4
-      }
+      "svdFile": "${workspaceFolder}/STM32H743.svd"
     }
   ]
 }

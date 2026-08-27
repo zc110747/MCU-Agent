@@ -1,27 +1,10 @@
 {
-    // ---- Serial Monitor (ST-Link Virtual COM Port -> USART1 on PA9/PA10) ----
-    // Change "port" if your ST-Link enumerates on a different COM number.
-    "serialMonitor.baudRate": 115200,
-    "serialMonitor.port": "COM19",
-    "serialMonitor.lineEnding": "\r\n",
-    "serialMonitor.dataBits": 8,
-    "serialMonitor.stopBits": 1,
-    "serialMonitor.parity": "none",
-
-    // ---- CMake Tools --------------------------------------------------------
-    "cmake.sourceDirectory": "${workspaceFolder}",
-    "cmake.buildDirectory": "${workspaceFolder}/build",
-    "cmake.generator": "Ninja",
-    "cmake.configureOnOpen": false,
-
-    // cortex-debug already drives the build via preLaunchTask.
-    "cortex-debug.enableTelemetry": false,
-
-    // Sources are UTF-8 on disk and stay UTF-8 in flash; the UTF-8 code point
-    // is mapped to a GBK glyph index inside the font driver (bsp/lv_gbk_map.c).
-    "files.encoding": "utf8",
-    "[c]": {
-        "editor.tabSize": 4,
-        "editor.insertSpaces": true
-    }
+  "cmake.generator": "Ninja",
+  "cmake.configureOnOpen": false,
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.buildDirectory": "${workspaceFolder}/build"
 }

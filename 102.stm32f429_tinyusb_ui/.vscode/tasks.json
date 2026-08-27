@@ -1,61 +1,46 @@
 {
-  // 构建/烧录任务。工具路径同样走环境变量，不写死本机绝对路径。
-  //   CMAKE_BIN         指向 cmake.exe 所在目录（例：C:/Software/msys2/mingw64/bin）
-  //   NINJA_BIN         指向 ninja.exe 所在目录（同上）
-  //   OPENOCD_BIN       openocd.exe 目录
-  //   OPENOCD_SCRIPTS   OpenOCD scripts 目录
-  //   ARM_GNU_TOOLCHAIN_BIN  arm-none-eabi-gcc/gdb 目录
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake Configure (Debug)",
+      "label": "configure",
       "type": "shell",
-      "command": "cmake.exe",
-      "args": [
-        "-B", "build_dbg",
-        "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Debug",
-        "-S", "."
+      "command": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake --build build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
       ],
-      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "cmake --build build --target clean",
       "problemMatcher": []
     },
     {
-      "label": "CMake Build (Debug)",
+      "label": "flash",
       "type": "shell",
-      "command": "cmake.exe",
-      "args": ["--build", "build_dbg", "--target", "stm32f429_tinyusb_ui.elf"],
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": ["$gcc"]
-    },
-    {
-      "label": "CMake Build (Release)",
-      "type": "shell",
-      "command": "cmake.exe",
-      "args": ["--build", "build", "--target", "stm32f429_tinyusb_ui.elf"],
-      "group": "build",
-      "problemMatcher": ["$gcc"]
-    },
-    {
-      "label": "CMake Clean (Debug)",
-      "type": "shell",
-      "command": "cmake.exe",
-      "args": ["--build", "build_dbg", "--target", "clean"],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      // 通过常驻/单次 openocd 烧录并校验（等价于 program ... verify reset exit）
-      "label": "Flash with OpenOCD",
-      "type": "shell",
-      "command": "openocd.exe",
-      "args": [
-        "-f", "openocd/stm32f429_stlink.cfg",
-        "-c", "init",
-        "-c", "program build/stm32f429_tinyusb_ui.elf verify reset exit"
-      ],
-      "group": "build",
-      "problemMatcher": []
+      "command": "openocd -f openocd.cfg -c \"program build/stm32f429_tinyusb_ui.elf verify reset exit\"",
+      "dependsOn": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }

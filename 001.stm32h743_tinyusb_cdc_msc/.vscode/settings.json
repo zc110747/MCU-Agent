@@ -1,18 +1,10 @@
 {
+  "cmake.generator": "Ninja",
   "cmake.configureOnOpen": false,
-  "cmake.useCMakePresets": "always",
-  "cortex-debug.variableUseNaturalFormat": false,
-  "files.associations": {
-    "*.ld": "linkerscript",
-    "tusb_config.h": "c",
-    "stm32h7xx_hal_conf.h": "c"
-  },
-  "files.exclude": {
-    "build/": false,
-  },
-  "search.exclude": {
-    "build/": true,
-    "lib/": true
-  },
-  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json"
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.useCMakePresets": "always"
 }

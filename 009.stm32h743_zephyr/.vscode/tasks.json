@@ -1,55 +1,46 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "build",
-            "type": "shell",
-            "command": "python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .",
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": {
-                    "ZEPHYR_TOOLCHAIN_VARIANT": "gnuarmemb",
-                    "PATH": "${env:PATH}"
-                }
-            },
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": ["$gcc"]
-        },
-        {
-            "label": "clean",
-            "type": "shell",
-            "command": "python -m west build -t clean -d build",
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": {
-                    "ZEPHYR_TOOLCHAIN_VARIANT": "gnuarmemb",
-                    "PATH": "${env:PATH}"
-                }
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "flash",
-            "type": "shell",
-            "command": "openocd.exe -f tools/openocd.cfg -c \"program build/zephyr/zephyr.elf verify reset exit\"",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "dependsOn": "build",
-            "problemMatcher": []
-        },
-        {
-            "label": "flash-openocd",
-            "type": "shell",
-            "command": "openocd.exe -f tools/openocd.cfg -c \"program build/zephyr/zephyr.elf verify reset exit\"",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "dependsOn": "build",
-            "problemMatcher": []
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure",
+      "type": "shell",
+      "command": "python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "python -m west build -d build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "python -m west build -t clean -d build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flash",
+      "type": "shell",
+      "command": "openocd -f openocd.cfg -c \"program build/zephyr/zephyr.elf verify reset exit\"",
+      "dependsOn": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
 }

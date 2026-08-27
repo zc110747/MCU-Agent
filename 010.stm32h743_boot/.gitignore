@@ -14,7 +14,6 @@ th/
 .vscode-test/
 .DS_Store
 *.swp
-*.cfg
 *.txt
 
 !stm32h7_test.bin

@@ -1,16 +1,10 @@
 {
   "cmake.generator": "Ninja",
-  "cmake.buildDirectory": "${workspaceFolder}/build",
-  "cmake.configureOnOpen": true,
-  "cmake.statusbar.advanced": {
-    "build": true,
-    "launch": true,
-    "debug": true
-  },
-  "cortex-debug.armToolchainPath": "",
+  "cmake.configureOnOpen": false,
   "cortex-debug.openocdPath": "openocd",
-  "editor.formatOnSave": false,
-  "files.associations": {
-    "*.ld": "linkerScript"
-  }
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.buildDirectory": "${workspaceFolder}/build"
 }

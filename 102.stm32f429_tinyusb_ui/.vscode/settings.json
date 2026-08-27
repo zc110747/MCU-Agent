@@ -1,16 +1,10 @@
 {
-  // 工程级 VSCode 设置：工具链路径统一通过环境变量解析，避免写死本机绝对路径。
-  // 也可把工具加入系统 PATH 后将变量设为空字符串。
-  "cortex-debug.openOCDPath": "${env:OPENOCD_BIN}/openocd.exe",
-  "cortex-debug.gdbPath": "${env:ARM_GNU_TOOLCHAIN_BIN}/arm-none-eabi-gdb.exe",
-  "cortex-debug.armToolchainPath": "${env:ARM_GNU_TOOLCHAIN_BIN}",
-
-  // CMake：使用预设（debug/release），与 CMakePresets.json 配合
-  "cmake.useCMakePresets": "always",
-  "cmake.cmakePath": "${env:CMAKE_BIN}/cmake.exe",
   "cmake.generator": "Ninja",
-  "cmake.parallelJobs": 4,
-
-  // 关闭 Cortex-Debug 自动打开的反汇编噪声
-  "cortex-debug.showDevDebugOutput": "none"
+  "cmake.configureOnOpen": false,
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.buildDirectory": "${workspaceFolder}/build"
 }

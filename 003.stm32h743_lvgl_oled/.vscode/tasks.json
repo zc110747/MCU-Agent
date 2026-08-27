@@ -1,68 +1,46 @@
 {
-    // Every task runs with cwd = workspace root and uses RELATIVE paths, so the
-    // project can be cloned anywhere. All tools come from the system PATH.
-    "version": "2.0.0",
-    "options": {
-        "cwd": "${workspaceFolder}"
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure",
+      "type": "shell",
+      "command": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug",
+      "problemMatcher": [],
+      "group": "build"
     },
-    "tasks": [
-        {
-            "label": "CMake: Configure",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "-S", ".",
-                "-B", "build",
-                "-G", "Ninja",
-                "-DCMAKE_BUILD_TYPE=Debug",
-                "-DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake"
-            ],
-            "group": "build",
-            "problemMatcher": []
-        },
-        {
-            // Depends on Configure so that F5 works on a fresh clone
-            // (re-running configure is a fast no-op once the cache exists).
-            "label": "CMake: Build",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--build", "build"],
-            "dependsOn": "CMake: Configure",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": "$gcc"
-        },
-        {
-            "label": "CMake: Clean",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--build", "build", "--target", "clean"],
-            "problemMatcher": []
-        },
-        {
-            "label": "Flash (OpenOCD)",
-            "type": "shell",
-            "command": "openocd",
-            "args": [
-                "-f", "openocd.cfg",
-                "-c", "program build/lvgl_oled.elf verify reset exit"
-            ],
-            "dependsOn": "CMake: Build",
-            "problemMatcher": []
-        },
-        {
-            // Restart the board without reflashing - handy to re-read the
-            // USART1 boot banner in the Serial Monitor (COM port @115200).
-            "label": "Reset & Run (OpenOCD)",
-            "type": "shell",
-            "command": "openocd",
-            "args": [
-                "-f", "openocd.cfg",
-                "-c", "init; reset run; exit"
-            ],
-            "problemMatcher": []
-        }
-    ]
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake --build build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "cmake --build build --target clean",
+      "problemMatcher": []
+    },
+    {
+      "label": "flash",
+      "type": "shell",
+      "command": "openocd -f openocd.cfg -c \"program build/lvgl_oled.elf verify reset exit\"",
+      "dependsOn": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
 }

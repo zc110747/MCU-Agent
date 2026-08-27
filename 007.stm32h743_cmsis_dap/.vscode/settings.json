@@ -1,10 +1,10 @@
 {
-    "cmake.configureOnOpen": false,
-    "cmake.useCMakePresets": "always",
-    "cmake.buildBeforeRun": true,
-    "cortex-debug.armToolchainPath": "E:/support_tools/arm-gnu-toolchain-15.3.rel1-mingw-w64-x86_64-arm-none-eabi/bin",
-    "cortex-debug.openocdPath": "D:/software/ST/OpenOCD/bin/openocd.exe",
-    "files.associations": {
-        "*.h": "c"
-    }
+  "cmake.generator": "Ninja",
+  "cmake.configureOnOpen": false,
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.useCMakePresets": "always"
 }

@@ -1,82 +1,39 @@
 {
-    // All paths below are relative to the workspace (${workspaceFolder}).
-    // Nothing here is machine-specific, so the project stays portable.
-    "version": "0.2.0",
-    "configurations": [
-        {
-            // F5: build -> flash -> reset -> stop at main().
-            "name": "Debug (OpenOCD + ST-Link)",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/stm32h7_boot.elf",
-
-            "preLaunchTask": "CMake Build",
-
-            "configFiles": [
-                "${workspaceFolder}/openocd.cfg"
-            ],
-
-            // Resolved from the system PATH - no absolute paths.
-            "openocdPath": "openocd",
-            "gdbPath": "arm-none-eabi-gdb",
-
-            "runToEntryPoint": "main",
-            "showDevDebugOutput": "none",
-
-            "postRestartCommands": [
-                "monitor halt"
-            ]
-
-            // Drop an STM32H743.svd into debug/ and uncomment to get the
-            // peripheral register view (RCC / GPIOG / SPI6 / SDMMC1 / USART1):
-            // "svdFile": "${workspaceFolder}/debug/STM32H743.svd",
-        },
-        {
-            // Same, but built with -O2.  The 6502 interpreter does not hold
-            // 60 fps at -Og, so this is the configuration to profile the
-            // emulator with.
-            "name": "Debug Release build (OpenOCD + ST-Link)",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build-release/stm32h7_boot.elf",
-
-            "preLaunchTask": "CMake Build (Release)",
-
-            "configFiles": [
-                "${workspaceFolder}/openocd.cfg"
-            ],
-
-            "openocdPath": "openocd",
-            "gdbPath": "arm-none-eabi-gdb",
-
-            "runToEntryPoint": "main",
-            "showDevDebugOutput": "none"
-        },
-        {
-            // Attach to a board that is already running, WITHOUT reflashing or
-            // resetting it.  Useful to inspect a live fault or a long uptime.
-            "name": "Attach (no reflash)",
-            "type": "cortex-debug",
-            "request": "attach",
-            "servertype": "openocd",
-
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/stm32h7_boot.elf",
-
-            "configFiles": [
-                "${workspaceFolder}/openocd.cfg"
-            ],
-
-            "openocdPath": "openocd",
-            "gdbPath": "arm-none-eabi-gdb",
-
-            "showDevDebugOutput": "none"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (OpenOCD + ST-Link)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32h7_boot.elf",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32H743ZI",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build",
+      "showDevDebugOutput": "none"
+    },
+    {
+      "name": "Attach (no reflash)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32h7_boot.elf",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32H743ZI",
+      "interface": "swd",
+      "showDevDebugOutput": "none"
+    }
+  ]
 }

@@ -2,22 +2,45 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Configure",
+      "label": "configure",
       "type": "shell",
-      "command": "cmake",
-      "args": ["-S", ".", "-B", "build", "-G", "Ninja"],
-      "problemMatcher": []
+      "command": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug",
+      "problemMatcher": [],
+      "group": "build"
     },
     {
-      "label": "Build",
+      "label": "build",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "build"],
+      "command": "cmake --build build",
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": ["$gcc"]
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "cmake --build build --target clean",
+      "problemMatcher": []
+    },
+    {
+      "label": "flash",
+      "type": "shell",
+      "command": "openocd -f openocd.cfg -c \"program build/stm32f429_net.elf verify reset exit\"",
+      "dependsOn": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }

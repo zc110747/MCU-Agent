@@ -1,45 +1,41 @@
 {
-  // STM32F429IGT6 调试启动配置（Cortex-Debug + OpenOCD + ST-Link + arm-none-eabi-gdb）
-  //
-  // 工具链路径通过环境变量注入，工程文件本身不写死本机绝对路径：
-  //   OPENOCD_BIN            指向包含 openocd.exe 的目录
-  //                         （例：D:/software/ST/OpenOCD/bin）
-  //   OPENOCD_SCRIPTS       指向 OpenOCD 的 scripts 目录
-  //                         （例：D:/software/ST/OpenOCD/share/openocd/scripts）
-  //   ARM_GNU_TOOLCHAIN_BIN 指向包含 arm-none-eabi-gdb.exe 的目录
-  //                         （例：E:/support_tools/arm-gnu-toolchain-15.3.rel1-.../bin）
-  //
-  // 若这些工具已加入系统 PATH，也可将对应变量设为空字符串并改用裸命令名。
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Cortex-Debug: OpenOCD + STLink (SWD)",
+      "name": "Debug (OpenOCD + ST-Link)",
       "type": "cortex-debug",
       "request": "launch",
       "servertype": "openocd",
       "cwd": "${workspaceFolder}",
-
-      // 工程内相对路径（不写死绝对路径）
       "executable": "${workspaceFolder}/build/stm32f429_tinyusb_ui.elf",
-      "configFiles": ["${workspaceFolder}/openocd/stm32f429_stlink.cfg"],
-      "svdFile": "${workspaceFolder}/.vscode/STM32F429x.svd",
-
-      // 工具链路径：全部走环境变量（见上方注释）
-      "openOCDPath": "openocd.exe",
-      "gdbPath": "arm-none-eabi-gdb.exe",
-
-      // 目标/接口
-      "device": "STM32F429IGT6",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32F429ZIT6",
       "interface": "swd",
-      "targetId": "1",
-      "rtos": "auto",
-
-      // 启动行为
       "runToEntryPoint": "main",
-      "preLaunchTask": "CMake Build (Debug)",
-      "postRestartCommands": ["monitor reset halt"],
-      "svdAddrToString": false,
-      "showDevDebugOutput": "none"
+      "preLaunchTask": "build",
+      "showDevDebugOutput": "none",
+      "svdFile": "${workspaceFolder}/STM32F429x.svd"
+    },
+    {
+      "name": "Attach (no reflash)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32f429_tinyusb_ui.elf",
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+      "openocdPath": "openocd",
+      "gdbPath": "arm-none-eabi-gdb",
+      "device": "STM32F429ZIT6",
+      "interface": "swd",
+      "showDevDebugOutput": "none",
+      "svdFile": "${workspaceFolder}/STM32F429x.svd"
     }
   ]
 }

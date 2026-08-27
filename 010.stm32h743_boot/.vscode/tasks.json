@@ -1,51 +1,46 @@
 {
-  // Build / flash tasks for the STM32H743 QSPI test project.
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake Configure (Debug)",
+      "label": "configure",
       "type": "shell",
-      "command": "cmake",
-      "args": [
-        "-B", "build",
-        "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Debug"
-      ],
-      "group": "build",
-      "problemMatcher": []
+      "command": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug",
+      "problemMatcher": [],
+      "group": "build"
     },
     {
-      "label": "CMake Build",
+      "label": "build",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "build"],
+      "command": "cmake --build build",
       "group": {
         "kind": "build",
         "isDefault": true
       },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "cmake --build build --target clean",
       "problemMatcher": []
     },
     {
-      "label": "CMake Build (Release)",
+      "label": "flash",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "build", "--config", "Release"],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake Clean",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "build", "--target", "clean"],
-      "problemMatcher": []
-    },
-    {
-      "label": "Flash (openOCD)",
-      "type": "shell",
-      "command": "openocd",
-      "args": ["-f", "${workspaceFolder}/openocd_flash.cfg"],
-      "problemMatcher": []
+      "command": "openocd -f openocd.cfg -c \"program build/stm32h7_boot.elf verify reset exit\"",
+      "dependsOn": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }
