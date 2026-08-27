@@ -2,6 +2,11 @@
 
 在AI Agent快速发展的当下，前端和桌面端程序已经可以大幅度被AI取代，嵌入式看起来有壁垒，其实作为固定的知识，也已经没有壁垒，使用AI Agent进行单片机开发其实也成为了现实。
 
+开发硬件:
+
+- **STM32H743ZIT6：鹿小班**
+- **STM32F429IGT6: 正点原子**
+
 对于AI来说，生成代码不困难，不过单片机交叉编译的特性也有其难点，需要解决如下问题。
 
 ❓ **如何让AI自动编译、调试、下载和仿真，然后走通自我迭代流程**  
@@ -24,7 +29,15 @@
 
 - [单片机支持ai agent开发环境](./document/support.md)  
 
+项目编译方法：
+
+1. 根据上述文档(提示词)，安装开发环境，支持编译
+2. 将support_tools目录下*.zip文件直接解压到相应项目目录中(Driver/third_part直接在目录下)
+3. 进入具体项目，使用vscode打开，执行Terminal->Run Task下命令，执行Configure、build、flash
+
 本系列下项目如下所示。
+
+🚀 **STM32H743ZIT6项目**
 
 ✅ 001.基于tinyusb实现USB混合设备(CDC+MSC)  
 ✅ 002.基于tinyusb实现UVC摄像头(基于ov5640)  
@@ -34,11 +47,20 @@
 ✅ 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)  
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
-✅ 009.基于zephyr系统实现lvgl显示功能  
+✅ 009.基于zephyr系统实现lvgl显示功能
 ✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
-✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)  
 
-### 具体项目效果和提示词说明
+🚀 **STM32F429IGT6项目**
+
+✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
+
+🚀 **STM32F429IGT6项目**
+
+✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
+
+具体项目效果和提示词说明如下。
+
+### STM32H743ZIT6项目
 
 #### 基于tinyusb实现USB混合设备(CDC+MSC)
 
@@ -48,8 +70,8 @@
 
 提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/prompter.md)  
 
-**AI开发**：项目框架、tinyusb移植、复合设备 - 95%  
-**个人参与**: 仿真环境、提示词 - 5%  
+**AI开发**：项目框架、tinyusb移植、复合设备
+**个人参与**: 仿真环境、提示词
 
 工作量：
 
@@ -65,8 +87,8 @@
 
 提示词内容：[项目提示词](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、UVC驱动实现 - 70%  
-**个人参与**: 仿真环境、提示词、OV5640驱动 - 30%  
+**AI开发**：项目框架、tinyusb移植、UVC驱动实现
+**个人参与**: 仿真环境、提示词、OV5640驱动 
 
 工作量：
 
@@ -82,8 +104,8 @@
 
 提示词内容：[项目提示词](./003.stm32h743_lvgl_oled/prompter.md)
 
-**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植 - 90%  
-**个人参与**: 仿真环境、提示词、OLED驱动 - 10%  
+**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植
+**个人参与**: 仿真环境、提示词、OLED驱动
 
 工作量：
 
@@ -99,8 +121,8 @@
 
 提示词内容：[项目提示词](./004.stm32h743_sd_oled_img/prompter.md)
 
-**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持 - 90%  
-**个人参与**: 仿真环境、提示词、OLED驱动 - 10%
+**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持
+**个人参与**: 仿真环境、提示词、OLED驱动
 
 工作量：
 
@@ -116,8 +138,8 @@
 
 提示词内容：[项目提示词](./005.stm32h743_person_detect/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示 - 95%  
-**个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动 - 5%
+**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示 
+**个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
 
 工作量：
 
@@ -133,8 +155,8 @@
 
 提示词内容：[项目提示词](./006.stm32h743_face_detect/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示 - 95%  
-**个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动 - 5%
+**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示
+**个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
 
 工作量：
 
@@ -150,8 +172,8 @@
 
 提示词内容：[项目提示词](./007.stm32h743_cmsis_dap/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持 - 60%  
-**个人参与**: 仿真环境、提示词、jtag/swd接口处理(找到arm官方例程) - 40%
+**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持
+**个人参与**: 仿真环境、提示词、jtag/swd接口处理(找到arm官方例程) 
 
 工作量：
 
@@ -183,8 +205,8 @@
 
 提示词内容：[项目提示词](./008.stm32h743_lvgl_mos/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现 - 95%  
-**个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动 - 5%
+**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现
+**个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动
 
 工作量：
 
@@ -199,8 +221,8 @@
 
 🚀 [009.基于zephyr实现lvgl界面](./009.stm32h743_zephyr/README.md)
 
-**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持 - 90%  
-**个人参与**: 仿真环境、提示词、oled驱动、功能引导 - 10%
+**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持
+**个人参与**: 仿真环境、提示词、oled驱动、功能引导
 
 - **lvgl界面**
 
@@ -216,8 +238,8 @@
 
 🚀 [010.基于QSPI虚拟U盘与安全升级的Bootloader](./010.stm32h743_boot/README.md)
 
-**AI开发**：工程骨架、QSPI FatFs、TinyUSB MSC、HMAC-SHA256 安全升级、固件跳转、openocd+gdb函数级验证 - 90%  
-**个人参与**: 仿真环境、提示词、真机验收 - 10%
+**AI开发**：工程骨架、QSPI FatFs、TinyUSB MSC、HMAC-SHA256 安全升级、固件跳转、openocd+gdb函数级验证
+**个人参与**: 仿真环境、提示词、真机验收
 
 - **boot跳转app执行**
 
@@ -233,12 +255,14 @@
 
 提示词内容：[项目提示词](./010.stm32h743_boot/prompter.md)
 
+### STM32F429IGT6项目
+
 #### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
 
 🚀 [101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)](./101.stm32f429_net/README.md)
 
-**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端 - 85%  
-**个人参与**: 仿真环境、提示词、基础驱动、功能引导 - 15%
+**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端
+**个人参与**: 仿真环境、提示词、基础驱动、功能引导
 
 - **web访问http**
 
@@ -261,6 +285,10 @@
 ![image](./document/image/101-05.jpg)
 
 提示词内容：[项目提示词](./101.stm32f429_net/prompter.md)
+
+### esp32s3项目
+
+### ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
 
 ## 开发经验总结
 
