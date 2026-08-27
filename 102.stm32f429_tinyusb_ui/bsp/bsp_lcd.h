@@ -19,12 +19,12 @@
 #include <stdint.h>
 #include "stm32f4xx_hal.h"
 
-/* ---- Panel resolution (configurable; default 800x400 per board spec) ------ */
+/* ---- Panel resolution (configurable; real panel is 800x480) --------------- */
 #ifndef LCD_WIDTH
 #define LCD_WIDTH  800
 #endif
 #ifndef LCD_HEIGHT
-#define LCD_HEIGHT 400
+#define LCD_HEIGHT 480
 #endif
 
 /* Shared status/result type.  Also defined (guarded) in bsp_lcd_text.h so a

@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file    app_ui.c
-  * @brief   LVGL screen for the STM32F429 800x400 panel (minimal dark theme).
+  * @brief   LVGL screen for the STM32F429 800x480 panel (minimal dark theme).
   *
   *  The screen is laid out as THREE independent, bordered bands so the
   *  initialization area, the runtime info panel (app_ui_create) and the
@@ -24,17 +24,17 @@
 
 /* ---- Geometry -------------------------------------------------------------- */
 #define UI_W      800
-#define UI_H      400
+#define UI_H      480
 #define UI_PAD    12
 
-/* Header + 3 bands (vertical partition of the 400 px height). */
+/* Header + 3 bands (vertical partition of the 480 px height). */
 #define HDR_H     30
-#define BAND1_Y   38
-#define BAND1_H   98
-#define BAND2_Y   144
-#define BAND2_H   146
-#define BAND3_Y   298
-#define BAND3_H   98
+#define BAND1_Y   40
+#define BAND1_H   120
+#define BAND2_Y   172
+#define BAND2_H   180
+#define BAND3_Y   364
+#define BAND3_H   110
 
 /* ---- Palette (minimal: dark bg, light text, no accents) -------------------- */
 #define COL_BG    0x000000
@@ -224,25 +224,25 @@ static void ui_build_frame(void)
         snprintf(buf, sizeof(buf), "LCD 控制器  ID = 0x%04X",
                  (unsigned int)((info != NULL) ? info->lcd_id : 0U));
         (void)mk_label(b1, 8, 32, &lv_font_gbk_16, COL_TXT, buf);
-        (void)mk_label(b1, 8, 56, &lv_font_gbk_16, COL_TXT, "USB 主机  已初始化");
-        (void)mk_label(b1, 8, 80, &lv_font_gbk_16, COL_DIM, "LVGL 渲染  已就绪");
+        (void)mk_label(b1, 8, 64, &lv_font_gbk_16, COL_TXT, "USB 主机  已初始化");
+        (void)mk_label(b1, 8, 96, &lv_font_gbk_16, COL_DIM, "LVGL 渲染  已就绪");
     }
 
     /* Band 2 - 运行信息 (app_ui_create content). */
     b2 = make_band(scr, BAND2_Y, BAND2_H, "运行信息");
     s_ui.b2_usb   = mk_label(b2, 8, 32,  &lv_font_gbk_16, COL_TXT, "USB 状态  --");
-    s_ui.b2_font  = mk_label(b2, 8, 56,  &lv_font_gbk_16, COL_TXT, "字库  --");
-    s_ui.b2_freq  = mk_label(b2, 8, 80,  &lv_font_gbk_16, COL_TXT, "");
+    s_ui.b2_font  = mk_label(b2, 8, 64,  &lv_font_gbk_16, COL_TXT, "字库  --");
+    s_ui.b2_freq  = mk_label(b2, 8, 96,  &lv_font_gbk_16, COL_TXT, "");
     lv_label_set_text_fmt(s_ui.b2_freq, "主频  %d MHz",
                           (int)(HAL_RCC_GetSysClockFreq() / 1000000U));
-    s_ui.b2_uptime = mk_label(b2, 8, 104, &lv_font_gbk_16, COL_TXT, "运行  00:00:00");
-    s_ui.b2_cache  = mk_label(b2, 8, 128, &lv_font_gbk_16, COL_DIM, "缓存  命中 0 / 读卡 0");
+    s_ui.b2_uptime = mk_label(b2, 8, 128, &lv_font_gbk_16, COL_TXT, "运行  00:00:00");
+    s_ui.b2_cache  = mk_label(b2, 8, 160, &lv_font_gbk_16, COL_DIM, "缓存  命中 0 / 读卡 0");
 
     /* Band 3 - 故障/消息 (app_ui_show_fault content). */
     b3 = make_band(scr, BAND3_Y, BAND3_H, "故障 / 消息");
-    s_ui.b3_l1 = mk_label(b3, 8, 30, &lv_font_gbk_16, COL_TXT, "系统正常");
-    s_ui.b3_l2 = mk_label(b3, 8, 54, &lv_font_gbk_16, COL_TXT, "");
-    s_ui.b3_l3 = mk_label(b3, 8, 78, &lv_font_gbk_16, COL_TXT, "");
+    s_ui.b3_l1 = mk_label(b3, 8, 32, &lv_font_gbk_16, COL_TXT, "系统正常");
+    s_ui.b3_l2 = mk_label(b3, 8, 64, &lv_font_gbk_16, COL_TXT, "");
+    s_ui.b3_l3 = mk_label(b3, 8, 96, &lv_font_gbk_16, COL_TXT, "");
 
     s_built = 1U;
 }

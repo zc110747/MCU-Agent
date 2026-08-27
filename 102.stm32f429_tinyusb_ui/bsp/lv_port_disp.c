@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file    lv_port_disp.c
-  * @brief   LVGL display port for the ST7789 240x240 panel on SPI6.
+  * @brief   LVGL display port for the NT35510 800x480 panel on FMC Bank1 NE1 (8080 16-bit).
   *
   *  Pixel format
   *  ------------

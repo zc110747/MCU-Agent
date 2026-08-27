@@ -9,7 +9,7 @@
   *   - NT35510 init sequence kept verbatim; an ILI9806E generic MIPI-DCS
   *     fallback added (board may ship either controller).
   *   - lcd_color_fill() added for the LVGL display port.
-  *   - Resolution is taken from LCD_WIDTH / LCD_HEIGHT (default 800x400).
+  *   - Resolution is taken from LCD_WIDTH / LCD_HEIGHT (real panel 800x480).
   ******************************************************************************
   */
 #include <string.h>
@@ -720,6 +720,8 @@ static void lcd_config_init(void)
     lcd_display_dir(0);
     lcd_driver_clear(LCD_BLACK);
     LCD_BACKLIGHT_ON();
+    printf("[LCD ] active GRAM window %lux%lu (panel spec 800x480)\r\n",
+           (unsigned long)g_lcd_info.lcd_width, (unsigned long)g_lcd_info.lcd_height);
 }
 
 static void lcd_display_dir(uint8_t dir)
