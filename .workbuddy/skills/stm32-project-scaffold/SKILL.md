@@ -1,6 +1,6 @@
 ---
 name: stm32-project-scaffold
-description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、README 工程说明文档、开发流程文档编写、工程 README 规范。
+description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、开发流程文档编写、工程 README 规范。
 agent_created: true
 ---
 
@@ -356,3 +356,25 @@ def sanitize(line):
 8. **常见问题**：表格列出典型坑与根因/处理（依赖缺失、`.ld` 改后 ninja `no work to do`、attach 超时、编码乱码等）。
 
 **铁律**：路径一律相对；构建命令必须与 `tasks.json` / `build_oneclick.bat` 一致；资源占比、警告数等以**数字**显式给出；每次代码/配置变更同步更新 README。
+
+---
+
+## 十三、支持包同步脚本 `support_all.bat`
+
+需求：在**仓库根目录**放一个脚本，把 `support_tools/` 下的支持包（`Drivers`/`third_party`/Zephyr 源码等）按需同步进各工程——目录不存在就解压 zip、逐条目对比、目标缺失才拷贝、已存在则跳过。
+
+- **位置**：仓库根 `support_all.bat`（与各工程目录同级）。
+- **工程→支持包映射**（按工程目录名判定）：
+  - 目录名含 `zephyr` → `env_support_for_zephyr`（最高优先，覆盖前缀规则）
+  - 首字符为 `0` → `env_support_for_stm32h743`
+  - 首字符为 `1` → `env_support_for_stm32f429`
+  - `2` 开头（ESP32）等无对应包 → 不处理（`for /d %%P in (0* 1*)` 只匹配 0/1 前缀工程）
+- **三步逻辑**：
+  1. 判定 `support_tools/env_support_for_XXX` 目录是否存在；不存在 → 解压 `support_tools/env_support_for_XXX.zip` 到 `support_tools/`（三个 zip 内部均包一层同名根目录，解压即得到该目录）。
+  2. 解压方式：`tar -xf "<zip>" -C "<support_tools>"`（Windows 自带 tar/bsdtar，优先）；失败回退 `powershell -Command "Expand-Archive -Path '<zip>' -DestinationPath '<support_tools>' -Force"`。
+  3. 逐个比对解压目录的**顶层条目**（如 `Drivers`/`third_party`/`zephyr`）：目标工程不存在该条目 → `robocopy "<pkg>\<item>" "<proj>\<item>" /E`（目录/文件通用，全有则整项拷贝）；已存在 → 打印 `[SKIP] <proj>\<item> already exists, skip.` 跳过。**不合并、不覆盖已有条目**（按名称全有/全无判断）。
+- **cmd 老坑（沿用第十节·致命坑 3）**：`echo`/`REM` 行里的 `(` `)` `&` `|` `<` `>` 会被 cmd 解析 → 一律清洗（`&`→`and`，其余删除），命令行的括号保留。本脚本输出行已规避特殊字符。
+- **幂等安全**：重复运行只补缺失项；已存在的目录/文件原样保留，不会误删或覆盖。
+- **验证**：用临时夹具（含「仅 zip 的 h743」「预解压的 f429/zephyr」「缺失/已存在条目工程」「2xx 跳过」）跑通四分支——h743 触发解压+拷贝、zephyr 走命名分支、f429 已有条目 SKIP+缺失 COPY、201 不被处理；产物树与打印均符合预期。
+
+> 本脚本与第十节 `build_oneclick.bat`、第十一节 `build_all.bat` 组成「依赖补齐 → 单工程编译 → 全工程编译」的完整工具链。
