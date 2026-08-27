@@ -60,6 +60,7 @@ typedef struct
 static ui_handles_t s_ui;
 static uint32_t     s_uptime_sec = 0U;
 static uint8_t      s_built      = 0U;
+static uint8_t      s_timer_created = 0U;
 static uint8_t      s_refresh_req = 0U;
 
 /*----------------------------------------------------------------------------*/
@@ -268,7 +269,11 @@ void app_ui_create(void)
     refresh_font();
     refresh_runtime();
 
-    (void)lv_timer_create(ui_tick_cb, UI_REFRESH_MS, NULL);
+    if (s_timer_created == 0U)
+    {
+        (void)lv_timer_create(ui_tick_cb, UI_REFRESH_MS, NULL);
+        s_timer_created = 1U;
+    }
 }
 
 void app_ui_show_fault(const char *line1, const char *line2, const char *line3)
