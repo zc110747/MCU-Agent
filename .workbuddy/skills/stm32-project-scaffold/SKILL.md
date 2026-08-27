@@ -1,6 +1,6 @@
 ---
 name: stm32-project-scaffold
-description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表。
+description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、README 工程说明文档、开发流程文档编写、工程 README 规范。
 agent_created: true
 ---
 
@@ -315,3 +315,44 @@ def sanitize(line):
 ```
 
 反斜杠 `\`（如 `..\support_tools\...` 路径）在 cmd 的 `echo` 中是字面量，**不受影响**，无需处理。
+
+---
+
+## 十一、工作空间级一键编译全部工程 `build_all.bat`
+
+需求：在**仓库根目录**（所有工程的上一层）放一个脚本，一键顺序编译全部工程；**某工程失败暂停等你回车后继续，直到全部完毕**。
+
+- **位置**：仓库根 `build_all.bat`，与 `001.*`/`003.*`/... 各工程目录同级（不是某个工程内部）。
+- **核心逻辑**：`for %%P in (工程列表)` → `call "%~dp0<proj>\build_oneclick.bat" < nul`。
+  - 子脚本末尾 `pause` 经 `< nul` 喂 EOF 立即返回（不再阻塞），由父脚本统一掌控暂停时机。
+  - **出错才暂停**：某工程 `exit /b` 非 0 → 打印 `[ERROR]`，`pause` 等用户回车后继续后续工程；成功直接继续（不打断）。
+  - 缺 `build_oneclick.bat` 的工程 → 标记 `[SKIP]`，不报错中断整体流程。
+  - 末尾输出汇总 `Passed / Failed / Skipped` 并 `pause` 等待回车（避免双击后窗口直接关闭、丢失结果）。
+- **cmd 老坑（必看）**：
+  - `for` 循环内**不能用 `goto`**（会直接中断整个循环）→ 改用 `call :build` 子例程，循环体只写 `call :build "%%P"`，所有 `goto` 放在子例程内。
+  - 计数器在 `for`/`call` 内多次累加需延迟展开 → 顶部 `setlocal enabledelayedexpansion`，计数用 `!VAR!`。
+  - 子脚本 `cd /d "%~dp0"` 在 `setlocal` 作用域内，返回后不影响父脚本 CWD（父脚本用 `%~dp0` 绝对路径调用，安全）。
+- **验证**：① dummy 三态（成功/失败/缺失）确认 `< nul` 跳过子 pause、`errorlevel` 正确回传、失败暂停后继续、计数正确；② 真实 `001` 工程 `call ... < nul` 实测：`cmake` configure→clean→build 全过，产出 `h743_tinyusb_cdc.elf`（FLASH 65668B/2MB≈3.13%），`ERRLEV=0`，证明 `< nul` 不干扰 cmake/ninja 且退出码正确回传。
+
+> 单工程脚本规范见第十节；本节的 `build_all.bat` 是其在工作空间级的编排层，二者配套使用。
+
+---
+
+## 十二、工程 README 说明文档规范
+
+每个工程根目录 `README.md` 应**随代码同步更新**，让 AI / 人工一眼看懂「做什么 / 怎么搭 / 怎么调 / 怎么验」。建议固定章节：
+
+1. **项目概述 / 处理内容**：一句话目标 + 功能范围（例：001=CDC+MSC 复合设备；003=LVGL 中文 OLED）。
+2. **硬件与接口**：芯片、HSE 时钟、关键外设引脚（USB/显示/SPI/USART）、调试方式（SWD+ST-Link、SVD 文件）。
+3. **工程结构**：目录树，标注 `app/bsp`/`Drivers`/`third_party` 分层与关键文件（`openocd.cfg`、链接脚本、`.svd` 置根）。
+4. **开发流程**：分步实现建议（先 X 再 Y）与来源（指向 `prompter.md`）。
+5. **构建与运行**：
+   - 单工程 `build_oneclick.bat`、全仓库 `build_all.bat` 的使用位置与行为；
+   - 手动命令（预设工程 `cmake --preset debug`；普通 CMake `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug`），产物 elf 路径；
+   - 依赖缺失处理（从 `..\support_tools\env_support_for_*.zip` 解压 `Drivers`/`third_party`）；
+   - 零警告约束 + **实测资源占比（FLASH/RAM 数字显式列出）**。
+6. **调试与烧录**：`.vscode/launch.json`（裸工具名 + 根级 cfg/svd + `preLaunchTask`）、命令行 `openocd -f openocd.cfg -c "program <elf> verify reset exit"`、单步/F5、gdb 脚本。
+7. **验收与自测**：验收标准 + 自测脚本（Python `test_*.py` / `verify_*.py` 给出 pass/fail 计数）。
+8. **常见问题**：表格列出典型坑与根因/处理（依赖缺失、`.ld` 改后 ninja `no work to do`、attach 超时、编码乱码等）。
+
+**铁律**：路径一律相对；构建命令必须与 `tasks.json` / `build_oneclick.bat` 一致；资源占比、警告数等以**数字**显式给出；每次代码/配置变更同步更新 README。
