@@ -62,6 +62,7 @@ add_compile_definitions(
 # ------------------------------------------------------------------
 file(GLOB APP_SOURCES app/*.c)
 file(GLOB BSP_SOURCES
+  bsp/bsp_delay.c
   bsp/bsp_led.c
   bsp/bsp_uart.c
   bsp/bsp_i2c.c

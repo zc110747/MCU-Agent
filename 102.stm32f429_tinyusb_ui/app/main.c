@@ -172,6 +172,18 @@ int main(void)
   Error_Handler();
 }
 
+void bsp_delay_ms(uint32_t ms)
+{
+  if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) 
+  {
+    vTaskDelay(pdMS_TO_TICKS(ms)); 
+  } 
+  else 
+  {
+    HAL_Delay(ms);
+  }
+}
+
 /**
   * @brief  System Clock @168 MHz, USB 48 MHz.
   *   HSE=25 MHz -> PLL (M=25, N=336, P=2 -> 168 MHz, Q=7 -> 48 MHz).

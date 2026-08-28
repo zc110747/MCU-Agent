@@ -18,24 +18,7 @@
 
 #include "stm32f4xx_hal.h"
 
-static inline void bsp_delay_us(uint32_t us)
-{
-  /* Enable the DWT cycle counter (needs TRCENA in CoreDebug). */
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-  DWT->CYCCNT = 0;
-
-  uint32_t target = us * (SystemCoreClock / 1000000U);
-  uint32_t start  = DWT->CYCCNT;
-  while ((DWT->CYCCNT - start) < target)
-  {
-    /* busy wait */
-  }
-}
-
-static inline void bsp_delay_ms(uint32_t ms)
-{
-  bsp_delay_us(ms * 1000U);
-}
+void bsp_delay_us(uint32_t us);
+void bsp_delay_ms(uint32_t ms);
 
 #endif /* __BSP_DELAY_H__ */
