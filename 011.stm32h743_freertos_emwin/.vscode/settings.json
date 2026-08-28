@@ -1,0 +1,10 @@
+{
+  "cmake.generator": "Ninja",
+  "cmake.configureOnOpen": false,
+  "cortex-debug.openocdPath": "openocd",
+  "cortex-debug.gdbPath": "arm-none-eabi-gdb",
+  "cortex-debug.armToolchainPath": "",
+  "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-arm",
+  "cmake.buildDirectory": "${workspaceFolder}/build"
+}
