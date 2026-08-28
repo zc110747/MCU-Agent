@@ -24,7 +24,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} -Wall -Wextra -Wno-unused-param
 set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${MCU_FLAGS} -x assembler-with-cpp -g -Og")
 
 # Linker flags: flash linker script, map, dead-code strip, newlib-nano.
-set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Source/STM32F429IGTx_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/sys_startup/STM32F429IGTx_FLASH.ld)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${LINKER_SCRIPT} -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map -Wl,--gc-sections -Wl,--print-memory-usage -specs=nano.specs -u _printf_float -lc -lm -lgcc")
 
 # ------------------------------------------------------------------
@@ -37,6 +37,7 @@ include_directories(
   app/web
   app/snmp
   bsp
+  sys_startup
   Drivers/CMSIS/Include
   Drivers/STM32F4xx_HAL_Driver/Inc
   third_party/LwIP/src/include
@@ -64,8 +65,8 @@ file(GLOB APP_SOURCES
 )
 
 set(CMSIS_SOURCES
-  Drivers/CMSIS/Device/ST/STM32F4xx/Source/system_stm32f4xx.c
-  Drivers/CMSIS/Device/ST/STM32F4xx/Source/GCC/startup_stm32f429xx.s
+  sys_startup/system_stm32f4xx.c
+  sys_startup/gcc/startup_stm32f429xx.s
 )
 
 # Only the HAL modules we actually use (their HAL_*_MODULE_ENABLED are set

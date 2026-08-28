@@ -36,6 +36,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${LINKER_SC
 include_directories(
   app
   bsp
+  sys_startup
   Drivers/CMSIS/Include
   Drivers/STM32F4xx_HAL_Driver/Inc
   third_party/FreeRTOS-Kernel/include
@@ -77,8 +78,8 @@ file(GLOB BSP_SOURCES
 )
 
 set(CMSIS_SOURCES
-  Drivers/CMSIS/Device/ST/STM32F4xx/Source/system_stm32f4xx.c
-  Drivers/CMSIS/Device/ST/STM32F4xx/Source/GCC/startup_stm32f429xx.s
+  sys_startup/system_stm32f4xx.c
+  sys_startup/gcc/startup_stm32f429xx.s
 )
 
 # Only the HAL modules we use (their HAL_*_MODULE_ENABLED are set in
