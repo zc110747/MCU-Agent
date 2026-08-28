@@ -13,7 +13,7 @@
                 "${workspaceFolder}/app",
                 "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
                 "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
-                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/sys_startup",
                 "${workspaceFolder}/Drivers/CMSIS/Include",
                 "${workspaceFolder}/third_party/fatfs",
                 "${workspaceFolder}/third_party/tjpgd"

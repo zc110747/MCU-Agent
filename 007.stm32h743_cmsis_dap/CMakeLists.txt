@@ -37,7 +37,7 @@ set(CMSISDAP_DIR ${THIRD_PARTY}/CMSIS-DAP)
 set(DRIVERS_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/Drivers)
 set(HAL_DIR      ${DRIVERS_DIR}/STM32H7xx_HAL_Driver)
 set(CMSIS_CORE   ${DRIVERS_DIR}/CMSIS/Core/Include)
-set(CMSIS_DEVICE ${DRIVERS_DIR}/CMSIS/Device/ST/STM32H7xx)
+set(CMSIS_DEVICE ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup)
 
 foreach(_d ${TINYUSB_DIR} ${CMSISDAP_DIR} ${CMSIS_CORE} ${CMSIS_DEVICE} ${HAL_DIR})
   if(NOT EXISTS ${_d})
@@ -57,8 +57,8 @@ set(APP_SOURCES
   ${APP_DIR}/syscalls.c
   ${BSP_DIR}/bsp.c
   ${BSP_DIR}/dap_port.c
-  ${CMSIS_DEVICE}/Source/Templates/system_stm32h7xx.c
-  ${CMSIS_DEVICE}/Source/Templates/gcc/startup_stm32h743xx.s
+  sys_startup/system_stm32h7xx.c
+  sys_startup/gcc/startup_stm32h743xx.s
 )
 
 # ARM's reference CMSIS-DAP firmware. SWO.c is deliberately absent: it pulls in
@@ -96,7 +96,7 @@ target_include_directories(${TARGET} PRIVATE
   ${BSP_DIR}
   ${CMSISDAP_DIR}
   ${CMSIS_CORE}
-  ${CMSIS_DEVICE}/Include
+  sys_startup
   ${HAL_DIR}/Inc
   ${TINYUSB_DIR}/src
 )
@@ -134,7 +134,7 @@ set_source_files_properties(${CMSISDAP_SOURCES} PROPERTIES COMPILE_OPTIONS "-O2"
 set_source_files_properties(${TINYUSB_SOURCES} ${HAL_SOURCES}
   PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
 
-set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/ldscript/stm32h743zi_flash.ld)
+set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/stm32h743zi_flash.ld)
 
 target_link_options(${TARGET} PRIVATE
   -T${LINKER_SCRIPT}

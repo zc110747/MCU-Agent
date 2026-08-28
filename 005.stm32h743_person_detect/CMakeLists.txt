@@ -59,7 +59,7 @@ set(PROJECT_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/person_detect
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy
-    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32H7xx/Include
+    sys_startup
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/Core/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/DSP/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/NN/Include
@@ -76,12 +76,12 @@ file(GLOB_RECURSE CMSIS_NN_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/NN/Source/*.c)
 
 set(PROJECT_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/startup/startup_stm32h743xx.s
+    sys_startup/gcc/startup_stm32h743xx.s
 
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/stm32h7xx_it.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/stm32h7xx_hal_msp.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/system_stm32h7xx.c
+    sys_startup/system_stm32h7xx.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/syscalls.c
 
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_spi_oled.c
@@ -114,7 +114,7 @@ set_source_files_properties(${HAL_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 # ---------------------------------------------------------------------------
 # Link
 # ---------------------------------------------------------------------------
-set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/linker/STM32H743ZITx_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/STM32H743ZITx_FLASH.ld)
 
 target_link_options(${TARGET_NAME} PRIVATE
     -T${LINKER_SCRIPT}

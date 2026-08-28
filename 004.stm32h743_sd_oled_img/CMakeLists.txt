@@ -21,7 +21,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(TARGET_NAME ${PROJECT_NAME})
-set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/STM32H743ZITX_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/STM32H743ZITX_FLASH.ld)
 
 # ---------------------------------------------------------------------------
 #  Sources
@@ -38,7 +38,8 @@ file(GLOB APP_SOURCES   CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/app/*.c)
 file(GLOB FatFs_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FatFs/*.c)
 file(GLOB TJPGD_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tjpgd/*.c)
 
-set(STARTUP_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Core/Startup/startup_stm32h743xx.s)
+set(STARTUP_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/gcc/startup_stm32h743xx.s)
+set(SYSTEM_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/system_stm32h7xx.c)
 
 add_executable(${TARGET_NAME}
     ${CORE_SOURCES}
@@ -48,6 +49,7 @@ add_executable(${TARGET_NAME}
     ${FatFs_SOURCES}
     ${TJPGD_SOURCES}
     ${STARTUP_SOURCE}
+    ${SYSTEM_SOURCE}
 )
 
 # ---------------------------------------------------------------------------
@@ -60,7 +62,7 @@ target_include_directories(${TARGET_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/app
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy
-    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32H7xx/Include
+    sys_startup
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FatFs
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tjpgd

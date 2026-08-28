@@ -12,7 +12,7 @@
                 "${workspaceFolder}/app",
                 "${workspaceFolder}/middleware/face_detect",
                 "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
-                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/sys_startup",
                 "${workspaceFolder}/Drivers/CMSIS/Core/Include",
                 "${workspaceFolder}/Drivers/CMSIS/DSP/Include",
                 "${workspaceFolder}/Drivers/CMSIS/NN/Include"

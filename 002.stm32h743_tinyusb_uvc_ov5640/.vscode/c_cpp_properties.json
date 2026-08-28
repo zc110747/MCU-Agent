@@ -14,7 +14,7 @@
         "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
         "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
         "${workspaceFolder}/Drivers/CMSIS/Include",
-        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/sys_startup",
         "${workspaceFolder}/third_party/tinyusb/src"
       ],
       "defines": [

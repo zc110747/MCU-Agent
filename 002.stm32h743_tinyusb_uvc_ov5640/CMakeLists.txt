@@ -27,14 +27,14 @@ set(TARGET_NAME ${PROJECT_NAME})
 set(HAL_DIR      ${CMAKE_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver)
 set(CMSIS_DIR    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS)
 set(TINYUSB_DIR  ${CMAKE_SOURCE_DIR}/third_party/tinyusb)
-set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/STM32H743ZITx_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/sys_startup/STM32H743ZITx_FLASH.ld)
 
 # --------------------------------------------------------------------------
 # Sources
 # --------------------------------------------------------------------------
 set(APP_SOURCES
     Core/Src/main.c
-    Core/Src/system_stm32h7xx.c
+    sys_startup/system_stm32h7xx.c
     Core/Src/stm32h7xx_it.c
     Core/Src/stm32h7xx_hal_msp.c
     Core/Src/bsp_board.c
@@ -88,7 +88,7 @@ foreach(_src ${TINYUSB_SOURCES})
     endif()
 endforeach()
 
-set(STARTUP_SOURCE startup/startup_stm32h743xx.s)
+set(STARTUP_SOURCE sys_startup/gcc/startup_stm32h743xx.s)
 
 add_executable(${TARGET_NAME}
     ${APP_SOURCES}
@@ -107,7 +107,7 @@ target_include_directories(${TARGET_NAME} PRIVATE
     ${HAL_DIR}/Inc
     ${HAL_DIR}/Inc/Legacy
     ${CMSIS_DIR}/Include
-    ${CMSIS_DIR}/Device/ST/STM32H7xx/Include
+    sys_startup
     ${TINYUSB_DIR}/src
 )
 

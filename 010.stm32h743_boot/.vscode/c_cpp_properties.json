@@ -15,7 +15,7 @@
         "${workspaceFolder}/app",
         "${workspaceFolder}/bsp",
         "${workspaceFolder}/Drivers/CMSIS/Include",
-        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/sys_startup",
         "${workspaceFolder}/Drivers/HAL/Inc"
       ],
       "browse": {

@@ -80,7 +80,7 @@ set(CMAKE_C_FLAGS_RELEASE "-O2 -g")
 set(CMAKE_ASM_FLAGS        "${MCU_FLAGS_STR} -x assembler-with-cpp")
 
 # ---- Linker -----------------------------------------------------------------
-set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/STM32H743ZITX_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/sys_startup/STM32H743ZITX_FLASH.ld)
 set(CMAKE_EXE_LINKER_FLAGS
     "${MCU_FLAGS_STR} \
      -T${LINKER_SCRIPT} \
@@ -99,7 +99,7 @@ include_directories(
   app
   bsp
   Drivers/CMSIS/Include
-  Drivers/CMSIS/Device/ST/STM32H7xx/Include
+  sys_startup
   Drivers/STM32H7xx_HAL_Driver/Inc
   third_party/FatFs
   third_party/lvgl
@@ -171,8 +171,8 @@ set(FATFS_SRCS
 # ---- Project sources --------------------------------------------------------
 set(PROJECT_SRCS
   # Startup / system
-  Core/Src/startup_stm32h743xx.s
-  Core/Src/system_stm32h7xx.c
+  sys_startup/gcc/startup_stm32h743xx.s
+  sys_startup/system_stm32h7xx.c
   # Board / interrupt plumbing
   Core/Src/main.c
   Core/Src/stm32h7xx_hal_msp.c

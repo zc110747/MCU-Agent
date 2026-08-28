@@ -13,7 +13,7 @@
                 "${workspaceFolder}/bsp",
                 "${workspaceFolder}/third_party/CMSIS-DAP",
                 "${workspaceFolder}/Drivers/CMSIS/Core/Include",
-                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/sys_startup",
                 "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
                 "${workspaceFolder}/third_party/tinyusb/src"
             ],
