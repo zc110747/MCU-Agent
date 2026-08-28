@@ -55,8 +55,13 @@ static const pFONT * ascii_font_for_height(uint8_t h)
     }
 }
 
-/* ---- draw a LSB-first, row-scan bitmap at (x0,y0) ----------------------- */
-static void draw_lsb_rows(int x0, int y0, int w, int h, const uint8_t * bits)
+/* ---- draw a row-scan bitmap at (x0,y0) ----------------------------------
+ *  The compiled ASCII tables (ASCII_Font*) store MSB-first row scan, while
+ *  the SD-backed Chinese glyphs have been transposed to LSB-first row scan
+ *  by lcd_driver_get_hzmat().  `msb_first` selects the in-byte bit order so
+ *  a single routine can render either kind of glyph without repacking.
+ * ------------------------------------------------------------------------*/
+static void draw_lsb_rows(int x0, int y0, int w, int h, const uint8_t * bits, int msb_first)
 {
     int bpr = (w + 7) >> 3;
     for (int row = 0; row < h; row++)
@@ -64,7 +69,9 @@ static void draw_lsb_rows(int x0, int y0, int w, int h, const uint8_t * bits)
         const uint8_t * line = bits + (size_t)row * (size_t)bpr;
         for (int col = 0; col < w; col++)
         {
-            if (line[col >> 3] & (uint8_t)(1u << (col & 7)))
+            uint8_t bit = msb_first ? (uint8_t)(0x80u >> (col & 7))
+                                    : (uint8_t)(1u << (col & 7));
+            if (line[col >> 3] & bit)
             {
                 GUI_DrawPixel(x0 + col, y0 + row);
             }
@@ -115,7 +122,8 @@ static void emwin_gbk_disp_char(U16 c)
         const pFONT * af = ascii_font_for_height(h);
         if (af->pTable == NULL) return;
         const uint8_t * bits = af->pTable + (size_t)(c - 0x20U) * af->Sizes;
-        draw_lsb_rows(x0, y0, (int)af->Width, (int)af->Height, bits);
+        /* Compiled ASCII tables are MSB-first row scan -> msb_first = 1 */
+        draw_lsb_rows(x0, y0, (int)af->Width, (int)af->Height, bits, 1);
     }
     else
     {
@@ -125,7 +133,8 @@ static void emwin_gbk_disp_char(U16 c)
         const uint8_t * bits = gbk_cache_lookup(h, gbk, cf);
         if (bits != NULL)
         {
-            draw_lsb_rows(x0, y0, (int)cf->Width, (int)cf->Height, bits);
+            /* SD Chinese glyphs are already LSB-first row scan -> msb_first = 0 */
+            draw_lsb_rows(x0, y0, (int)cf->Width, (int)cf->Height, bits, 0);
         }
     }
 }
