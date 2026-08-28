@@ -1,0 +1,27 @@
+; *************************************************************
+; *** Scatter-Loading Description File for STM32H743ZITx   ***
+; *** Derived from sys_startup/stm32h743zi_flash.ld         ***
+; *************************************************************
+; Linker scatter file for ARM Compiler 6 (ARMCLANG).
+; Mirrors the GNU ld memory layout:
+;   FLASH   0x08000000 2048 KB  (code + RO data)
+;   DTCM    0x20000000  128 KB  (data / bss / heap / stack)
+;   AXI SRAM 0x24000000 512 KB  (RAM_D1, DMA-capable buffers)
+; NOTE: DTCM is NOT reachable by USB/DMA bus masters. This project runs the
+; DWC2 USB core in FIFO (slave) mode, so that is fine. DMA-capable buffers
+; may be placed in RAM_D1 via __attribute__((section(".ram_d1"))).
+
+LR_IROM1 0x08000000 0x00200000  {    ; load region size_region
+  ER_IROM1 0x08000000 0x00200000  {  ; load address = execution address
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+    .ANY (+XO)
+  }
+  RW_IRAM1 0x20000000 0x00020000  {  ; DTCM RAM (data / bss / heap / stack)
+    .ANY (+RW +ZI)
+  }
+  RW_IRAM2 0x24000000 0x00080000  {  ; AXI SRAM (RAM_D1, DMA-capable buffers)
+    .ANY (+RW +ZI)
+  }
+}

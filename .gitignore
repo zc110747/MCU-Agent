@@ -81,3 +81,8 @@ Testing/
 **/.build
 
 node_modules
+
+DebugConfig
+Listings
+Objects
+*.uvguix.*
