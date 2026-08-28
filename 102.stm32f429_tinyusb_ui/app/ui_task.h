@@ -21,9 +21,9 @@ extern "C" {
  * starving the other tasks. */
 #define LVGL_TASK_PERIOD_MS   5U
 
-/* Stack size for the UI task (words).  LVGL + the font layer + a FatFs
- * working buffer need more than the 1 KB file task; 4 KB is comfortable. */
-#define UI_TASK_STACK_WORDS   1024U
+/* Stack size for the UI task (words).  LVGL + the font layer + the SD/USB
+ * loader (HAL_SD card info, FatFs FIL objects, printf) need headroom; 6 KB. */
+#define UI_TASK_STACK_WORDS   1536U
 
 /* The UI task body.  Created by main() after vTaskStartScheduler(). */
 void ui_task(void *arg);

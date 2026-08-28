@@ -3,14 +3,24 @@
   * @file    app_ui.c
   * @brief   LVGL screen for the STM32F429 800x480 panel (minimal dark theme).
   *
-  *  The screen is laid out as THREE independent, bordered bands so the
-  *  initialization area, the runtime info panel (app_ui_create) and the
-  *  fault/message area (app_ui_show_fault) never overlap:
-  *    Band 1  系统初始化  - LCD controller ID / USB host / LVGL ready
-  *    Band 2  运行信息    - USB state, font, freq, uptime, cache (app_ui_create)
-  *    Band 3  故障/消息   - wait/error text (app_ui_show_fault), else 系统正常
-  *  The frame is built once; state changes only update label text, never
-  *  lv_obj_clean(), so the three regions stay separated.
+  *  Two kinds of screen exist and they are mutually exclusive:
+  *
+  *   1. Centered message screen (app_ui_show_centered)
+  *      A black screen with a single centered line.  Used for the boot screen
+  *      ("wait for system start...") and for the loader failure screen
+  *      ("sdcard and usb loader failed!").  Both strings are pure ASCII and are
+  *      rendered from the compiled-in ASCII tables of lv_font_gbk_*, so this
+  *      screen works with NO font file and NO filesystem at all.
+  *
+  *   2. Status panel (app_ui_create)
+  *      The three-band device status screen: 系统初始化 / 运行信息 / 故障·消息.
+  *      It contains Chinese text, so it is only reachable once the GBK font
+  *      files have been loaded from the microSD card or the U-disk.
+  *
+  *  Screen switching goes through ui_teardown(), which deletes the 1 Hz
+  *  refresh timer BEFORE clearing the screen.  Skipping that order would leave
+  *  the timer holding lv_obj_t pointers into freed objects (hard fault on the
+  *  next tick).
   ******************************************************************************
   */
 #include "app_ui.h"
@@ -19,6 +29,7 @@
 #include "bsp_lcd.h"
 #include "bsp_lcd_text.h"
 #include "usb_host_app.h"
+#include "sd_card.h"
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
 
@@ -30,7 +41,7 @@
 /* Header + 3 bands (vertical partition of the 480 px height). */
 #define HDR_H     30
 #define BAND1_Y   40
-#define BAND1_H   120
+#define BAND1_H   132
 #define BAND2_Y   172
 #define BAND2_H   180
 #define BAND3_Y   364
@@ -47,6 +58,7 @@
 
 typedef struct
 {
+    lv_obj_t *b1_sd;
     lv_obj_t *b2_usb;
     lv_obj_t *b2_font;
     lv_obj_t *b2_freq;
@@ -58,9 +70,9 @@ typedef struct
 } ui_handles_t;
 
 static ui_handles_t s_ui;
+static lv_timer_t  *s_timer = NULL;
 static uint32_t     s_uptime_sec = 0U;
 static uint8_t      s_built      = 0U;
-static uint8_t      s_timer_created = 0U;
 static uint8_t      s_refresh_req = 0U;
 
 /*----------------------------------------------------------------------------*/
@@ -115,6 +127,29 @@ static lv_obj_t *make_band(lv_obj_t *parent, lv_coord_t y, lv_coord_t h,
     return card;
 }
 
+static void ui_set_screen_bg(lv_obj_t *scr)
+{
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
+}
+
+/**
+  * @brief  Delete the refresh timer, then wipe the active screen.
+  *         Order matters (see the file header).
+  */
+static void ui_teardown(void)
+{
+    if (s_timer != NULL)
+    {
+        lv_timer_del(s_timer);
+        s_timer = NULL;
+    }
+    lv_obj_clean(lv_scr_act());
+    s_built = 0U;
+}
+
 static const char *usb_state_str(usb_state_t s)
 {
     switch (s)
@@ -140,11 +175,22 @@ static void refresh_usb(void)
 static void refresh_font(void)
 {
     uint32_t mask = lcd_driver_font_status();
+    const char *src = lcd_driver_font_source();
     const char *status;
 
     if (mask == 0U)
     {
-        status = "字库  未加载 (请在 U 盘放入 SYSTEM/FONT/GBKxx.FON)";
+        lv_label_set_text(s_ui.b2_font, "字库  未加载");
+        return;
+    }
+
+    if (src[0] == '1')
+    {
+        status = "字库  SD 卡 GBK12/16/24/32 已就绪";
+    }
+    else if (src[0] == '0')
+    {
+        status = "字库  U 盘 GBK12/16/24/32 已就绪";
     }
     else if ((mask & (FONT_MASK_GBK12 | FONT_MASK_GBK16 |
                       FONT_MASK_GBK24 | FONT_MASK_GBK32)) ==
@@ -158,6 +204,19 @@ static void refresh_font(void)
         status = "字库  部分就绪";
     }
     lv_label_set_text(s_ui.b2_font, status);
+}
+
+static void refresh_sd(void)
+{
+    if (sd_card_is_ready() != 0)
+    {
+        lv_label_set_text_fmt(s_ui.b1_sd, "SD 卡  %lu MB (SDIO 4bit)",
+                              (unsigned long)sd_card_capacity_mb());
+    }
+    else
+    {
+        lv_label_set_text(s_ui.b1_sd, "SD 卡  未检测到");
+    }
 }
 
 static void refresh_runtime(void)
@@ -202,10 +261,7 @@ static void ui_build_frame(void)
     lv_obj_t *b3;
     LCD_INFO *info;
 
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
+    ui_set_screen_bg(scr);
 
     /* Top header bar with the application title. */
     hdr = lv_obj_create(scr);
@@ -224,25 +280,26 @@ static void ui_build_frame(void)
         snprintf(buf, sizeof(buf), "LCD 控制器  ID = 0x%04X",
                  (unsigned int)((info != NULL) ? info->lcd_id : 0U));
         (void)mk_label(b1, 8, 32, &lv_font_gbk_16, COL_TXT, buf);
-        (void)mk_label(b1, 8, 64, &lv_font_gbk_16, COL_TXT, "USB 主机  已初始化");
-        (void)mk_label(b1, 8, 96, &lv_font_gbk_16, COL_DIM, "LVGL 渲染  已就绪");
+        s_ui.b1_sd = mk_label(b1, 8, 56, &lv_font_gbk_16, COL_TXT, "SD 卡  --");
+        (void)mk_label(b1, 8, 80, &lv_font_gbk_16, COL_TXT, "USB 主机  已初始化");
+        (void)mk_label(b1, 8, 104, &lv_font_gbk_16, COL_DIM, "LVGL 渲染  已就绪");
     }
 
     /* Band 2 - 运行信息 (app_ui_create content). */
     b2 = make_band(scr, BAND2_Y, BAND2_H, "运行信息");
     s_ui.b2_usb   = mk_label(b2, 8, 32,  &lv_font_gbk_16, COL_TXT, "USB 状态  --");
-    s_ui.b2_font  = mk_label(b2, 8, 64,  &lv_font_gbk_16, COL_TXT, "字库  --");
-    s_ui.b2_freq  = mk_label(b2, 8, 96,  &lv_font_gbk_16, COL_TXT, "");
+    s_ui.b2_font  = mk_label(b2, 8, 56,  &lv_font_gbk_16, COL_TXT, "字库  --");
+    s_ui.b2_freq  = mk_label(b2, 8, 80,  &lv_font_gbk_16, COL_TXT, "");
     lv_label_set_text_fmt(s_ui.b2_freq, "主频  %d MHz",
                           (int)(HAL_RCC_GetSysClockFreq() / 1000000U));
-    s_ui.b2_uptime = mk_label(b2, 8, 128, &lv_font_gbk_16, COL_TXT, "运行  00:00:00");
-    s_ui.b2_cache  = mk_label(b2, 8, 160, &lv_font_gbk_16, COL_DIM, "缓存  命中 0 / 读卡 0");
+    s_ui.b2_uptime = mk_label(b2, 8, 104, &lv_font_gbk_16, COL_TXT, "运行  00:00:00");
+    s_ui.b2_cache  = mk_label(b2, 8, 128, &lv_font_gbk_16, COL_DIM, "缓存  命中 0 / 读卡 0");
 
     /* Band 3 - 故障/消息 (app_ui_show_fault content). */
     b3 = make_band(scr, BAND3_Y, BAND3_H, "故障 / 消息");
     s_ui.b3_l1 = mk_label(b3, 8, 32, &lv_font_gbk_16, COL_TXT, "系统正常");
-    s_ui.b3_l2 = mk_label(b3, 8, 64, &lv_font_gbk_16, COL_TXT, "");
-    s_ui.b3_l3 = mk_label(b3, 8, 96, &lv_font_gbk_16, COL_TXT, "");
+    s_ui.b3_l2 = mk_label(b3, 8, 56, &lv_font_gbk_16, COL_TXT, "");
+    s_ui.b3_l3 = mk_label(b3, 8, 80, &lv_font_gbk_16, COL_TXT, "");
 
     s_built = 1U;
 }
@@ -254,6 +311,8 @@ void app_ui_create(void)
 {
     if (s_built == 0U)
     {
+        /* Clear any boot/failure screen that may still be on the display. */
+        ui_teardown();
         ui_build_frame();
     }
 
@@ -266,20 +325,36 @@ void app_ui_create(void)
     s_refresh_req = 1U;   /* re-read font status on first tick */
 
     refresh_usb();
+    refresh_sd();
     refresh_font();
     refresh_runtime();
 
-    if (s_timer_created == 0U)
+    if (s_timer == NULL)
     {
-        (void)lv_timer_create(ui_tick_cb, UI_REFRESH_MS, NULL);
-        s_timer_created = 1U;
+        s_timer = lv_timer_create(ui_tick_cb, UI_REFRESH_MS, NULL);
     }
+}
+
+void app_ui_show_centered(const char *text)
+{
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_t *lbl;
+
+    ui_teardown();
+    ui_set_screen_bg(scr);
+
+    /* ASCII-only: the glyphs come from the compiled-in ASCII tables, so this
+     * screen renders correctly with no font file and no filesystem. */
+    lbl = mk_label_center(scr, 0, &lv_font_gbk_24, COL_TXT,
+                          (text != NULL) ? text : "");
+    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
 }
 
 void app_ui_show_fault(const char *line1, const char *line2, const char *line3)
 {
     if (s_built == 0U)
     {
+        ui_teardown();
         ui_build_frame();
     }
 

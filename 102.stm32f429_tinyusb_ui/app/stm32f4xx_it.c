@@ -3,7 +3,7 @@
   * @file    stm32f4xx_it.c
   * @brief   Interrupt Service Routines.
   *          SVC/PendSV/SysTick are owned by FreeRTOS (see port.c);
-  *          the HAL 1 ms tick uses TIM11 (stm32f4xx_hal_timebase_tim.c);
+  *          the HAL 1 ms tick uses TIM7 (stm32f4xx_hal_timebase_tim.c);
   *          OTG FS IRQ drives the TinyUSB host stack.
   ******************************************************************************
   */
@@ -12,8 +12,8 @@
 #include "FreeRTOS.h"
 #include "tusb.h"
 
-/* The TIM11 time base handle is defined in stm32f4xx_hal_timebase_tim.c */
-extern TIM_HandleTypeDef htim11;
+/* The TIM7 time base handle is defined in stm32f4xx_hal_timebase_tim.c */
+extern TIM_HandleTypeDef htim7;
 
 /* FreeRTOS port exception handlers (defined in portable/GCC/ARM_CM4F/port.c) */
 extern void vPortSVCHandler(void);
@@ -56,12 +56,12 @@ void DebugMon_Handler(void)
 }
 
 /**
-  * @brief  TIM11 (mapped to TIM1_TRG_COM_TIM11_IRQn) = HAL 1 ms time base
+  * @brief  TIM7 (TIM7_IRQn = 55, dedicated vector) = HAL 1 ms time base
   *         (SysTick belongs to FreeRTOS).
   */
-void TIM1_TRG_COM_TIM11_IRQHandler(void)
+void TIM7_IRQHandler(void)
 {
-  HAL_TIM_IRQHandler(&htim11);
+  HAL_TIM_IRQHandler(&htim7);
 }
 
 /**

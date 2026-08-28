@@ -21,7 +21,6 @@
 
 #include "tusb.h"
 #include "ff.h"
-#include "diskio.h"
 
 #include "bsp_led.h"
 #include "bsp_uart.h"
@@ -31,6 +30,7 @@
 #include "semphr.h"
 
 #include "usb_host_app.h"
+#include "fs_diskio.h"
 
 /* Defined in main.c; used here so a tusb_init() failure can trap safely. */
 extern void Error_Handler(void);
@@ -59,100 +59,13 @@ volatile usb_state_t g_usb_state = USB_DISCONNECTED;
 
 static FATFS        fatfs[1];
 
-static volatile bool _disk_busy[1];
 static SemaphoreHandle_t xUsbMountSem = NULL;
 
-/* Serializes ALL FatFs access (file_task explore + ui_task font load/render)
- * so two tasks never issue MSC reads/writes on the same LUN concurrently.
- * The MSC diskio glue uses a single shared _disk_busy flag; concurrent access
- * from two tasks corrupts it (lost wakeup -> permanent spin).  This mutex is
- * taken around every FatFs entry point. */
-static SemaphoreHandle_t xFsLock = NULL;
-
-void fs_lock(void)
-{
-    if (xFsLock != NULL)
-    {
-        (void)xSemaphoreTake(xFsLock, portMAX_DELAY);
-    }
-}
-
-void fs_unlock(void)
-{
-    if (xFsLock != NULL)
-    {
-        (void)xSemaphoreGive(xFsLock);
-    }
-}
-
 /* ------------------------------------------------------------------ */
-/* FatFs <-> USB MSC diskio glue                                       */
-/* ------------------------------------------------------------------ */
-static void wait_for_disk_io(BYTE pdrv)
-{
-  while (_disk_busy[pdrv]) vTaskDelay(1);
-}
-
-static bool disk_io_complete(uint8_t dev_addr, const tuh_msc_complete_data_t *cb_data)
-{
-  (void)dev_addr; (void)cb_data;
-  _disk_busy[0] = false;
-  return true;
-}
-
-DSTATUS disk_status(BYTE pdrv)
-{
-  (void)pdrv;
-  return tuh_msc_mounted((uint8_t)(pdrv + 1)) ? 0 : STA_NODISK;
-}
-
-DSTATUS disk_initialize(BYTE pdrv)
-{
-  (void)pdrv;
-  return 0;   /* nothing to do; TinyUSB owns the transport */
-}
-
-DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
-{
-  const uint8_t dev_addr = (uint8_t)(pdrv + 1);
-  _disk_busy[pdrv] = true;
-  tuh_msc_read10(dev_addr, 0, buff, sector, (uint16_t)count, disk_io_complete, 0);
-  wait_for_disk_io(pdrv);
-  return RES_OK;
-}
-
-#if FF_FS_READONLY == 0
-DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
-{
-  const uint8_t dev_addr = (uint8_t)(pdrv + 1);
-  _disk_busy[pdrv] = true;
-  tuh_msc_write10(dev_addr, 0, buff, sector, (uint16_t)count, disk_io_complete, 0);
-  wait_for_disk_io(pdrv);
-  return RES_OK;
-}
-#endif
-
-DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
-{
-  const uint8_t dev_addr = (uint8_t)(pdrv + 1);
-  switch (cmd)
-  {
-    case CTRL_SYNC:
-      return RES_OK;
-    case GET_SECTOR_COUNT:
-      *((DWORD *)buff) = (DWORD)tuh_msc_get_block_count(dev_addr, 0);
-      return RES_OK;
-    case GET_SECTOR_SIZE:
-      *((WORD *)buff) = (WORD)tuh_msc_get_block_size(dev_addr, 0);
-      return RES_OK;
-    case GET_BLOCK_SIZE:
-      *((DWORD *)buff) = 1;
-      return RES_OK;
-    default:
-      return RES_PARERR;
-  }
-}
-
+/* NOTE: the FatFs <-> USB MSC diskio glue used to live here.  It now lives
+ * in app/fs_diskio.c together with the microSD (SDIO) transport, because
+ * FatFs exposes a single set of disk_* entry points for all volumes and they
+ * must be switched on pdrv.  fs_lock()/fs_unlock() live there too.          */
 /* ------------------------------------------------------------------ */
 /* exFAT formatting (guarded; default OFF)                             */
 /* ------------------------------------------------------------------ */
@@ -213,6 +126,20 @@ static void seed_demo_files(void)
 /* ------------------------------------------------------------------ */
 #define DISK_MAX_DEPTH       5
 #define DISK_MAX_DUMP_BYTES  2048  /* cap per-file dump to avoid flooding */
+#define DISK_DUMP_BUDGET     (16u * 1024u)
+/* Total content budget for one whole traversal.
+ *
+ * The UART TX ring is only UART_TX_BUF_SIZE (512) bytes and uart_write()
+ * silently drops bytes when it is full.  A plain dump of every file on the
+ * disk therefore does not just flood the console -- it STARVES every other
+ * log line on the system (the SD/USB loader messages included), because the
+ * dump keeps the ring permanently full for minutes.
+ *
+ * Rules that keep the log usable:
+ *   - files larger than DISK_MAX_DUMP_BYTES are listed but never dumped
+ *   - the summed content of all dumped files is capped by DISK_DUMP_BUDGET
+ * The [DIR]/[FILE] listing itself is never truncated, so scripts that check
+ * the disk structure still see everything. */
 
 static void dump_chunk(const char *buf, UINT len)
 {
@@ -232,10 +159,41 @@ static void dump_chunk(const char *buf, UINT len)
   if (j) uart_write((const uint8_t *)out, (int)j);
 }
 
+/* Running total of dumped content bytes, reset at the start of each pass. */
+static uint32_t s_dump_used;
+
 static void dump_file(const char *path, uint32_t fsize)
 {
   FIL fil;
-  FRESULT rc = f_open(&fil, path, FA_READ);
+  FRESULT rc;
+  UINT br;
+  uint32_t total;
+  bool truncated;
+  uint32_t room;
+
+  /* Never dump a large file over a 115200 console: the ring buffer would stay
+   * full for minutes and every other log line would be dropped. */
+  if (fsize > DISK_MAX_DUMP_BYTES)
+  {
+    printf("  [content skipped: %lu bytes > %u]\r\n",
+           (unsigned long)fsize, (unsigned)DISK_MAX_DUMP_BYTES);
+    return;
+  }
+
+  if (s_dump_used >= DISK_DUMP_BUDGET)
+  {
+    printf("  [content skipped: dump budget exhausted]\r\n");
+    return;
+  }
+
+  room = DISK_DUMP_BUDGET - s_dump_used;
+  if (fsize > room)
+  {
+    printf("  [content skipped: dump budget exhausted]\r\n");
+    return;
+  }
+
+  rc = f_open(&fil, path, FA_READ);
   if (rc != FR_OK)
   {
     printf("  [open failed rc=%d]\r\n", rc);
@@ -243,9 +201,8 @@ static void dump_file(const char *path, uint32_t fsize)
   }
   printf("  === content (%lu bytes) ===\r\n", (unsigned long)fsize);
   char buf[64];
-  UINT br;
-  uint32_t total = 0;
-  bool truncated = false;
+  total = 0;
+  truncated = false;
   while ((rc = f_read(&fil, buf, sizeof(buf), &br)) == FR_OK && br > 0)
   {
     if (total + br > DISK_MAX_DUMP_BYTES)
@@ -263,6 +220,7 @@ static void dump_file(const char *path, uint32_t fsize)
   f_close(&fil);
   if (truncated) printf("\r\n  [truncated at %u bytes]\r\n", DISK_MAX_DUMP_BYTES);
   printf("  === end ===\r\n");
+  s_dump_used += total;
 }
 
 /* ------------------------------------------------------------------ */
@@ -332,6 +290,7 @@ static void usb_disk_explore(void)
 #endif
 
   printf("========== USB DISK CONTENTS ==========\r\n");
+  s_dump_used = 0;
   explore_dir("0:/", 0, &nfiles, &ndirs);
   printf("========== END (dirs=%lu files=%lu) ==========\r\n",
          (unsigned long)ndirs, (unsigned long)nfiles);
@@ -428,12 +387,8 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 /* ------------------------------------------------------------------ */
 bool usbh_app_init(void)
 {
-  _disk_busy[0] = false;
   xUsbMountSem = xSemaphoreCreateBinary();
   if (xUsbMountSem == NULL) return false;
-
-  xFsLock = xSemaphoreCreateMutex();
-  if (xFsLock == NULL) return false;
 
   if (xTaskCreate(file_task, "file", 2048, NULL,
                  tskIDLE_PRIORITY + 2, NULL) != pdPASS)

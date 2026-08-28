@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "fs_diskio.h"
 
 /* USB disk status state machine (LED1 reflects this). */
 typedef enum
@@ -17,12 +18,9 @@ typedef enum
 
 extern volatile usb_state_t g_usb_state;
 
-/* FatFs access serialization lock.  ALL FatFs entry points (file_task's
- * explore AND the UI font task's open/glyph-read) must be wrapped with these,
- * otherwise concurrent access from two tasks corrupts the shared MSC
- * _disk_busy flag and deadlocks the disk I/O.  Defined in usb_host_app.c. */
-void fs_lock(void);
-void fs_unlock(void);
+/* FatFs access serialization lock (fs_lock/fs_unlock) is declared in
+ * fs_diskio.h and defined in fs_diskio.c, which owns the combined
+ * USB-MSC + microSD diskio glue. */
 
 /* Called from main() BEFORE vTaskStartScheduler: creates the file task and
  * prepares the USB Host state.  tusb_init() itself is done in main() so the

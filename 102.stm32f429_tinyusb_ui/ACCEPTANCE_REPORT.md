@@ -1,12 +1,13 @@
 # 验收报告 — STM32F429IGT6 USB FS Host (U盘) + FatFs exFAT + FreeRTOS
 
 **项目**：`102.stm32f429_tinyusb_ui`
-**日期**：2026-08-26
+**日期**：2026-08-26（第一版） / **2026-08-28（第二版：TIM7 + microSD + 启动加载器）**
 **工具链**：arm-none-eabi-gcc 15.3.1 / CMake 4.2.1 / Ninja 1.13.2
 **验收方法**：依据 `stm32-verification-acceptance` skill —— 编译验证（Compile-Verified）
 与硬件验证（Hardware-Verified）**明确区分标注**。exFAT 几何（128 KB 对齐/簇）由 **PC 端等价
 代码验证**（无真实 U 盘格式化介质）；而 **U 盘枚举 / test.txt 端到端读写 / SDRAM 堆运行态** 已于
 2026-08-26 通过 **OpenOCD + STLink 真机烧录 + COM5(USART3) 串口** 完成硬件验证（详见 §4.3 / §6）。
+**第二版全部条目同样为真机验证**（2026-08-28，OpenOCD + STLink + COM5），见 **§1.1 / §6.1**。
 
 ---
 
@@ -20,7 +21,7 @@
 | 4 | 分配单元（簇）= 128 KB | Compile-Verified (PC 等价代码) | ✅ PASS |
 | 5 | TinyUSB USB FS Host 集成编译贯通 | Compile-Verified | ✅ PASS |
 | 6 | SDRAM 先于 FreeRTOS 堆初始化的顺序约束 | Code-Review | ✅ PASS |
-| 7 | HAL 时基 TIM11 与 SysTick 独立 | Code-Review | ✅ PASS |
+| 7 | HAL 时基 **TIM7** 与 SysTick 独立 | **Hardware-Verified** | ✅ PASS（真机 2026-08-28） |
 | 8 | USART3 (PB10/PB11) 调试输出路径 | Hardware-Verified | ✅ PASS |
 | 9 | LED0(PB1) 心跳 / LED1(PB0) USB 状态 | Code-Review | ✅ PASS |
 | 10 | BEEP(PCF8574 P0) / ETH 复位(PCF8574 P7) | Code-Review | ✅ PASS |
@@ -29,10 +30,24 @@
 | 13 | **SDRAM/FMC 运行时时序与稳定性** | **Hardware-Verified** | ✅ **PASS（真机 2026-08-26）** |
 | 14 | **USB 初始化时序（OS 启动后，避免 ISR FromISR queue 破坏 RTOS）** | **Hardware-Verified** | ✅ **PASS（真机 2026-08-26）** |
 
+### 1.1 第二版增量（2026-08-28）：TIM7 + microSD + 启动加载器
+
+| # | 验收项 | 标签 | 结果 |
+|---|--------|------|------|
+| 15 | **HAL 时基 TIM11 → TIM7**（独立向量 `TIM7_IRQn=55`，APB1 84 MHz 定时器时钟） | **Hardware-Verified** | ✅ PASS |
+| 16 | **microSD（SDIO 4-bit，PC8-12 + PD2）驱动**，无卡时优雅降级不卡死 | **Hardware-Verified** | ✅ PASS |
+| 17 | **FatFs 双卷**：`0:`=USB MSC，`1:`=microSD（`FF_VOLUMES=2` + 统一 diskio 胶水） | **Hardware-Verified** | ✅ PASS |
+| 18 | **启动页纯 ASCII**（走编译期字表，零文件依赖）显示 `wait for system start...` | **Hardware-Verified** | ✅ PASS |
+| 19 | **加载器优先序：先 SD，SD 不可用才等 USB** | **Hardware-Verified** | ✅ PASS |
+| 20 | **10 s 超时居中显示 `sdcard and usb loader failed!`**（只触发一次） | **Hardware-Verified** | ✅ PASS |
+| 21 | **主界面设备状态面板**（SD 卡/USB/字库/主频/运行时间/缓存；CJK 从字库渲染） | **Hardware-Verified** | ✅ PASS |
+| 22 | `verify_boot_flow.py` 自动化验收 | **Hardware-Verified** | ✅ **PASS 17/17** |
+
 > 标签含义：
 > - **Compile-Verified**：在目标工具链下成功编译/链接（零警告），逻辑经审查或等价 PC 程序验证。
 > - **Code-Review**：通过源码静态审查确认设计/接线/顺序正确。
-> - **Hardware-Verified**：需在真实 STM32F429 + U 盘上烧录运行确认（本环境无法执行）。
+> - **Hardware-Verified**：在真实 STM32F429IGT6 上用 **OpenOCD + STLink 烧录**、
+>   **COM5 (USART3) 抓串口**确认（2026-08-26 与 2026-08-28 两轮均已执行）。
 
 ---
 
@@ -239,6 +254,70 @@ openocd -s %OPENOCD_SCRIPTS% -f openocd/stm32f429_stlink.cfg \
 
 ---
 
+## 6.1 第二版真机验证证据（COM5，2026-08-28）
+
+**方法**：OpenOCD 0.12.0 + STLink（SWD）烧录 `.elf`（`flash write_image erase` + `verify_image`
++ `reset run`），COM5（USART3 PB10/PB11，115200 8N1）从 t=0 抓串口，脚本化 pass/fail 计数。
+**注意：烧录必须用 `.elf`**，用 `.bin` 会报 `no flash bank found for address 0x00000000`。
+
+### 6.1.1 路径 A：microSD 未插卡 + U 盘带字库 → 回退到 USB 并进入主界面
+
+```
+System Init
+I2C / PCF8574 init OK
+SDRAM Init OK
+FreeRTOS Heap configured (SDRAM @0xC0000000)
+Waiting for USB disk...
+USB Host Init                                 ← 仍在调度器之后初始化
+[UI  ] starting LCD + LVGL bring-up
+[LCD ] controller ID = 0x8000
+[LCD ] active GRAM window 480x800 (panel spec 800x480)
+[UI  ] boot screen: wait for system start...   ← ASCII 启动页，零文件依赖
+[SD  ] SDIO init FAILED (no card?)             ← 先探 SD（优先序成立）
+USB Disk Connected (MSC ready)
+USB Disk Mounted
+[FONT] trying USB 0:/SYSTEM/FONT/              ← 回退 USB
+[FONT] source=0: mask=0x1F                     ← UNIGBK + GBK12/16/24/32 全开
+[UI  ] main screen (fonts from 0:)             ← 进入主界面
+[UI  ] glyph cache: hits=... misses=45         ← CJK 字形确实从 GBKxx.FON 读出
+```
+
+`verify_boot_flow.py` 结果：**17 passed, 0 failed → VERDICT: PASS**。
+
+### 6.1.2 路径 B：两端都无介质 → 10 s 超时失败页
+
+板上 U 盘无法远程拔掉，故用编译开关临时关闭 USB 回退来复现「两端都无介质」：
+
+```bash
+cmake -S . -B build_to -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_FLAGS="-DLOADER_ENABLE_USB_FALLBACK=0"
+cmake --build build_to
+SERIAL_PORT=COM5 FIRMWARE=build_to/stm32f429_tinyusb_ui.elf \
+      python tools/verify_serial/verify_boot_flow.py
+```
+
+```
+[UI  ] boot screen: wait for system start...
+[SD  ] SDIO init FAILED (no card?)
+USB Disk Connected (MSC ready)      ← USB 枚举照常，只是不再作为字库来源
+USB Disk Mounted
+...
+[UI  ] timeout: sdcard and usb loader failed!   ← 第 10 s，且只打印一次
+```
+
+结果：**15 passed, 0 failed → VERDICT: PASS**。验证完毕后已重新烧录正式固件
+（`build_rel/stm32f429_tinyusb_ui.elf`，USB 回退开启）。
+
+### 6.1.3 本轮修复的三个缺陷（均已真机复测）
+
+| 缺陷 | 根因 | 修复 | 复测 |
+|------|------|------|------|
+| 新增日志时有时无、已有日志缺字节 | `uart_write()` 环形缓冲满即静默丢弃；`UART_TX_BUF_SIZE` 仅 512 B，而 `file_task` 全量 dump 3 MB 字库/JPG 长期占满缓冲 | 缓冲扩到 2048 B；dump 加两道闸（>2048 B 文件只列不 dump；整轮预算 16 KB） | 日志完整，25 s 抓包量从 8469 B 降到 2287 B 且无缺失 |
+| `[SD  ] SDIO init FAILED` 每 500 ms 刷屏 | 探测失败后未静音 | `sd_card_set_quiet()`；10 s 后探测降频到 3 s | 只打印 1 次 |
+| `[UI  ] timeout: ...` 每 5 ms 重复打印 | deadline 分支写成 `s_state != LOAD_OK`，`LOAD_FAILED` 同样满足 | 改为 `s_state == LOAD_BOOT` | 只打印 1 次 |
+
+---
+
 ## 7. 交付清单
 
 - [x] 双构建（Debug/Release）零警告，生成 `.elf/.hex/.bin/.map`
@@ -253,6 +332,19 @@ openocd -s %OPENOCD_SCRIPTS% -f openocd/stm32f429_stlink.cfg \
 - [x] **U 盘端到端真机验证**（2026-08-26 COM5 串口实测：枚举→挂载→test.txt 读写回显全链路 PASS）
 - [x] **SDRAM/FMC 真机时序验证**（2026-08-26：堆落 0xC0000000 运行态证实，稳定）
 - [x] **USB 初始化时序修正**并真机验证（OS 启动后初始化，消除 ISR FromISR queue 破坏 RTOS）
+
+**第二版增量（2026-08-28）**
+
+- [x] HAL 时基 **TIM11 → TIM7**（`TIM7_IRQn=55` 独立向量；`stm32f4xx_it.c` 换 `TIM7_IRQHandler`）
+- [x] FreeRTOS 堆继续落在 **SDRAM**（heap_5 单区 512 KB @0xC0000000，本版未变动，已核对）
+- [x] LVGL 继续作为**独立任务**运行，draw buffer 与 `LV_MEM_ADR`(0xC0100000/256 KB) 均在 **SDRAM**
+- [x] **microSD SDIO 4-bit 驱动**（`bsp/bsp_sdio.c`，PC8-12 + PD2，轮询无 DMA，卡时钟 12 MHz）
+- [x] **FatFs 双卷**（`FF_VOLUMES=2`）+ 统一 diskio 胶水（`app/fs_diskio.c`）+ `fs_lock` 串行化
+- [x] **启动加载器**：ASCII 启动页 → 先 SD → 失败等 USB → 主界面 / 10 s 超时失败页
+- [x] 主界面新增 **SD 卡状态行**与**字库来源行**
+- [x] `tools/verify_serial/verify_boot_flow.py`（17 项 pass/fail）+ `capture_reset.py` 调试助手
+- [x] 修复 UART 环形缓冲丢日志 / SD 空卡槽刷屏 / 超时页重复触发 三个缺陷
+- [x] README.md + 本报告同步更新
 
 ---
 

@@ -17,15 +17,10 @@
   */
 #include "bsp_lcd_text.h"
 #include "ff.h"
+#include "fs_diskio.h"
 #include <stddef.h>
 #include <string.h>
-
-/* FatFs serialization lock (defined in usb_host_app.c).  The U-disk is mounted
- * by the USB host file task; opening font files / reading glyphs here runs in
- * the UI task and MUST be serialized against that task's filesystem activity
- * or the shared MSC disk-IO flag deadlocks. */
-extern void fs_lock(void);
-extern void fs_unlock(void);
+#include <stdio.h>
 
 #define FONT_NUMS       5
 #define FONT_MAX_BYTES  192     /* 32x32 needs 128, leave headroom */
@@ -47,45 +42,92 @@ typedef struct
 
 static LCD_FS_INFO g_lcd_fs_info;
 
+/* File basenames, appended to whichever volume the loader picked
+ * ("1:" = microSD, "0:" = USB MSC). */
 static const char *font_name[FONT_NUMS] = {
-    "0:/SYSTEM/FONT/UNIGBK.BIN",
-    "0:/SYSTEM/FONT/GBK12.FON",
-    "0:/SYSTEM/FONT/GBK16.FON",
-    "0:/SYSTEM/FONT/GBK24.FON",
-    "0:/SYSTEM/FONT/GBK32.FON",
+    "/SYSTEM/FONT/UNIGBK.BIN",
+    "/SYSTEM/FONT/GBK12.FON",
+    "/SYSTEM/FONT/GBK16.FON",
+    "/SYSTEM/FONT/GBK24.FON",
+    "/SYSTEM/FONT/GBK32.FON",
 };
+
+/* Which volume the currently open fonts came from ("0:"/"1:"/""). */
+static char s_font_volume[4];
 
 /* Scratch buffer for the raw (unconverted) glyph */
 static uint8_t read_buffer[FONT_MAX_BYTES];
 
-/**
-  * @brief  Mount volume 1 (SD) and open every font file we know about.
-  * @retval RT_OK if at least one GBKxx.FON is available.
-  */
-GlobalType_t lcd_driver_font_init(void)
+const char *lcd_driver_font_source(void)
 {
-    FRESULT res;
+    return s_font_volume;
+}
+
+/**
+  * @brief  Close any previously opened font files before (re)opening them on
+  *         another volume.  Without this a volume switch would leak the old
+  *         FIL objects.
+  */
+static void font_close_all(void)
+{
     uint8_t index;
 
-    memset(&g_lcd_fs_info, 0, sizeof(g_lcd_fs_info));
-
-    /* Volume 0: is mounted by the USB host file task (usb_host_app.c) before
-     * g_usb_state becomes USB_MOUNTED, so we must NOT call f_mount() again here:
-     * a second mount would reassign the drive's FATFS work area while that task
-     * may still be using it, and concurrent FatFs access from two tasks corrupts
-     * the single _disk_busy flag in the MSC diskio glue -> deadlock.  We only
-     * open the font files, serialized by the shared FS lock. */
     fs_lock();
     for (index = 0; index < FONT_NUMS; index++)
     {
-        res = f_open(&g_lcd_fs_info.fil_list[index], font_name[index], FA_READ);
+        if (g_lcd_fs_info.fil_valid[index] != 0u)
+        {
+            (void)f_close(&g_lcd_fs_info.fil_list[index]);
+        }
+    }
+    fs_unlock();
+
+    memset(&g_lcd_fs_info, 0, sizeof(g_lcd_fs_info));
+}
+
+/**
+  * @brief  Open every font file we know about on the given volume.
+  *
+  * @param  vol  FatFs volume prefix, either FS_VOL_SD ("1:") or
+  *              FS_VOL_USB ("0:").  The volume must already be mounted by its
+  *              owner (app/sd_card.c for the card, usb_host_app.c for the
+  *              U-disk): calling f_mount() here would reassign the drive's
+  *              FATFS work area while the owner may still be using it.
+  *
+  * @retval RT_OK if at least one GBKxx.FON is available.
+  */
+GlobalType_t lcd_driver_font_init(const char *vol)
+{
+    FRESULT res;
+    uint8_t index;
+    char    path[48];
+
+    if (vol == NULL)
+    {
+        return RT_FAIL;
+    }
+
+    font_close_all();
+
+    s_font_volume[0] = '\0';
+
+    /* The volume is already mounted by its owner, so we only open files here,
+     * serialized by the shared FS lock. */
+    fs_lock();
+    for (index = 0; index < FONT_NUMS; index++)
+    {
+        (void)snprintf(path, sizeof(path), "%s%s", vol, font_name[index]);
+        res = f_open(&g_lcd_fs_info.fil_list[index], path, FA_READ);
         if (res == FR_OK)
         {
             g_lcd_fs_info.fil_valid[index] = 1;
         }
+        else
+        {
+            printf("[FONT] open %s failed rc=%d\r\n", path, (int)res);
+        }
     }
     fs_unlock();
-    g_lcd_fs_info.mounted = 1U;
 
     /* UNIGBK.BIN alone is useless - we need at least one glyph file */
     if (g_lcd_fs_info.fil_valid[FONT_IDX_GBK12] ||
@@ -93,6 +135,8 @@ GlobalType_t lcd_driver_font_init(void)
         g_lcd_fs_info.fil_valid[FONT_IDX_GBK24] ||
         g_lcd_fs_info.fil_valid[FONT_IDX_GBK32])
     {
+        g_lcd_fs_info.mounted = 1U;
+        (void)snprintf(s_font_volume, sizeof(s_font_volume), "%s", vol);
         return RT_OK;
     }
 

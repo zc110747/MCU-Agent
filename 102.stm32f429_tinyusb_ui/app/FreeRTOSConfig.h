@@ -9,10 +9,12 @@
  *    (vPortDefineHeapRegions() is called AFTER bsp_sdram_init() and BEFORE any
  *    xTaskCreate / pvPortMalloc).  This honors the hard ordering constraint:
  *    "no FreeRTOS object may be created before SDRAM is up".
- *  - SysTick is owned by FreeRTOS; the HAL 1 ms time base is moved to TIM11
+ *  - SysTick is owned by FreeRTOS; the HAL 1 ms time base is moved to TIM7
  *    (stm32f4xx_hal_timebase_tim.c).  The two tick sources are independent:
- *       HAL Tick  = TIM11  (HAL_Delay / HAL_GetTick / timeouts)
+ *       HAL Tick  = TIM7   (HAL_Delay / HAL_GetTick / SDIO + peripheral timeouts)
  *       RTOS Tick = SysTick (FreeRTOS scheduler)
+ *    TIM7 is used because it owns a dedicated vector on the F4 (TIM7_IRQn=55);
+ *    TIM11 shares its IRQ line with TIM1 TRG/COM and is now left free.
  *  - Interrupt priorities: 4 bits, kernel runs at 15.  ISR-safe API allowed at
  *    priority >= 5.  The USB OTG_FS IRQ (TinyUSB uses FromISR internally) and
  *    the UART IRQ are both set to priority 5 so they may use the FromISR API.

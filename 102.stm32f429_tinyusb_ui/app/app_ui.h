@@ -19,6 +19,10 @@ extern "C" {
 /* Build the normal status screen. */
 void app_ui_create(void);
 
+/* Wipe the screen and show a single centered line.  Keep the text pure ASCII:
+ * this is the screen that must render before any font file is available. */
+void app_ui_show_centered(const char *text);
+
 /* Build the "USB / font error" fallback screen (ASCII only). */
 void app_ui_show_fault(const char *line1, const char *line2, const char *line3);
 

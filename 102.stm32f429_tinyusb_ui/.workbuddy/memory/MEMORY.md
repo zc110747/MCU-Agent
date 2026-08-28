@@ -4,7 +4,13 @@
 - MCU: STM32F429IGT6, HSE 25MHz, 内部 SRAM 256KB / SDRAM(W9825G6KH-6 32MB) 经 FMC.
 - 调试串口: **USART3 (PB10/PB11) @ 115200 8N1**, 本机枚举为 **COM5** (用户确认 COM5 即通讯串口).
 - 烧录: OpenOCD + ST-Link; openocd 在 `D:/software/ST/OpenOCD/bin/openocd.exe`, scripts 在 `D:/software/ST/OpenOCD/share/openocd/scripts`; cfg=`interface/stlink.cfg`+`target/stm32f4x.cfg`.
-- USB: TinyUSB Host (U 盘 MSC), FatFs 挂 `0:`; 字库在 `0:/SYSTEM/FONT/` (GBK12/16/24/32.FON + UNIGBK.BIN).
+- USB: TinyUSB Host (U 盘 MSC), FatFs 卷 **`0:`**; 字库在 `0:/SYSTEM/FONT/` (GBK12/16/24/32.FON + UNIGBK.BIN).
+- microSD: **SDIO 4-bit**, PC8=D0 PC9=D1 PC10=D2 PC11=D3 PC12=CK PD2=CMD (AF12, 上拉), FatFs 卷 **`1:`**,
+  `FF_VOLUMES=2`; SDIOCLK=48MHz(PLLQ=7, 与 USB 同源), ClockDiv=2 → 卡时钟 12MHz, **轮询不接 DMA**.
+  这些引脚与 FMC 不冲突（FMC 只占 PC0/2/3 与 PD0/1/8/9/10/14/15）。
+- **HAL 时基 = TIM7** (`TIM7_IRQn=55`, 独立向量; 已弃用 TIM11/TIM1_TRG_COM)。FreeRTOS 用 SysTick。
+- 启动加载器: ASCII 启动页 `wait for system start...` → 先试 SD(1:) → 失败等 USB(0:) → 字库就绪进
+  主界面 / **10s 超时** 居中 `sdcard and usb loader failed!`（超时后仍 3s 静默探测，热插拔可恢复）。
 - LCD: **800x480** 正点原子, FMC Bank1 NE1 8080 16-bit (RS=A18, LCD_BASE=0x60000000|0x0007FFFE); 控制器 NT35510(0x8000)/ILI9806E 回退.
 - **`lcd_scan_dir` 的宽高交换逻辑是 正点原子 原版、正确，切勿改反/删除**: `DFT_SCAN_DIR=L2R_U2D`(MV=0) 下, 因 `lcd_width(800)>lcd_height(480)` 触发交换 → **有效 GRAM 窗口 480x800**, 这正是 NT35510 模块铺满物理 800x480 屏所需的窗口. 屏幕尺寸只由 `LCD_WIDTH/LCD_HEIGHT`(`bsp/bsp_lcd.h`) 与 `UI_W/UI_H`(`app/app_ui.c`) 决定; 改尺寸时只动这两个宏, 不要动交换逻辑.
 
@@ -20,3 +26,13 @@
 - LCD 地址窗口必须用 MIPI-DCS 时序: 命令写一次 + 跟 4 数据字节; 不可把 0x2A/0x2B/0x2C 当连续寄存器拆写 (否则渲染带写到错乱 GRAM → 文字重叠)。
 - 本机 COM5 曾出现驱动 code-31 (设备未发挥作用); 用户侧已恢复, 视作可用.
 - **OpenOCD 烧录必须用 `.elf`**(自带加载段), 用 `.bin` 会报 `no flash bank found for address 0x00000000` 且 `wrote 0 bytes`. 命令: `flash write_image erase build/stm32f429_tinyusb_ui.elf` + `verify_image` + `reset run`. (注意 Git-Bash 里 cd 路径必须用正斜杠, 反斜杠会吞掉目录分隔.)
+- **UART TX 环形缓冲满会静默丢字节**: `bsp_uart.c` 的 `uart_write()` 满即 `break`。`UART_TX_BUF_SIZE`
+  已从 512 提到 **2048**, 但任何大批量打印仍会丢其它任务的日志。新增批量输出时务必限流
+  (`usb_host_app.c` 的 dump 已加: >2048B 文件只列目录项、整轮预算 16KB)。
+- **LVGL 切画面必须先删定时器再清屏**: `app_ui.c` 的 `ui_teardown()` 先 `lv_timer_del(s_timer)`
+  再 `lv_obj_clean(lv_scr_act())`; 顺序反了定时器会持有已释放 `lv_obj_t*` → 下一 tick 硬 fault。
+- **状态机守卫别写 `!= 目标态`**: 超时分支曾写成 `s_state != LOAD_OK`, 而 `LOAD_FAILED` 也满足该式
+  → 每 5ms 重复触发。应写成 `s_state == LOAD_BOOT`。
+- **SDIO 目标缓冲必须 4 字节对齐**: HAL 内以 `uint32_t*` 读 SDIO FIFO; `fs_diskio.c` 对未对齐地址
+  统一经 `s_sd_scratch[512]` 中转, 勿删。
+- 改完代码后**先烧录再抓串口**: `tools/verify_serial/capture_reset.py` 只复位不烧录, 否则看到的是旧固件行为。

@@ -5,18 +5,21 @@
   *
   *   - USB OTG FS Host reads a U-disk (MSC -> SCSI -> FatFs)
   *   - exFAT supported by ChaN FatFs R0.15 (FF_FS_EXFAT=1) -- real, not faked
-  *   - FreeRTOS heap (heap_5, single region) lives in external SDRAM
-  *   - HAL 1 ms time base on TIM11 (SysTick belongs to FreeRTOS)
-  *   - USART3 (PB10/PB11) debug console
-  *
+ *   - FreeRTOS heap (heap_5, single region) lives in external SDRAM
+ *   - HAL 1 ms time base on TIM7 (SysTick belongs to FreeRTOS)
+ *   - microSD over SDIO (4-bit, polled) mounted as FatFs volume "1:"
+ *   - USB MSC U-disk mounted as FatFs volume "0:" (fallback font source)
+ *   - USART3 (PB10/PB11) debug console
+ *
  *   INIT ORDER (hard constraints):
  *     - SDRAM + FreeRTOS heap MUST exist before any FreeRTOS object
  *     - USB HW + stack init MUST run AFTER vTaskStartScheduler (inside
  *       usbh_host_task); the OTG FS ISR uses FreeRTOS FromISR queue calls
  *       that are only valid once the scheduler is running
- *     HAL_Init -> TIM11 tick -> SystemClock(168MHz/48MHz USB)
+ *     HAL_Init -> TIM7 tick -> SystemClock(168MHz/48MHz USB)
  *     -> GPIO/LED -> UART -> I2C -> PCF8574 -> SDRAM init+test
- *     -> vPortDefineHeapRegions(SDRAM) -> usbh_app_init(sem + file_task)
+ *     -> vPortDefineHeapRegions(SDRAM) -> fs_diskio_init(mutex)
+ *     -> usbh_app_init(sem + file_task)
  *     -> create tasks -> vTaskStartScheduler
  *     (then) usbh_host_task: USBH_HW_Init + tusb_init -> tuh_task loop
  ******************************************************************************
@@ -33,6 +36,7 @@
 #include "bsp_pcf8574.h"
 #include "bsp_sdram.h"
 #include "usb_host_app.h"
+#include "fs_diskio.h"
 #include "ui_task.h"
 
 /* Single SDRAM heap region, defined in sdram_heap.c. */
@@ -74,7 +78,7 @@ static void led_task(void *arg)
 
 int main(void)
 {
-  /* Reset peripherals, Flash interface, and the TIM11 HAL tick. */
+  /* Reset peripherals, Flash interface, and the TIM7 HAL tick. */
   HAL_Init();
 
   /* SYSCLK=168 MHz, HSE=25 MHz, PLLQ=7 -> 48 MHz USB (must be exact). */
@@ -114,6 +118,14 @@ int main(void)
   vPortDefineHeapRegions(xHeapRegions);
   printf("FreeRTOS Heap configured (SDRAM @0xC0000000)\r\n");
 
+  /* FatFs serialization mutex (shared by the USB MSC and microSD transports).
+   * Must exist before any task touches a filesystem. */
+  if (!fs_diskio_init())
+  {
+    printf("fs_diskio_init FAILED\r\n");
+    Error_Handler();
+  }
+
   /* ---- USB FS Host: hardware + stack init is DEFERRED to usbh_host_task,
    *      which only runs after vTaskStartScheduler().  Reason: tusb_init()
    *      enables the OTG FS interrupt, and its ISR uses FreeRTOS FromISR
@@ -136,7 +148,7 @@ int main(void)
              tskIDLE_PRIORITY + 2, NULL);
 
   /* FreeRTOS V11 quirk: vPortEnterCritical (inside xTaskCreate before the
-   * scheduler runs) leaves BASEPRI set; clear it so the TIM11 IRQ and
+   * scheduler runs) leaves BASEPRI set; clear it so the TIM7 IRQ and
    * HAL_Delay work after this point. */
   __set_BASEPRI(0);
   __enable_irq();

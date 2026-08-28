@@ -1,8 +1,10 @@
 /**
   ******************************************************************************
-  * @file    drv_oled_text.h
-  * @brief   GBK Chinese font access: reads the glyph bitmaps straight off the
-  *          SD card (1:/SYSTEM/FONT/) instead of burning flash on a font table.
+ * @file    drv_oled_text.h
+ * @brief   GBK Chinese font access: reads the glyph bitmaps straight off a
+ *          removable volume (<vol>/SYSTEM/FONT/) instead of burning flash on a
+ *          font table.  <vol> is "1:" (microSD) or "0:" (USB MSC); the boot
+ *          loader tries the card first and falls back to USB.
   ******************************************************************************
   */
 #ifndef _BSP_LCD_TEXT_H
@@ -43,10 +45,21 @@ extern pFONT CH_TEXT_Font32;
 #define FONT_MASK_GBK32     (1U << 4)
 
 /**
-  * @brief  Mount the SD card and open the font files.
+  * @brief  Open the font files on the given (already mounted) volume.
+  *
+  * @param  vol  FatFs volume prefix: "1:" for the microSD card, "0:" for the
+  *              USB mass-storage device.  The volume must be mounted by its
+  *              owner first; this function never calls f_mount().
+  *
   * @retval RT_OK when at least one GBKxx.FON could be opened.
   */
-GlobalType_t lcd_driver_font_init(void);
+GlobalType_t lcd_driver_font_init(const char *vol);
+
+/**
+  * @brief  Which volume the currently open fonts were loaded from
+  *         ("1:" = microSD, "0:" = USB, "" = none).
+  */
+const char *lcd_driver_font_source(void);
 
 /**
   * @brief  Which font files are currently usable (FONT_MASK_* bit field).

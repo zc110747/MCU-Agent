@@ -27,7 +27,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MCU_FLAGS} -Wall -Wextra -Wno-unused-param
 
 set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${MCU_FLAGS} -x assembler-with-cpp -g -Og")
 
-set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/ldscript/STM32F429IGTx_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/sys_startup/STM32F429IGTx_FLASH.ld)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${LINKER_SCRIPT} -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map -Wl,--gc-sections -Wl,--no-warn-rwx-segments -Wl,--print-memory-usage -specs=nano.specs -lc -lm -lgcc")
 
 # ------------------------------------------------------------------
@@ -67,6 +67,7 @@ file(GLOB BSP_SOURCES
   bsp/bsp_i2c.c
   bsp/bsp_pcf8574.c
   bsp/bsp_sdram.c
+  bsp/bsp_sdio.c
   bsp/bsp_usb_hw.c
   # LCD (FMC 8080 16-bit) + GBK font stack + LVGL display port
   bsp/bsp_lcd.c
@@ -101,6 +102,10 @@ set(HAL_SOURCES
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sdram.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sram.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_fmc.c
+  # microSD over SDIO (4-bit, polled): needs the HAL SD driver plus the
+  # low-level SDMMC command/data engine
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c
 )
 
 # FreeRTOS V11 kernel (native API): core + ARM_CM4F port + heap_5 (SDRAM).
