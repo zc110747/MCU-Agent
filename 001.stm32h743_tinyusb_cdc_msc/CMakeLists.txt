@@ -27,7 +27,7 @@ set(TINYUSB_DIR  ${THIRD_PARTY}/tinyusb)
 set(DRIVERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers)
 set(HAL_DIR      ${DRIVERS_DIR}/STM32H7xx_HAL_Driver)
 set(CMSIS_CORE   ${DRIVERS_DIR}/CMSIS/Core/Include)
-set(CMSIS_DEVICE ${DRIVERS_DIR}/CMSIS/Device/ST/STM32H7xx)
+set(CMSIS_DEVICE sys_startup)
 
 foreach(_d ${TINYUSB_DIR} ${CMSIS_CORE} ${CMSIS_DEVICE} ${HAL_DIR})
   if(NOT EXISTS ${_d})
@@ -50,8 +50,8 @@ set(APP_SOURCES
   src/msc_disk.c
   src/sd_app.c
   src/disk_interface.c
-  ${CMSIS_DEVICE}/Source/Templates/system_stm32h7xx.c
-  ${CMSIS_DEVICE}/Source/Templates/gcc/startup_stm32h743xx.s
+  ${CMSIS_DEVICE}/system_stm32h7xx.c
+  ${CMSIS_DEVICE}/gcc/startup_stm32h743xx.s
 )
 
 # Only the HAL modules we actually need (unused code is GC'd anyway).
@@ -84,7 +84,7 @@ add_executable(${TARGET} ${APP_SOURCES} ${HAL_SOURCES} ${TINYUSB_SOURCES} ${FATF
 target_include_directories(${TARGET} PRIVATE
   src
   ${CMSIS_CORE}
-  ${CMSIS_DEVICE}/Include
+  ${CMSIS_DEVICE}
   ${HAL_DIR}/Inc
   ${TINYUSB_DIR}/src
   ${THIRD_PARTY}/FatFs
@@ -117,7 +117,7 @@ target_compile_options(${TARGET} PRIVATE
 set_source_files_properties(${TINYUSB_SOURCES} ${HAL_SOURCES} ${FATFS_SOURCES}
   PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
 
-set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/ldscript/stm32h743zi_flash.ld)
+set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/stm32h743zi_flash.ld)
 
 target_link_options(${TARGET} PRIVATE
   -T${LINKER_SCRIPT}
