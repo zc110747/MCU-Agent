@@ -16,6 +16,10 @@
 | 蜂鸣器 | I2C 扩展 | PCF8574 P0 | 低电平响（已与用户确认） |
 | I2C 总线 | I2C2 | PH4 (SCL) / PH5 (SDA) | 100 kHz 标准模式，开漏上拉 |
 | I2C 从设备 | — | PCF8574 / AP3216C / MPU9250 / EEPROM | 经 I2C2 挂载 |
+| 电容触摸屏 | 软件 I2C（位绑定） | T_SCK = PH6 (SCL) / T_MOSI = PI3 (SDA) | **GT9147/GT911 只有 I2C 接口**，详见 §3.2.3 |
+| 触摸复位 | GPIO | T_CS = PI8（→ CT_RST） | 推挽输出 |
+| 触摸中断 | EXTI line 7 | T_PEN = PH7（→ CT_INT） | 下降沿，NVIC 优先级 6 |
+| 触摸未用脚 | — | T_MISO = PG3 | 电容屏不使用 |
 | 网络 PHY | ETH | LAN8720A (RMII) | 复位由 PCF8574 P7 控制 |
 | 外部 SDRAM | FMC Bank1 | W9825G6KH-6 (32 MB) | 作为 FreeRTOS 堆；FMC 时钟 = 168/2 = 84 MHz |
 | microSD 卡 | SDIO | PC8=D0 PC9=D1 PC10=D2 PC11=D3 PC12=CK PD2=CMD | AF12，4-bit 宽总线，轮询模式（不接 DMA），FatFs 卷 `1:` |
@@ -81,6 +85,8 @@ HAL_Init
 |------|--------|------|
 | `usbh_host_task` | idle+3 | 运行 `tuh_task()`，驱动 TinyUSB 主机协议栈；空闲时阻塞让出 CPU |
 | `file_task` | idle+2 | 等待挂载信号量 → `f_mount` → `usb_disk_explore()`：递归遍历 U 盘并打印每个文件内容到 USART |
+| `touch_task` | idle+4 | T_PEN 中断 → 二值信号量 → 轮询 GT9147 直到抬手；把坐标发布给 LVGL（见 §3.2.3） |
+| `sensor_task` | idle+1 | 每 500 ms 采样 AP3216C（IR/环境光/接近）与 MPU9250（加速度/陀螺/磁力），结果供第 2 页显示 |
 | `ui_task` | idle+2 | 启动加载器：LCD/LVGL 初始化 → ASCII 启动页 → 先试 SD 卡字库，失败等 U 盘 → 字库就绪进主界面；每 5 ms 泵 `lv_timer_handler()` |
 | `led_task` | idle+1 | LED0 心跳（~500 ms）；LED1 反映 USB 状态（枚举/挂载/错误） |
 
@@ -139,6 +145,87 @@ ui_task (OS 已启动)
 - **统一 diskio 胶水**：`app/fs_diskio.c` 同时实现 `0:`（USB MSC）与 `1:`（SDIO）的
   `disk_status/initialize/read/write/ioctl`，并用一把 `fs_lock()` 互斥量串行化所有 FatFs 入口
   （USB MSC 传输只有一个全局 busy 标志，两个任务并发会造成丢唤醒死锁）。
+
+### 3.2.3 电容触摸链路（GT9147 / GT911 + 软件 I2C + T_PEN 中断）
+
+**关于"模拟 SPI"的说明（重要）**
+
+板子丝印把触摸排针标成了 SPI 口（`T_CS / T_SCK / T_MOSI / T_MISO / T_PEN`），
+但焊在屏上的是 **GT9147**，而 **GT9147/GT911 数据手册里只有 I2C 接口，没有 SPI 模式**。
+这块板上的两根"SPI"数据线实际就是触控芯片的 I2C：
+
+| 排针名 | MCU 引脚 | 触控芯片信号 |
+|--------|----------|--------------|
+| `T_SCK` | PH6 | `CT_SCL`（串行时钟） |
+| `T_MOSI` | PI3 | `CT_SDA`（串行数据，双向） |
+| `T_CS` | PI8 | `CT_RST`（复位） |
+| `T_PEN` | PH7 | `CT_INT`（中断 / 触摸指示） |
+| `T_MISO` | PG3 | 电容屏不使用 |
+
+因此 `bsp/bsp_sw_i2c.c` 实现的是**软件位绑定 I2C 主机**（开漏 + 上拉，约 165 kHz，
+时序用 DWT 周期计数忙等），而不是软件 SPI。
+
+**信号链**
+
+```
+手指 ──> GT9147 INT (T_PEN = PH7) 下降沿
+          └─> EXTI line 7（SYSCFG 复用到 GPIOH，IMR/FTSR bit7，NVIC 优先级 6）
+                └─> HAL_EXTI_IRQHandler -> bsp_touch 回调（ISR 上下文）
+                      └─> xSemaphoreGiveFromISR(二值信号量)
+                            └─> touch_task 被唤醒 -> bsp_touch_scan()
+                                  └─> 软件 I2C 读 0x814E 状态 + 0x8150 坐标
+                                        └─> 写回 0x814E=0 允许下一次中断
+                                              └─> 发布 (x, y, pressed) 给 LVGL indev
+```
+
+**为什么中断之后还要轮询**：部分 GT9xx 模组每次接触只在 INT 上打一个脉冲，
+有些则在整个接触期间持续打脉冲。所以中断只当作"唤醒信号"，任务随后以 15 ms
+周期轮询，直到连续 3 次读到"无触点"才算抬手。这样按下/移动/抬起在两种模组上都正确。
+`bsp_touch_wait()` 的 1 s 超时是兜底：即使 INT 线没焊上，触摸仍能以轮询方式工作
+（此时日志会打出 `WARNING: contact seen without T_PEN interrupt`）。
+
+**初始化与 ID 校验**（`bsp/bsp_gt9147.c`）：
+
+1. RST(PH8/PI8) 拉低 10 ms → 拉高 10 ms → INT 置浮空输入（芯片在复位释放瞬间
+   采样 INT 来锁存 I2C 地址：INT 高 → `0x14`，低 → `0x5D`）
+2. 依次尝试 `0x14` / `0x5D`，读 `0x8140` 的 4 字节 Product ID
+3. **打印 ID 并判定是否匹配**（`911 / 9147 / 1158 / 9271 / 928`）
+4. 读 `0x8047..0x804B` 得到配置版本与**芯片自身触摸分辨率**，用于坐标缩放
+5. 仅当 ID 恰好是 `9147` 且版本 < `0x60` 时才上传 184 字节配置块（配置块是
+   9147 专用的，不能给 GT911 用）
+
+**坐标映射**（`bsp/bsp_touch.c`）：芯片自报分辨率 480×800，与 LVGL 画布
+（= LCD 驱动的 GRAM 窗口）480×800 完全一致，因此**默认是恒等映射**。
+`TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` 三个宏是换屏时唯一需要改的地方。
+每次触摸都会打印 `raw=(x,y) -> lv=(x,y)`，一次点击即可确定正确的组合。
+
+### 3.2.4 UI 双页面与底部导航
+
+| 页 | 标题 | 内容 |
+|----|------|------|
+| 0 | 状态 | 系统初始化（LCD ID / SD 卡 / USB）/ 运行信息（USB 状态、字库、主频、运行时间、字形缓存）/ 故障·消息 |
+| 1 | 硬件信息 | AP3216C（红外 / 环境光 / 接近）+ MPU9250（加速度 / 角速度 / 磁场）+ 采样统计 |
+
+底部导航条两页共用：左 / 右两个**图标按钮**（LVGL `lv_line` 画的 V 形箭头，
+不依赖字库文件）+ 中间页码 `1 / 2`。点左/右以 `±1` 循环翻页（`app_ui_switch_page()`）。
+
+- **几何全部自适应**：布局从 `lv_disp_get_hor_res/ver_res()` 取，不再硬编码 800×480。
+  因为本工程的 GRAM 窗口是 **480×800**（见 §3.4），之前硬编码的 800×480 会被横向裁掉
+  320 px、纵向空出 320 px；改成自适应后内容始终铺满。
+- **切页不删定时器**：切页用 `ui_rebuild()`（只 `lv_obj_clean()` 再重建控件），
+  刷新定时器保持存活；只有切到居中消息页才走 `ui_teardown()`（先删定时器再清屏）。
+  定时器回调对所有句柄做了 NULL 判断，重建期间不会解引用悬空指针。
+
+### 3.5 传感器采样（`app/sensor_task.c`）
+
+AP3216C（`0x1E`）与 MPU9250（`0x68`，内含 AK8963 `0x0C`）都挂 I2C2，每 500 ms 采样一轮，
+结果通过 `sensor_get()` 拷贝给 UI 线程（临界区保护）。
+
+- 采样在自己的任务里做：MPU9250 一轮约 14 次 I2C 事务、耗时 ~15 ms，放进渲染泵会卡住重绘。
+- **磁力计单独标记**：`bsp_mpu9250_read()` 返回 `-3` 表示**只有 AK8963 读失败**，
+  此时加速度/陀螺仪数据是好的，仍然发布，页面只在"磁场"一行显示 `AK8963 未就绪`。
+- **失败退避 + 限流打印**：失败后隔 2 s 重试；同一设备的错误最多每 60 s 打印一次
+  （UART TX 环形缓冲满会静默丢字节，见 §6.1）。
 
 ### 3.4 UI 线程（FMC/8080 LCD + LVGL + GBK 字库）
 
@@ -260,14 +347,15 @@ cmake --build build_dbg --target stm32f429_tinyusb_ui.elf
 
 ### 5.3 产物（双构建，零警告）
 
-> 下表为接入 **microSD(SDIO) + HAL 时基 TIM7 + 启动加载器** 后的最新占用。相比上一版：
-> FLASH +17 KB（`stm32f4xx_hal_sd.c` + `ll_sdmmc.c` + FatFs 第二卷），
-> RAM +1.6 KB（UART TX 环形缓冲 512 B → 2048 B，见 §6.1）。
+> 下表为接入 **电容触摸(GT9147/GT911 + 软件 I2C + T_PEN EXTI) + I2C2 传感器 +
+> UI 双页面导航** 后的最新占用。相比上一版：
+> FLASH +25 KB（AP3216C/MPU9250 驱动 + `stm32f4xx_hal_exti.c` + LVGL indev + 第二页），
+> RAM 基本不变（新增状态均为少量静态变量）。
 
 | 构建 | FLASH | RAM (内部) | SDRAM 堆 | 警告 |
 |------|-------|-----------|----------|------|
-| Release | 276,932 B / 1 MB (26.41%) | 30,072 B / 192 KB (15.30%) | 512 KB / 32 MB (1.56%) | 0 |
-| Debug   | 240,440 B / 1 MB (22.93%) | 30,048 B / 192 KB (15.28%) | 512 KB / 32 MB (1.56%) | 0 |
+| Release | 302,244 B / 1 MB (28.82%) | 30,296 B / 192 KB (15.41%) | 512 KB / 32 MB (1.56%) | 0 |
+| Debug   | 261,664 B / 1 MB (24.95%) | 30,288 B / 192 KB (15.41%) | 512 KB / 32 MB (1.56%) | 0 |
 
 > 说明：本工程 `-Og`(Debug) 产出的代码比 `-Os`(Release) 更小（与工具链版本相关的既有现象，
 > 上一版同样如此），两种构建均**零警告**。
@@ -307,6 +395,11 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 | **10 s 超时失败页** | ✅ 硬件验证通过 | 关闭 USB 回退（`-DLOADER_ENABLE_USB_FALLBACK=0`）复现「两端都无介质」，10 s 后居中显示 `sdcard and usb loader failed!`，**只打印一次** |
 | **CJK 字形确实从字库渲染** | ✅ 硬件验证通过 | `[UI  ] glyph cache: hits=... misses=45` —— miss>0 证明中文字形真的从 `GBKxx.FON` 读出 |
 | **启动流程自动化验收** | ✅ PASS 17/17 | `tools/verify_serial/verify_boot_flow.py`（烧录 + COM5 抓 25 s + pass/fail 计数） |
+| **GT9147/GT911 软件 I2C 识别 + ID 校验** | ✅ 硬件验证通过 | 2026-08-28 COM5 实测：`product ID = "911" (addr 0x14) -> MATCH`，自报分辨率 480×800 |
+| **T_PEN 中断链路（EXTI→ISR→信号量→任务）** | ✅ PASS 7/7 | `verify_touch_irq.py` 经 `EXTI_SWIER` 软注入 line 7，任务被唤醒（§7.7.1） |
+| **AP3216C + MPU9250 采样** | ✅ 硬件验证通过 | 2026-08-28 COM5 实测：`AP3216C init OK` / `MPU9250 init OK (WHO_AM_I check)` |
+| **UI 双页面 + 底部左右图标按钮** | ✅ 编译 + 代码审查通过 | 布局自适应 480×800 画布；翻页循环；图标用 `lv_line` 画，不依赖字库文件 |
+| **手指触摸坐标上报 / 实际翻页** | ⏳ 待人工 | 需手指点屏确认，脚本 `verify_touch.py` 已就绪（§7.7.2） |
 
 > 详细证据与「编译验证 vs 硬件验证」标签见 **`ACCEPTANCE_REPORT.md`**。
 
@@ -339,6 +432,39 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 - 现象：`[UI  ] timeout: ...` 每 5 ms 打印一次。
 - 根因：deadline 分支判断写成 `s_state != LOAD_OK`，而 `LOAD_FAILED` 同样满足该条件。
 - 修复：改为 `s_state == LOAD_BOOT`，只在真正从启动页超时时触发一次。
+
+**触摸坐标被钳到 (0,0)：画布尺寸取到了 0（2026-08-28 已修复）**
+- 现象：`[TOUCH] ready: ... canvas 1x1`，所有坐标映射结果都是 0。
+- 根因：`touch_task` 优先级(idle+4) 高于 `ui_task`(idle+2)，先跑完 `bsp_touch_init()`；
+  而 `g_lcd_info.lcd_width/height` 要等 `ui_task` 里的 `lcd_driver_init()` 才填上，
+  触摸侧读到的是清零后的结构体。
+- 修复：`bsp_lcd.c` 在 `lcd_config_init()` 末尾置 `g_lcd_ready` 并新增 `lcd_driver_ready()`；
+  `bsp_touch_init()` 先等该标志（最多 10 s），`bsp_touch_scan()` 里再刷新一次几何，
+  双保险。
+
+**"模拟 SPI"实际是 I2C（2026-08-28 澄清）**
+- 排针丝印为 `T_CS/T_SCK/T_MOSI/T_MISO/T_PEN`，但 **GT9147/GT911 只有 I2C 接口**。
+  板上 `T_SCK(PH6)` = `CT_SCL`、`T_MOSI(PI3)` = `CT_SDA`、`T_CS(PI8)` = `CT_RST`、
+  `T_PEN(PH7)` = `CT_INT`。因此 `bsp_sw_i2c.c` 实现的是位绑定 I2C，不是 SPI。
+  实测 `product ID = "911" (addr 0x14) -> MATCH` 证明总线时序正确。
+
+**UI 布局硬编码 800×480 与实际 480×800 画布不符（2026-08-28 已修复）**
+- 现象：LCD 驱动打印 `active GRAM window 480x800`，而 `app_ui.c` 用 `UI_W 800 / UI_H 480`
+  排版 → 横向被裁掉 320 px、纵向空出 320 px。
+- 修复：布局改为从 `lv_disp_get_hor_res/ver_res()` 取尺寸，三栏位置与高度按实际画布算。
+  改画布尺寸只需动 `bsp/bsp_lcd.h` 的 `LCD_WIDTH/LCD_HEIGHT`。
+
+**MPU9250 磁力计偶发读失败导致整包丢弃（2026-08-28 已修复）**
+- 现象：`[SENS ] MPU9250 read FAILED (I2C2), retry in 30s`，第 2 页全部显示 `--` 长达 30 s。
+- 根因：`bsp_mpu9250_read()` 返回 `-3` 只代表 AK8963（经 MPU 内部 I2C master 访问）读失败，
+  加速度/陀螺其实读到了；原代码把 `!= 0` 一律当整体失败。
+- 修复：`-3` 时仍发布加速度/陀螺，只把 `mag_ok` 置 0（页面仅"磁场"显示 `AK8963 未就绪`）；
+  失败退避由 30 s 缩到 2 s；同一设备错误最多每 60 s 打印一次（避免撑爆 UART 环形缓冲）。
+
+**错误日志首条被吞（2026-08-28 已修复）**
+- 现象：限流打印用 `0xFFFFFFFFU` 作"尚未打印"哨兵，`s_round - 0xFFFFFFFF` 回绕成 2，
+  永远 `< 120` → 第一条错误永远打不出来。
+- 修复：哨兵改为 `0`，条件改为 `(*last_at == 0U) || ((s_round - *last_at) >= ERR_PRINT_ROUNDS)`。
 
 **UNIGBK.BIN 缺失无害**
 - `mask` 的 bit0（UNIGBK.BIN）为 0 属正常：渲染路径经编译期表 `lv_gbk_map.c`（`lv_gbk_from_unicode`）做 Unicode→GBK，再读 `GBKxx.FON` 取字模；`UNIGBK.BIN` 仅被打开、从未被读取。字库目录放齐 `GBK12/16/24/32.FON` 即可显示中文。
@@ -491,6 +617,59 @@ SERIAL_PORT=COM5 FIRMWARE=build_to/stm32f429_tinyusb_ui.elf \
 实测在启动页出现后第 10 s 打印一次 `[UI  ] timeout: sdcard and usb loader failed!`
 （只打印一次），屏幕居中显示该字符串。
 
+### 7.7 触摸 + 双页面实测（COM5，2026-08-28）
+
+**7.7.1 中断链路（全自动，无需人手）**
+
+EXTI 的 `EXTI_SWIER` 寄存器可以产生与引脚边沿完全等价的软件中断，因此
+"EXTI → NVIC → ISR → 信号量 → touch_task 唤醒"整条链路可以自动验证：
+
+```bash
+SERIAL_PORT=COM5 python tools/verify_serial/verify_touch_irq.py
+```
+
+实测（PASS 7/7）：
+
+```
+[TOUCH] task started, probing GT9147 (T_SCK=PH6 T_MOSI=PI3 T_CS=PI8 T_PEN=PH7)
+[TOUCH] product ID = "911" (addr 0x14) -> MATCH     ← 板上实为 GT911，寄存器兼容
+[TOUCH] stored config: version=0x51 resolution=480x800
+[TOUCH] EXTI cfg: EXTICR2=0x00007000 IMR=0x0080 FTSR=0x0080 prio=6
+[TOUCH] ready: id=911 addr=0x14 cfg=0x51, touch 480x800 -> canvas 480x800, swap=0 invX=0 invY=0
+[TOUCH] INT armed on T_PEN (PH7, falling edge) -> waiting
+[TOUCH] T_PEN interrupt received (irq=2)            ← 软件注入 line 7 后任务被唤醒
+[UI  ] LVGL canvas 480x800, pointer indev registered
+[SENS ] AP3216C init OK
+[SENS ] MPU9250 init OK (WHO_AM_I check)
+```
+
+- `EXTICR2=0x00007000`：EXTI line 7 已复用到 **GPIOH**（`0x7`）；`IMR/FTSR=0x0080`：line 7
+  中断使能 + 下降沿触发。
+- 芯片自报分辨率 **480×800** 与 LVGL 画布一致，恒等映射即可（无需 swap/invert）。
+- 注意：本方法验证的是中断链路，**不验证 PH7 引脚电平本身**，仍需手指点一次确认。
+
+**7.7.2 手指触摸 + 翻页（需人工，脚本已就绪）**
+
+```bash
+SERIAL_PORT=COM5 TOUCH_WAIT_SEC=30 python tools/verify_serial/verify_touch.py
+```
+
+脚本烧录后会提示：①点屏幕任意位置 ②点底部右箭头 ③点底部左箭头，并实时打印串口：
+
+```
+[TOUCH] raw=(238,412) -> lv=(238,412) points=1 irq=7   ← 引脚中断确实进来了(irq 递增)
+[UI  ] page -> 2 / 2                                    ← 右箭头：进第 2 页
+[UI  ] page -> 1 / 2                                    ← 左箭头：循环回第 1 页
+```
+
+判定要点：
+
+- `irq=N` 递增 → 说明是**引脚中断**唤醒的，不是 1 s 兜底轮询。
+- 若出现 `WARNING: contact seen without T_PEN interrupt` → INT 线没连到 PH7。
+- 若点右箭头却翻到了上一页（或坐标左右/上下相反）→ 改 `bsp/bsp_touch.h` 里的
+  `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` 三个宏（各只需 0/1 切换），
+  对照日志里的 `raw=` 与 `lv=` 一行即可确定。
+
 ---
 
 ## 8. 目录结构
@@ -502,11 +681,13 @@ SERIAL_PORT=COM5 FIRMWARE=build_to/stm32f429_tinyusb_ui.elf \
 │   ├── usb_host_app.c/.h          # TinyUSB MSC 主机任务 + U 盘内容递归读取/打印（带 dump 限流）
 │   ├── fs_diskio.c/.h             # ★ 统一 FatFs diskio 胶水：pdrv0=USB MSC, pdrv1=SDIO + fs_lock
 │   ├── sd_card.c/.h               # ★ microSD 上电流程：SDIO 初始化 + f_mount("1:")
-│   ├── ui_task.c/.h               # ★ 启动加载状态机 + LVGL 渲染泵
-│   ├── app_ui.c/.h                # 主界面三栏面板 + ASCII 居中页
+│   ├── ui_task.c/.h               # ★ 启动加载状态机 + LVGL 渲染泵 + LVGL indev 注册
+│   ├── app_ui.c/.h                # ★ 双页面（状态 / 硬件信息）+ 底部左右导航按钮
+│   ├── touch_task.c/.h            # ★ T_PEN 中断 → 信号量 → GT9147 轮询 → 发布坐标
+│   ├── sensor_task.c/.h           # ★ AP3216C + MPU9250 周期采样（500 ms）
 │   ├── tusb_config.h              # TinyUSB 主机配置 (CFG_TUH_MSC=1)
 │   ├── stm32f4xx_hal_timebase_tim.c  # TIM7 1 ms 时基
-│   ├── stm32f4xx_it.c             # 中断向量 (TIM7/OTG_FS/FreeRTOS 端口)
+│   ├── stm32f4xx_it.c             # 中断向量 (TIM7/OTG_FS/EXTI9_5/FreeRTOS 端口)
 │   ├── sdram_heap.c               # heap_5 单区 (SDRAM 0xC0000000)
 │   ├── FreeRTOSConfig.h / syscalls.c / stm32f4xx_hal_conf.h
 ├── bsp/
@@ -516,6 +697,10 @@ SERIAL_PORT=COM5 FIRMWARE=build_to/stm32f429_tinyusb_ui.elf \
 │   ├── bsp_pcf8574.c (BEEP P0 / ETH 复位 P7)
 │   ├── bsp_sdram.c  (FMC W9825G6KH-6)
 │   ├── bsp_sdio.c/.h (★ microSD SDIO 4bit，PC8-12 + PD2，轮询无 DMA)
+│   ├── bsp_sw_i2c.c/.h  (★ 软件位绑定 I2C：PH6=SCL / PI3=SDA，给触控芯片用)
+│   ├── bsp_gt9147.c/.h  (★ GT9147/GT911 驱动：复位寻址 + ID 校验 + 配置块 + 5 点坐标)
+│   ├── bsp_touch.c/.h   (★ T_PEN EXTI + 二值信号量 + 坐标映射到 LVGL 画布)
+│   ├── lv_port_indev.c/.h (★ LVGL pointer indev，只读 bsp_touch 发布的状态)
 │   ├── bsp_usb_hw.c (OTG_FS 时钟/引脚/中断)
 │   └── bsp_ap3216 / bsp_mpu9250 / bsp_eeprom_24c02 / bsp_delay
 ├── Drivers/                        # CMSIS + STM32F4 HAL
@@ -531,6 +716,8 @@ SERIAL_PORT=COM5 FIRMWARE=build_to/stm32f429_tinyusb_ui.elf \
 ├── verify_exfat/                  # PC 端 exFAT 真实性验证工具
 ├── tools/verify_serial/
 │   ├── verify_boot_flow.py        # ★ 启动加载流程验收（烧录 + COM5 抓 25s + pass/fail）
+│   ├── verify_touch_irq.py        # ★ T_PEN 中断链路验收（SWIER 软注入，全自动 7/7）
+│   ├── verify_touch.py            # ★ 手指触摸 + 翻页验收（烧录 + 交互式，需人工点屏）
 │   ├── capture_reset.py           # ★ 只复位不烧录，抓控制类日志（--raw 看全量）
 │   └── verify_ui_com5.py / explore_com5_test.py / ...   # 既有 U 盘遍历验收
 ├── CMakeLists.txt / cmake/arm-none-eabi-gcc.cmake

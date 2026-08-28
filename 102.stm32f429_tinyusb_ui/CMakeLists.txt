@@ -66,6 +66,13 @@ file(GLOB BSP_SOURCES
   bsp/bsp_uart.c
   bsp/bsp_i2c.c
   bsp/bsp_pcf8574.c
+  # I2C2 sensors: AP3216C (light/proximity/IR) and MPU9250 (9-axis IMU)
+  bsp/bsp_ap3216.c
+  bsp/bsp_mpu9250.c
+  # Capacitive touch: software I2C + GT9147 + T_PEN EXTI + LVGL indev
+  bsp/bsp_sw_i2c.c
+  bsp/bsp_gt9147.c
+  bsp/bsp_touch.c
   bsp/bsp_sdram.c
   bsp/bsp_sdio.c
   bsp/bsp_usb_hw.c
@@ -76,6 +83,7 @@ file(GLOB BSP_SOURCES
   bsp/lv_font_gbk.c
   bsp/lv_gbk_map.c
   bsp/lv_port_disp.c
+  bsp/lv_port_indev.c
 )
 
 set(CMSIS_SOURCES
@@ -91,6 +99,7 @@ set(HAL_SOURCES
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c

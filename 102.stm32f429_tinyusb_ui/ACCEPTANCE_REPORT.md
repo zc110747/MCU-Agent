@@ -43,6 +43,21 @@
 | 21 | **主界面设备状态面板**（SD 卡/USB/字库/主频/运行时间/缓存；CJK 从字库渲染） | **Hardware-Verified** | ✅ PASS |
 | 22 | `verify_boot_flow.py` 自动化验收 | **Hardware-Verified** | ✅ **PASS 17/17** |
 
+### 1.2 第三版增量（2026-08-28）：电容触摸 + 双页面 + I2C2 传感器
+
+| # | 验收项 | 标签 | 结果 |
+|---|--------|------|------|
+| 23 | **软件位绑定 I2C**（`bsp_sw_i2c.c`，PH6=SCL / PI3=SDA，开漏上拉 ~165 kHz） | **Hardware-Verified** | ✅ PASS |
+| 24 | **GT9147/GT911 识别 + ID 校验打印**（`product ID = "911" (addr 0x14) -> MATCH`） | **Hardware-Verified** | ✅ PASS |
+| 25 | 读取芯片自身触摸分辨率（自报 **480×800**）并与 LVGL 画布对齐 | **Hardware-Verified** | ✅ PASS |
+| 26 | **T_PEN 中断链路**：EXTI line 7 → ISR → 二值信号量 → `touch_task` 唤醒 | **Hardware-Verified** | ✅ **PASS 7/7** |
+| 27 | LVGL **pointer indev** 注册，坐标取自 `bsp_touch` 发布的状态 | **Hardware-Verified** | ✅ PASS |
+| 28 | **主界面底部左/右图标按钮**（`lv_line` 绘制，不依赖字库文件），可循环翻页 | Compile-Verified + Code-Review | ✅ PASS |
+| 29 | **第二页硬件信息**：AP3216C（IR/环境光/接近）+ MPU9250（加速度/角速度/磁场） | **Hardware-Verified** | ✅ PASS（两者 init OK） |
+| 30 | 传感器独立任务采样（500 ms）+ 失败退避 2 s + 限流打印 60 s | **Hardware-Verified** | ✅ PASS |
+| 31 | 手指触摸坐标上报（`[TOUCH] raw=.. -> lv=.. irq=N`）+ 实际翻页 | ⏳ **待人工** | 脚本 `verify_touch.py` 已就绪 |
+| 32 | 修复 4 个缺陷：触摸画布取到 1×1、UI 布局硬编码 800×480、磁力计失败致整包丢弃、首条错误日志被吞 | **Hardware-Verified** | ✅ PASS |
+
 > 标签含义：
 > - **Compile-Verified**：在目标工具链下成功编译/链接（零警告），逻辑经审查或等价 PC 程序验证。
 > - **Code-Review**：通过源码静态审查确认设计/接线/顺序正确。
@@ -316,6 +331,47 @@ USB Disk Mounted
 | `[SD  ] SDIO init FAILED` 每 500 ms 刷屏 | 探测失败后未静音 | `sd_card_set_quiet()`；10 s 后探测降频到 3 s | 只打印 1 次 |
 | `[UI  ] timeout: ...` 每 5 ms 重复打印 | deadline 分支写成 `s_state != LOAD_OK`，`LOAD_FAILED` 同样满足 | 改为 `s_state == LOAD_BOOT` | 只打印 1 次 |
 
+### 6.2 第三版真机验证证据（COM5，2026-08-28）
+
+**6.2.1 中断链路（全自动，PASS 7/7）**
+
+`EXTI_SWIER` 可产生与引脚边沿完全等价的软件中断，因此整条链路无需人手即可自动验证：
+
+```
+SERIAL_PORT=COM5 python tools/verify_serial/verify_touch_irq.py
+
+[TOUCH] task started, probing GT9147 (T_SCK=PH6 T_MOSI=PI3 T_CS=PI8 T_PEN=PH7)
+[TOUCH] product ID = "911" (addr 0x14) -> MATCH
+[TOUCH] stored config: version=0x51 resolution=480x800
+[TOUCH] EXTI cfg: EXTICR2=0x00007000 IMR=0x0080 FTSR=0x0080 prio=6
+[TOUCH] ready: id=911 addr=0x14 cfg=0x51, touch 480x800 -> canvas 480x800, swap=0 invX=0 invY=0
+[TOUCH] INT armed on T_PEN (PH7, falling edge) -> waiting
+[TOUCH] T_PEN interrupt received (irq=2)          ← 软件注入 EXTI line 7 后任务被唤醒
+[UI  ] LVGL canvas 480x800, pointer indev registered
+[SENS ] AP3216C init OK
+[SENS ] MPU9250 init OK (WHO_AM_I check)
+```
+
+- `EXTICR2=0x00007000` → EXTI line 7 已复用到 **GPIOH**（字段值 `0x7`）；
+  `IMR=FTSR=0x0080` → line 7 中断使能 + 下降沿触发；
+  `prio=6` ≥ `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(5)`，FromISR 调用合法。
+- 该方法验证的是**中断链路本身**，不验证 PH7 引脚电平，仍需 §6.2.3 的人工确认。
+
+**6.2.2 启动流程回归（PASS 17/17，无退化）**
+
+接入触摸与传感器后重跑 `verify_boot_flow.py`：17/17 全过 —— 启动页 → SD 无卡降级 →
+USB 挂载 → 字库 `mask=0x1F` → 主界面 → `glyph cache: hits=83 misses=46`
+（CJK 字形确实从 `GBKxx.FON` 读出）。
+
+**6.2.3 本轮修复的四个缺陷（均已真机复测）**
+
+| 缺陷 | 根因 | 修复 | 复测 |
+|------|------|------|------|
+| `[TOUCH] ready: ... canvas 1x1`，坐标恒为 0 | `touch_task`(idle+4) 先于 `ui_task`(idle+2) 跑，`g_lcd_info` 还是清零状态 | `bsp_lcd.c` 新增 `lcd_driver_ready()`，`bsp_touch_init()` 等该标志（≤10 s），`bsp_touch_scan()` 再刷新一次几何 | `canvas 480x800`，`touch 480x800 -> canvas 480x800` |
+| UI 横向被裁 320 px、纵向空 320 px | `app_ui.c` 硬编码 `UI_W 800 / UI_H 480`，而实际 GRAM 窗口是 **480×800** | 布局改为从 `lv_disp_get_hor_res/ver_res()` 取，三栏位置/高度按实际画布算 | 启动日志 `LVGL canvas 480x800`，导航条落在画布底部 |
+| 第 2 页全部 `--` 长达 30 s | `bsp_mpu9250_read()` 返回 `-3` 只代表 AK8963 读失败，加速度/陀螺其实读到了；原代码 `!= 0` 一律整包丢弃 | `-3` 时仍发布加速度/陀螺，只把 `mag_ok` 置 0；退避 30 s → 2 s；错误每 60 s 最多打印一次 | 首轮偶发失败后 2 s 即恢复，页面仅"磁场"显示 `AK8963 未就绪` |
+| 首条错误日志永远打不出来 | 限流用 `0xFFFFFFFFU` 作哨兵，`s_round - 0xFFFFFFFF` 回绕成 2，永远 `< 120` | 哨兵改 `0`，条件加 `*last_at == 0U` 短路 | 首条错误必现 |
+
 ---
 
 ## 7. 交付清单
@@ -345,6 +401,24 @@ USB Disk Mounted
 - [x] `tools/verify_serial/verify_boot_flow.py`（17 项 pass/fail）+ `capture_reset.py` 调试助手
 - [x] 修复 UART 环形缓冲丢日志 / SD 空卡槽刷屏 / 超时页重复触发 三个缺陷
 - [x] README.md + 本报告同步更新
+
+**第三版增量（2026-08-28）**
+
+- [x] **软件位绑定 I2C**（`bsp/bsp_sw_i2c.c`）：PH6=SCL / PI3=SDA，开漏 + 上拉，~165 kHz，DWT 忙等时序
+- [x] **GT9147 驱动**（`bsp/bsp_gt9147.c`）：复位寻址（0x14/0x5D 双候选）→ 读 Product ID →
+      打印并校验是否匹配 → 读配置版本与触摸分辨率 → 仅 ID=9147 且版本过旧才上传 184 B 配置块
+- [x] **触摸服务**（`bsp/bsp_touch.c`）：T_PEN(PH7) 下降沿 EXTI（HAL_EXTI + 回调注册）→
+      二值信号量 → 坐标映射到 LVGL 画布（swap/invert 三个宏可配）→ 每次触摸打印 `raw -> lv`
+- [x] **触摸任务**（`app/touch_task.c`）：中断唤醒 → 15 ms 轮询直到抬手；1 s 超时兜底 +
+      "无中断却检测到触摸"告警
+- [x] **LVGL 输入设备**（`bsp/lv_port_indev.c`）：pointer indev，只读取发布状态，不做总线操作
+- [x] **传感器任务**（`app/sensor_task.c`）：AP3216C + MPU9250，500 ms 采样，磁力计独立标记，
+      失败退避 2 s + 限流打印 60 s
+- [x] **UI 双页面**（`app/app_ui.c`）：状态页 / 硬件信息页 + 底部左/右 `lv_line` 图标按钮循环翻页；
+      几何改为自适应画布尺寸
+- [x] `tools/verify_serial/verify_touch_irq.py`（中断链路全自动 7/7）+ `verify_touch.py`（交互式）
+- [x] 修复 4 个缺陷（画布 1×1 / 布局硬编码 / 磁力计整包丢弃 / 首条错误被吞）
+- [x] README.md（§1 引脚表、§3.2.3~3.2.4、§3.5、§5.3、§6.1、§7.7、§8）+ 本报告同步更新
 
 ---
 

@@ -93,6 +93,9 @@ void lcd_color_fill(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t *pi
 
 LCD_INFO *get_lcd_info(void);
 
+/* 1 once the panel is up and get_lcd_info() holds the final GRAM window. */
+int lcd_driver_ready(void);
+
 #ifdef __cplusplus
 }
 #endif

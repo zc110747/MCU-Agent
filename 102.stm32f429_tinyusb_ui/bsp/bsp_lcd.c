@@ -22,6 +22,12 @@
 static SRAM_HandleTypeDef hsram1;
 LCD_INFO g_lcd_info = {0};
 
+/* Set once lcd_config_init() has published the final GRAM window.  Other
+ * threads (the touch service, which maps coordinates onto that window) must
+ * not read g_lcd_info before this is set: until then the width/height are
+ * still the pre-scan-direction values. */
+static uint8_t g_lcd_ready = 0U;
+
 /* scan direction */
 #define L2R_U2D  0
 #define L2R_D2U  1
@@ -74,6 +80,15 @@ GlobalType_t lcd_driver_init(void)
 LCD_INFO *get_lcd_info(void)
 {
     return &g_lcd_info;
+}
+
+/**
+  * @brief  @retval 1 once the panel is up and g_lcd_info holds the final GRAM
+  *         window (i.e. after the scan-direction swap has been applied).
+  */
+int lcd_driver_ready(void)
+{
+    return (g_lcd_ready != 0U) ? 1 : 0;
 }
 
 void lcd_driver_clear(uint32_t color)
@@ -720,6 +735,7 @@ static void lcd_config_init(void)
     lcd_display_dir(0);
     lcd_driver_clear(LCD_BLACK);
     LCD_BACKLIGHT_ON();
+    g_lcd_ready = 1U;
     printf("[LCD ] active GRAM window %lux%lu (panel spec 800x480)\r\n",
            (unsigned long)g_lcd_info.lcd_width, (unsigned long)g_lcd_info.lcd_height);
 }

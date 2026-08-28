@@ -38,6 +38,8 @@
 #include "usb_host_app.h"
 #include "fs_diskio.h"
 #include "ui_task.h"
+#include "touch_task.h"
+#include "sensor_task.h"
 
 /* Single SDRAM heap region, defined in sdram_heap.c. */
 extern HeapRegion_t xHeapRegions[];
@@ -141,10 +143,21 @@ int main(void)
 
   printf("Waiting for USB disk...\r\n");
 
-  /* Create tasks (all allocate from the SDRAM heap, now valid). */
+  /* Create tasks (all allocate from the SDRAM heap, now valid).
+   *
+   *  Priorities, highest first:
+   *    +4 touch      - must publish a press before the next LVGL read
+   *    +3 usbh       - host stack deadlines
+   *    +2 ui         - LVGL render pump
+   *    +1 led/sensor - heartbeat and I2C sampling
+   */
   xTaskCreate(usbh_host_task, "usbh", 1024, NULL, tskIDLE_PRIORITY + 3, NULL);
-  xTaskCreate(led_task,        "led",  256,  NULL, tskIDLE_PRIORITY + 1, NULL);
-  xTaskCreate(ui_task,         "ui",   UI_TASK_STACK_WORDS, NULL,
+  xTaskCreate(touch_task,     "touch", TOUCH_TASK_STACK_WORDS, NULL,
+              TOUCH_TASK_PRIO, NULL);
+  xTaskCreate(sensor_task,    "sensor", SENSOR_TASK_STACK_WORDS, NULL,
+              SENSOR_TASK_PRIO, NULL);
+  xTaskCreate(led_task,       "led",  256,  NULL, tskIDLE_PRIORITY + 1, NULL);
+  xTaskCreate(ui_task,        "ui",   UI_TASK_STACK_WORDS, NULL,
              tskIDLE_PRIORITY + 2, NULL);
 
   /* FreeRTOS V11 quirk: vPortEnterCritical (inside xTaskCreate before the

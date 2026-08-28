@@ -41,6 +41,7 @@
 #include "bsp_lcd.h"
 #include "bsp_lcd_text.h"
 #include "lv_port_disp.h"
+#include "lv_port_indev.h"
 #include "usb_host_app.h"
 #include "fs_diskio.h"
 #include "sd_card.h"
@@ -138,6 +139,15 @@ void ui_task(void *arg)
      *    by lv_port_disp_init(); the 5 ms render pump is at the bottom. */
     lv_init();
     lv_port_disp_init();
+
+    /* 2b. Input device.  Registering it here (inside the LVGL thread) rather
+     *     than in touch_task keeps every lv_* call on the same thread - LVGL
+     *     is not thread safe.  The driver itself only reads the coordinates
+     *     that bsp_touch_scan() publishes from touch_task. */
+    lv_port_indev_init();
+    printf("[UI  ] LVGL canvas %lux%lu, pointer indev registered\r\n",
+           (unsigned long)lv_disp_get_hor_res(NULL),
+           (unsigned long)lv_disp_get_ver_res(NULL));
 
     /* 3. Boot screen: ASCII only, no font file required. */
     app_ui_show_centered("wait for system start...");

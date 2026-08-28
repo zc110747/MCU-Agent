@@ -15,6 +15,9 @@
 /* The TIM7 time base handle is defined in stm32f4xx_hal_timebase_tim.c */
 extern TIM_HandleTypeDef htim7;
 
+/* Touch controller T_PEN (PH7) EXTI handle, defined in bsp/bsp_touch.c */
+extern EXTI_HandleTypeDef g_touch_exti;
+
 /* FreeRTOS port exception handlers (defined in portable/GCC/ARM_CM4F/port.c) */
 extern void vPortSVCHandler(void);
 extern void xPortPendSVHandler(void);
@@ -72,4 +75,16 @@ void TIM7_IRQHandler(void)
 void OTG_FS_IRQHandler(void)
 {
   tuh_int_handler(0);
+}
+
+/**
+  * @brief  EXTI lines 9..5 -> the touch controller's T_PEN (PH7).
+  *         HAL_EXTI_IRQHandler clears the pending bit and runs the callback
+  *         registered by bsp_touch.c, which releases the touch semaphore
+  *         (FromISR variant).  Priority 6 is below
+  *         configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5), so that is legal.
+  */
+void EXTI9_5_IRQHandler(void)
+{
+  HAL_EXTI_IRQHandler(&g_touch_exti);
 }

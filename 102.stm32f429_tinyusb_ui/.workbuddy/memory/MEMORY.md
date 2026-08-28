@@ -12,7 +12,15 @@
 - 启动加载器: ASCII 启动页 `wait for system start...` → 先试 SD(1:) → 失败等 USB(0:) → 字库就绪进
   主界面 / **10s 超时** 居中 `sdcard and usb loader failed!`（超时后仍 3s 静默探测，热插拔可恢复）。
 - LCD: **800x480** 正点原子, FMC Bank1 NE1 8080 16-bit (RS=A18, LCD_BASE=0x60000000|0x0007FFFE); 控制器 NT35510(0x8000)/ILI9806E 回退.
-- **`lcd_scan_dir` 的宽高交换逻辑是 正点原子 原版、正确，切勿改反/删除**: `DFT_SCAN_DIR=L2R_U2D`(MV=0) 下, 因 `lcd_width(800)>lcd_height(480)` 触发交换 → **有效 GRAM 窗口 480x800**, 这正是 NT35510 模块铺满物理 800x480 屏所需的窗口. 屏幕尺寸只由 `LCD_WIDTH/LCD_HEIGHT`(`bsp/bsp_lcd.h`) 与 `UI_W/UI_H`(`app/app_ui.c`) 决定; 改尺寸时只动这两个宏, 不要动交换逻辑.
+- **`lcd_scan_dir` 的宽高交换逻辑是 正点原子 原版、正确，切勿改反/删除**: `DFT_SCAN_DIR=L2R_U2D`(MV=0) 下, 因 `lcd_width(800)>lcd_height(480)` 触发交换 → **有效 GRAM 窗口 480x800**, 这正是 NT35510 模块铺满物理 800x480 屏所需的窗口. 屏幕尺寸只由 `LCD_WIDTH/LCD_HEIGHT`(`bsp/bsp_lcd.h`) 决定, 不要动交换逻辑.
+- **LVGL 画布 = GRAM 窗口 = 480x800**（不是 800x480）。UI 布局已从 `lv_disp_get_hor_res/ver_res()`
+  自适应取，不要再硬编码 800x480。
+- 电容触摸: **GT9147/GT911**，走**软件位绑定 I2C**（不是 SPI，芯片根本没有 SPI 模式）。
+  排针对应: `T_SCK(PH6)=CT_SCL`、`T_MOSI(PI3)=CT_SDA`、`T_CS(PI8)=CT_RST`、`T_PEN(PH7)=CT_INT`、
+  `T_MISO(PG3)` 未用。**板上实贴是 GT911**（`product ID="911" addr=0x14`），自报分辨率 **480x800**
+  与画布一致 → 恒等映射。184B 配置块是 9147 专用，**绝不能给 GT911 上传**。
+- I2C2 (PH4/PH5): AP3216C(0x1E) + MPU9250(0x68, 内含 AK8963 0x0C) + PCF8574(0x20) + AT24C02(0xA0)。
+  传感器由 `app/sensor_task.c` 每 500ms 采样。
 
 ## 工作流约定（用户明确指令）
 - **每次改完代码 → 直接构建 + OpenOCD 烧录 + COM5 串口真机验证，不再只交付 ELF 让用户手动跑**。环境（COM5/OpenOCD/ST-Link）已就绪。
@@ -36,3 +44,15 @@
 - **SDIO 目标缓冲必须 4 字节对齐**: HAL 内以 `uint32_t*` 读 SDIO FIFO; `fs_diskio.c` 对未对齐地址
   统一经 `s_sd_scratch[512]` 中转, 勿删。
 - 改完代码后**先烧录再抓串口**: `tools/verify_serial/capture_reset.py` 只复位不烧录, 否则看到的是旧固件行为。
+- **跨任务读 LCD 几何要先等 `lcd_driver_ready()`**: `g_lcd_info` 由 `ui_task` 里的
+  `lcd_driver_init()` 填，优先级更高的任务（如 touch_task）先跑会读到全 0（表现为 `canvas 1x1`）。
+- **MPU9250 返回值 `-3` 只代表磁力计失败**: `bsp_mpu9250_read()` 的 `-1`/-2` 是加速度/陀螺失败,
+  `-3` 是 AK8963(经 MPU 内部 I2C master)失败, 此时 accel/gyro 数据是好的, 不能整包丢弃。
+- **限流打印的哨兵别用 `0xFFFFFFFFU`**: `counter - 0xFFFFFFFF` 会回绕成小正数, 导致首条日志
+  永远打不出来。用 `0` 作哨兵并加 `*last == 0` 短路。
+- **GT9xx 中断后必须轮询到抬手**: 不同模组 INT 行为不同(单次脉冲 / 持续脉冲), 中断只当唤醒,
+  任务随后以 15ms 轮询直到连续 3 次无触点。
+- **无需手指即可验证 EXTI 链路**: `EXTI->SWIER`(0x40013C10) 写 1 产生与引脚边沿等价的中断。
+  OpenOCD `halt` → `mww 0x40013C10 0x80` → `resume`（已封装 `verify_touch_irq.py`）。
+- newlib-nano 未链 `-u _printf_float`, **`printf`/`lv_label_set_text_fmt` 不能用 `%f`**；
+  需要小数时手工拆成整数+%02d（见 `app_ui.c` 的 `fmt_fixed2()`）。
