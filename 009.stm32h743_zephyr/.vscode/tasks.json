@@ -1,5 +1,10 @@
 {
   "version": "2.0.0",
+  "options": {
+    "env": {
+      "ZEPHYR_TOOLCHAIN_VARIANT": "gnuarmemb"
+    }
+  },
   "tasks": [
     {
       "label": "configure",
@@ -11,7 +16,7 @@
     {
       "label": "build",
       "type": "shell",
-      "command": "python -m west build -d build",
+      "command": "python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .",
       "group": {
         "kind": "build",
         "isDefault": true

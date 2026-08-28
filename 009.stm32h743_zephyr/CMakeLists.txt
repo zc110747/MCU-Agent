@@ -28,6 +28,30 @@ set(Zephyr_DIR "${ZEPHYR_BASE}/share/zephyr-package/cmake"
     CACHE PATH "Directory containing ZephyrConfig.cmake")
 list(APPEND CMAKE_PREFIX_PATH "${Zephyr_DIR}")
 
+# ---------------------------------------------------------------------------
+# Toolchain auto-selection (Zephyr needs this BEFORE find_package(Zephyr)).
+# Default to the GNU Arm Embedded toolchain (gnuarmemb) and derive its root
+# from arm-none-eabi-gcc found on PATH, so a fresh `west build` works with
+# ZERO manual environment setup (west CLI / build_oneclick.bat / VSCode task).
+# Only fills in the values when the caller has not already set them.
+# ---------------------------------------------------------------------------
+if(NOT DEFINED ENV{ZEPHYR_TOOLCHAIN_VARIANT})
+  set(ENV{ZEPHYR_TOOLCHAIN_VARIANT} gnuarmemb)
+endif()
+
+if(NOT DEFINED ENV{GNUARMEMB_TOOLCHAIN_PATH})
+  find_program(ARM_GCC_PROG arm-none-eabi-gcc)
+  if(ARM_GCC_PROG)
+    get_filename_component(ARM_GCC_BIN   "${ARM_GCC_PROG}" DIRECTORY)
+    get_filename_component(ARM_GCC_PREFIX "${ARM_GCC_BIN}" DIRECTORY)
+    set(ENV{GNUARMEMB_TOOLCHAIN_PATH} "${ARM_GCC_PREFIX}")
+  else()
+    message(WARNING
+      "arm-none-eabi-gcc not found on PATH; set GNUARMEMB_TOOLCHAIN_PATH "
+      "manually or install the GNU Arm Embedded toolchain.")
+  endif()
+endif()
+
 find_package(Zephyr REQUIRED HINTS "${ZEPHYR_BASE}")
 project(zephyr_oled_lvgl)
 
