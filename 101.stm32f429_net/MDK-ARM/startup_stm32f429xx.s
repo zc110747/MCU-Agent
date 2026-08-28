@@ -29,7 +29,7 @@
 ;   <o> Stack Size (in Bytes) <0x0-0xFFFFFFFF:8>
 ; </h>
 
-Stack_Size		EQU     0x1600
+Stack_Size		EQU     0x2000
 
                 AREA    STACK, NOINIT, READWRITE, ALIGN=3
 Stack_Mem       SPACE   Stack_Size
@@ -40,7 +40,7 @@ __initial_sp
 ;   <o>  Heap Size (in Bytes) <0x0-0xFFFFFFFF:8>
 ; </h>
 
-Heap_Size      EQU     0x200
+Heap_Size      EQU     0x0
 
                 AREA    HEAP, NOINIT, READWRITE, ALIGN=3
 __heap_base
@@ -68,11 +68,11 @@ __Vectors       DCD     __initial_sp               ; Top of Stack
                 DCD     0                          ; Reserved
                 DCD     0                          ; Reserved
                 DCD     0                          ; Reserved
-                DCD     vPortSVCHandler             ; SVCall Handler (FreeRTOS)
+                DCD     SVC_Handler                ; SVCall Handler (FreeRTOS)
                 DCD     DebugMon_Handler           ; Debug Monitor Handler
                 DCD     0                          ; Reserved
-                DCD     xPortPendSVHandler          ; PendSV Handler (FreeRTOS)
-                DCD     xPortSysTickHandler         ; SysTick Handler (FreeRTOS)
+                DCD     PendSV_Handler             ; PendSV Handler (FreeRTOS)
+                DCD     SysTick_Handler            ; SysTick Handler (FreeRTOS)
 
                 ; External Interrupts
                 DCD     WWDG_IRQHandler                   ; Window WatchDog                                        

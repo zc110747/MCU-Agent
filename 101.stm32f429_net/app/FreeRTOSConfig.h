@@ -90,6 +90,12 @@
 #define configENABLE_MPU                          0
 #define configENABLE_TRUSTZONE                    0
 
+/* Definitions that map the FreeRTOS port interrupt handlers to their CMSIS
+standard names. */
+#define vPortSVCHandler    SVC_Handler
+#define xPortPendSVHandler PendSV_Handler
+#define xPortSysTickHandler SysTick_Handler
+
 /* ------------------------------------------------------------------ */
 /* Interrupt nesting (STM32F4: 4 priority bits)                        */
 /* ------------------------------------------------------------------ */

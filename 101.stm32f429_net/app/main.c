@@ -41,6 +41,29 @@ void Error_Handler(void);
 static void led_task(void *arg)
 {
   (void)arg;
+    
+  /* LwIP (FreeRTOS mode): tcpip_thread + netif + link task */
+  MX_LWIP_Init();
+  /* FreeRTOS V11 quirk: xTaskCreate before vTaskStartScheduler leaves
+   * BASEPRI set to configMAX_SYSCALL_INTERRUPT_PRIORITY (vPortEnterCritical
+   * inside, vPortExitCritical gated on xSchedulerRunning). Clear it here so
+   * TIM7 IRQ and HAL_Delay still work for any subsequent pre-scheduler
+   * syscalls. */
+
+  /* HTTP (port 80) + HTTPS (port 443, mbedTLS) server tasks */
+  http_server_init();
+  https_server_init();
+  telnet_shell_init();
+
+  /* SNMP v2c agent (UDP 161) - dedicated task, mirrors the web /api surface
+   * under enterprise OID 1.3.6.1.4.1.32. */
+  snmp_agent_init();
+
+  /* Shared hardware info collector (web/telnet/snmp read from it).
+   * Spawns hwinfo_task at HWINFO_PERIOD_MS; the task runs after the
+   * scheduler starts. */
+  hwinfo_init();
+  
   for (;;)
   {
     BSP_LED_Toggle(0);
@@ -48,6 +71,12 @@ static void led_task(void *arg)
   }
 }
 
+__attribute__((weak)) void exit(int status)
+{
+    __disable_irq();
+    
+    while(1);
+}
 int main(void)
 {
   /* Reset of all peripherals, initializes the Flash interface and TIM7 tick */
@@ -100,42 +129,10 @@ int main(void)
   if (bsp_mpu9250_init() == 0) PRINT_LOG("MPU9250: init OK\r\n");
   else                         PRINT_LOG("MPU9250: init FAIL\r\n");
 
-  /* LwIP (FreeRTOS mode): tcpip_thread + netif + link task */
-  MX_LWIP_Init();
-  /* FreeRTOS V11 quirk: xTaskCreate before vTaskStartScheduler leaves
-   * BASEPRI set to configMAX_SYSCALL_INTERRUPT_PRIORITY (vPortEnterCritical
-   * inside, vPortExitCritical gated on xSchedulerRunning). Clear it here so
-   * TIM7 IRQ and HAL_Delay still work for any subsequent pre-scheduler
-   * syscalls. */
-  __set_BASEPRI(0);
-  __enable_irq();
-
-  /* HTTP (port 80) + HTTPS (port 443, mbedTLS) server tasks */
-  http_server_init();
-  __set_BASEPRI(0);
-  __enable_irq();
-  https_server_init();
-  __set_BASEPRI(0);
-  __enable_irq();
-  telnet_shell_init();
-  __set_BASEPRI(0);
-  __enable_irq();
-
-  /* SNMP v2c agent (UDP 161) - dedicated task, mirrors the web /api surface
-   * under enterprise OID 1.3.6.1.4.1.32. */
-  snmp_agent_init();
-  __set_BASEPRI(0);
-  __enable_irq();
-
-  /* Shared hardware info collector (web/telnet/snmp read from it).
-   * Spawns hwinfo_task at HWINFO_PERIOD_MS; the task runs after the
-   * scheduler starts. */
-  hwinfo_init();
-
   PRINT_LOG("FreeRTOS scheduler starting... (IP %s)\r\n", g_netcfg.ip);
 
   /* Create the LED heartbeat task, then start the scheduler */
-  xTaskCreate(led_task, "led", 128, NULL, tskIDLE_PRIORITY + 1, NULL);
+  xTaskCreate(led_task, "led", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
   vTaskStartScheduler();
 
   /* Should never reach here */

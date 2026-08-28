@@ -6,5 +6,6 @@
   "cortex-debug.armToolchainPath": "",
   "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
   "C_Cpp.default.intelliSenseMode": "gcc-arm",
-  "cmake.buildDirectory": "${workspaceFolder}/build"
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cortex-debug.variableUseNaturalFormat": true
 }

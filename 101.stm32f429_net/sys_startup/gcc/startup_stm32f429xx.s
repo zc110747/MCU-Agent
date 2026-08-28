@@ -406,11 +406,11 @@ g_pfnVectors:
   .word 0                    /* Reserved */
   .word 0                    /* Reserved */
   .word 0                    /* Reserved */
-  .word vPortSVCHandler      /* SVCall Handler (FreeRTOS) */
+  .word SVC_Handler      /* SVCall Handler (FreeRTOS) */
   .word DebugMon_Handler     /* Debug Monitor Handler */
   .word 0                    /* Reserved */
-  .word xPortPendSVHandler  /* PendSV Handler (FreeRTOS) */
-  .word xPortSysTickHandler  /* SysTick Handler (FreeRTOS) */
+  .word PendSV_Handler  /* PendSV Handler (FreeRTOS) */
+  .word SysTick_Handler  /* SysTick Handler (FreeRTOS) */
   /* External Interrupts */
   .word WWDG_IRQHandler              /* Window WatchDog */
   .word PVD_IRQHandler               /* PVD through EXTI Line detection */

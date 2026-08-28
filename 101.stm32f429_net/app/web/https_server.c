@@ -209,6 +209,25 @@ static int https_send(void *ctx, const void *data, int len)
   return 0;
 }
 
+static void *my_memmem(const void *haystack, size_t haystacklen,
+                       const void *needle, size_t needlelen)
+{
+    const unsigned char *h = haystack;
+    const unsigned char *n = needle;
+
+    if (needlelen == 0 || haystacklen < needlelen)
+        return NULL;
+
+    for (size_t i = 0; i <= haystacklen - needlelen; i++) {
+        size_t j = 0;
+        while (j < needlelen && h[i + j] == n[j])
+            j++;
+        if (j == needlelen)
+            return (void *)(h + i);
+    }
+    return NULL;
+}
+
 /* ---- per-connection task ---- */
 static void https_conn_task(void *arg)
 {
@@ -268,7 +287,7 @@ static void https_conn_task(void *arg)
       if (ret > 0)
       {
         reqlen += ret;
-        if (reqlen >= 4 && memmem(req, (size_t)reqlen, "\r\n\r\n", 4) != NULL)
+        if (reqlen >= 4 && my_memmem(req, (size_t)reqlen, "\r\n\r\n", 4) != NULL)
         {
           break;
         }
