@@ -1,6 +1,6 @@
 ---
 name: stm32-peripheral-drivers
-description: STM32 外设驱动速查表与实测踩坑：STM32H743 / STM32F429 引脚映射、OV5640(DCMI) 多缓冲采集、ST7789(SPI6) OLED 显示、SD 卡 FatFs + GBK 中文点阵字库、QSPI(W25Q64) Flash、USB OTG_FS 的 VDD33USB 供电坑、LAN8720A(RMII) 网络、I2C 总线锁死恢复。适用于"查 STM32 引脚""移植摄像头/OLED/SD 卡驱动""GBK 字库渲染""USB 设备枚举不上""I2C 死锁"。触发词：STM32H7 引脚、STM32F4 引脚、OV5640、DCMI、ST7789、SPI6、FatFs 字库、GBK 字库、QSPI、W25Q64、VDD33USB、USB 枚举不上、LAN8720、RMII、I2C 锁死、PCF8574、SDRAM、FMC。
+description: STM32 外设驱动速查表与实测踩坑：STM32H743 / STM32F429 引脚映射、OV5640(DCMI) 多缓冲采集、ST7789(SPI6) OLED 显示、SD 卡 FatFs + GBK 中文点阵字库、QSPI(W25Q64) Flash、USB OTG_FS 的 VDD33USB 供电坑、LAN8720A(RMII) 网络、I2C 总线锁死恢复。适用于"查 STM32 引脚""移植摄像头/OLED/SD 卡驱动""GBK 字库渲染""USB 设备枚举不上""I2C 死锁"。触发词：STM32H7 引脚、STM32F4 引脚、OV5640、DCMI、ST7789、SPI6、FatFs 字库、GBK 字库、QSPI、W25Q64、VDD33USB、USB 枚举不上、LAN8720、RMII、I2C 锁死、PCF8574、SDRAM、FMC、OV5640 DCMI 基地址 0x48020000、F429 LCD 8080 NT35510 扫描方向交换、GT911 触摸中断风暴、SDIO 4字节对齐、TJpgDec swap 涂抹、MPU9250 磁力计可选、EXFAT 字库挂载、emWin STemWin、USB Host TinyUSB、exFAT U盘、PRINT_LOG 日志开关、GT911 中断风暴三层防护。
 agent_created: true
 ---
 
@@ -48,6 +48,20 @@ ETH/DMA 访问不到。
 - **提供已验证驱动源码**（`drv_dcmi.c/.h`、`drv_dcmi_ov5640.c/.h`）比让 AI 从零生成参数稳得多。
 - I2C 写 OV5640 寄存器（SCCB 协议，兼容 I2C）；PWDN 低电平工作。
 
+### 3.1 H7 DCMI 寄存器地址与极性（真机踩坑）
+- **DCMI 外设基地址 = `0x48020000`（AHB2）**，不是 `0x40050000`（那是 STM32F4 的 DCMI 地址，
+  H7 上读错会浪费大量时间）。DMA 的 `PAR`（外设地址寄存器）可用交叉验证。
+- **DCMI 极性**：PCK/VSYNC/HSYNC = `RISING / LOW / LOW`，对应传感器寄存器 `0x4740 = 0x21`。
+- 传感器输出 `400×300 YUV422/YUYV`，DCMI 再 crop 到目标（如 240×240 / 192×192）。
+- DMA：`DMA2_Stream1`（或 Stream7）`CIRCULAR` + `WORD` 对齐 + `FIFO FULL`，`INC4/SINGLE`。
+- **彩条模式 `0x503D=0x80`** 是判断 DVP 故障段的最快方法（区分「传感器不输出」与「DCMI 不采样」）。
+- 撕裂根因多是在 DMA CIRCULAR 覆写缓冲的任意相位做 `memcpy`；用「采集/显示第三缓冲」结构保证
+  （采集侧硬件双缓冲 + 一块仅 CPU 写的显示缓冲）可从结构上杜绝（详见 `stm32-verification-acceptance` 多缓冲验收）。
+
+### 3.2 OV5640 BSP 参考驱动的已知 bug
+ST BSP 组件驱动 `BSP/ov5640/` 的 QVGA 表有 bug（水平 binning 未使能），优先用用户提供的
+参考驱动 `ov5640_ref.c`；AI 从零生成的参数常卡很久，直接给源码最稳。
+
 ## 四、ST7789 (SPI6) OLED 显示
 
 - 4 线 SPI：SCK/MOSI 硬件 SPI6，CS/DC/BL 用 GPIO 软件控制。
@@ -91,6 +105,13 @@ ETH/DMA 访问不到。
 - 文本渲染前用 `utf8_is_valid()` 识别"无 BOM 的合法 UTF-8"，避免把 GBK 字节误当 UTF-8 转码
   （GBK 双字节高字节 0x81–0xFE 常被误判 UTF-8 续字节 → 乱码）。
 - 有 BOM 的 UTF-8（`EF BB BF`）走快路径不转码。
+
+### 5.6 SDIO(4-bit) 目标缓冲必须 4 字节对齐
+HAL 内部以 `uint32_t*` 读 SDIO FIFO，未对齐地址会 HardFault。`fs_diskio.c` 对未对齐地址统一经
+`s_sd_scratch[512]` 中转，切勿删除；应用层传缓冲也尽量保证 4 字节对齐。
+- SDIOCLK=48MHz（PLLQ=7，与 USB 同源），ClockDiv=2 → 卡时钟 12MHz，**轮询不接 DMA** 更稳。
+- FatFs 卷：`1:`（裸机）/ `SD:`（Zephyr）；`FF_VOLUMES=2` 时 U 盘为 `0:`、SD 卡为 `1:`。
+- `ffconf.h` 须 `FF_FS_EXFAT 1`（U 盘 exFAT 才能挂载字库）。
 
 ## 六、QSPI (W25Q64) Flash
 
@@ -140,6 +161,42 @@ FreeRTOS heap / LwIP 池 / mbedTLS 池都在 SDRAM，任何 `xTaskCreate` 在 SD
 未初始化内存 → `heap_4.c:269` 下溢断言。FMC 配置 → SDRAM 初始化序列 → 刷新率 → 内存自测，
 全部早于一切 RTOS 对象。
 
+### 8.4 F429 LCD 8080 总线（正点原子 800×480 屏，NT35510/ILI9806E）
+- 控制器 NT35510（`0x8000`）/ ILI9806E 回退；FMC Bank1 NE1 8080 16-bit，`RS=A18`
+  （`LCD_BASE = 0x60000000 | 0x0007FFFE`）。
+- **`lcd_scan_dir` 的宽高交换逻辑是正点原子原版、正确，切勿改反/删除**：`DFT_SCAN_DIR=L2R_U2D`(MV=0)
+  下因 `lcd_width(800) > lcd_height(480)` 触发交换 → 有效 GRAM 窗口 **480×800**（即 NT35510 模块铺满
+  物理 800×480 屏所需的窗口）。屏幕尺寸只由 `LCD_WIDTH/LCD_HEIGHT` 决定，不要动交换逻辑。
+- **LVGL 画布 = GRAM 窗口 = 480×800**（不是 800×480）；UI 布局从 `lv_disp_get_hor_res/ver_res()`
+  自适应取，不要硬编码 800×480，否则渲染错位。
+- **LCD 地址窗口必须用 MIPI-DCS 时序**：命令写一次 + 跟 4 数据字节；不可把 `0x2A/0x2B/0x2C`
+  当连续寄存器拆写，否则渲染带写错乱 GRAM → 文字重叠。
+
+### 8.5 电容触摸 GT911/GT9147（软件位绑定 I2C）
+- 芯片**只有 I2C 模式（无 SPI）**，走软件位绑定 I2C：排针 `T_SCK(PH6)=CT_SCL`、`T_MOSI(PI3)=CT_SDA`、
+  `T_CS(PI8)=CT_RST`、`T_PEN(PH7)=CT_INT`。板上实贴 GT911（`product ID="911"`，addr `0x14`，自报 480×800 与画布一致）。
+- **184B 配置块是 9147 专用，绝不能给 GT911 上传**；GT911 用恒等映射即可。
+- **`T_PEN(PH7)` 极易产生中断风暴**：浮空输入 + 紧邻 PH6(位绑定 SCL 165kHz) 串扰，实测 ~46925 次/秒；
+  必须上拉，且 ISR 内立即屏蔽 line 7、任务侧消抖后重新武装（噪声中断正解是「ISR 内屏蔽 + 任务侧延时重新武装」，
+  不是在 ISR 里做软件滤波）。给所有外部中断加「1s 速率看门狗」把风暴变成数字，最划算。
+- **GT9xx 中断后必须轮询到抬手**：INT 行为因模组而异（单次/持续脉冲），中断只当唤醒，任务随后 15ms 轮询直到连续 3 次无触点。
+- 无需手指即可验证 EXTI 链路：OpenOCD `halt` → `mww 0x40013C10 0x80`（`EXTI->SWIER`）→ `resume`，产生与引脚边沿等价的中断。
+
+### 8.5.1 GT911/GT9147 中断风暴三层防护（来自 102 真机教训）
+
+**症状**：PH7 浮空 + 紧邻 PH6（位绑定 SCL 165 kHz）串扰 → 实测 **~46925 次/秒** 中断；
+触摸任务优先级高于传感器任务 → 轮询式 `HAL_I2C_Mem_Read` 被抢占 → HAL 超时 → 从机拉住 SDA
+→ I2C 总线 BUSY 锁死（之后每次都失败）。**三层防护缺一不可**：
+
+| 层 | 措施 |
+|---|---|
+| 源头 | PH7 改 `GPIO_PULLUP`（仅地址锁存一瞬 NOPULL）；位绑定 I2C 事务期间屏蔽 EXTI line 7 |
+| 隔离 | 传感器读取用 `vTaskSuspendAll()/xTaskResumeAll()` 包成原子操作（中断仍开），传输不被抢占 |
+| 容错 | I2C 超时 10ms→50ms；失败先 `BSP_I2C_Recover()` 再立即重试一次；ISR 内立即屏蔽 line 7、任务侧消抖后重新武装（速率 ~47kHz→~20Hz）；触摸轮询上限 `TOUCH_MAX_POLLS` 兜底；IRQ 速率看门狗超 1000/s 打 WARNING |
+
+验证：`tools/verify_serial/verify_sensors.py` 经 SWD 直读 `s_data`，**7/7 PASS**
+（`errors=0`、`|a|=1.00g`）；`verify_touch_irq.py` 经 `EXTI_SWIER` 软注入 line 7，**7/7 PASS**。
+
 ## 九、STM32H7 内部 Flash 升级引擎（Bootloader 实战坑）
 
 H7 内部 Flash 是**双 Bank（16×128KB）**，做 Bootloader 升级时，下面每一条都能让"擦写函数一跑就死"：
@@ -169,3 +226,39 @@ H7 的 read-while-write 会让总线停滞但**不 HardFault**。所以从 bank1
 - **App 工程必须提供 `SysTick_Handler`** 且 `main()` 开头 `__enable_irq()`，否则 `HAL_Delay` 卡死（缺 handler → 链到 `Default_Handler` 死循环；bootloader 留 PRIMASK=1 未恢复 → 全局中断关死）。
 - 验证链路见 `stm32-verification-acceptance` 第八、九节；黄金外部参考样本：`7.stm32h7_iap`
   （同芯片已验证的 `drv_flash.c` / `upload_frame.c`，可作为外部参考，非本仓 skill）。
+
+## 十、emWin (STemWin) GUI 栈（H7 + ST7789，无 OS）
+
+STemWin（Segger emWin 的 ST 版）是 LVGL 之外的另一套 GUI 方案，在 `003` 的 LVGL 版基础上
+1:1 重做了整套 H7 ST7789 OLED 信息面板（见 `011.stm32h743_freertos_emwin`）。
+
+- **预编译库必须 binutils < 2.44**（见 `stm32-ai-dev-environment` 六）：`STemWin_CM7_wc16.a`
+  不能塞进 `add_executable` 源列表（CMake 会静默丢弃 `.a`），改为
+  `add_library(stemwin STATIC IMPORTED)` +
+  `target_link_libraries(... -Wl,--start-group stemwin -Wl,--end-group)`（处理循环引用）。
+- **`GUI_Init()` 死循环根因**：STemWin 入口用硬件 **CRC 外设**做完整性校验，未使能 CRC 时钟
+  → 校验永远失败 → 死循环。修复：`GUI_Init()` 之前 `__HAL_RCC_CRC_CLK_ENABLE()`
+  （CRC 在 AHB4，`RCC->AHB4ENR` 的 `CRCEN`）。
+- **颜色顺序**：`GUI_USE_ARGB` 默认 0 时 `GUI_COLOR` 为 `0x00BBGGRR`（蓝在高字节），
+  与 LVGL 的 `0x00RRGGBB` 相反。传给 `GUI_SetColor()` 前做一次 R/B 交换，保持像素一致。
+- **显示管线**：`GUI_DispString*` → 本地 VRAM `gui_vram[240*240]`(RGB565) → `OLED_CopyBuffer()`
+  刷写 ST7789（与 LVGL 版相同的 SPI6 驱动）。
+- **中文字体**：同 `003` 的 GBK 点阵方案（UNIGBK 双段 + GBKxx.FON），经 Unicode→GBK 取模。
+- 资源（Debug）：FLASH 133532B/2MB(6.37%)、RAM 271808B/512KB(51.84%)，双构零警告。
+
+## 十一、USB Host (TinyUSB, F4 U 盘 + 真正的 exFAT)
+
+`102.stm32f429_tinyusb_ui` 用 **TinyUSB 主机栈**把 U 盘（MSC→SCSI→FatFs）读出来，
+并支持 **真正的 exFAT**（ChaN FatFs R0.15，`FF_FS_EXFAT=1`，非 FAT32 伪装）。
+
+- **USB 初始化必须在 `vTaskStartScheduler()` 之后**：`tusb_init()` 使能 OTG FS 中断，
+  其 ISR 调用 FreeRTOS `xQueueSendToBackFromISR` 等 FromISR API —— 调度器未启动时非法，
+  会把系统跑飞。故 `tusb_init()` 放 `usbh_host_task` 任务体内（该任务创建于调度器启动后）。
+- **SDRAM / FreeRTOS 堆必须先于任何 RTOS 对象**（同 §8.3）：U 盘文件系统对象、LVGL draw buffer
+  都落在外部 SDRAM，初始化顺序错会写未初始化内存 → heap 下溢断言。
+- **FatFs 并发死锁**：两任务并发访问同一 U 盘（一个遍历 dump、一个挂载读字模），底层
+  `disk_read/write` 用单个全局 busy 标志 + 自旋等完成回调 → 并发丢唤醒死锁。修复：用
+  FreeRTOS 互斥量串行化所有 FatFs 入口（`fs_lock()/fs_unlock()`）。
+- **exFAT 真实性**：`f_mkfs(FM_EXFAT, ...)` + 解析原始卷，验证 VBR 引导签名、簇堆 128KB 对齐、
+  分配单元 128KB（见 `102/verify_exfat/harness.c`，PC 端 gcc 编译，`12 passed`）。
+- **GT911/GT9147 触摸中断风暴**：见 §8.5.1（ISR 内屏蔽 line + 任务侧重新武装 + 速率看门狗）。

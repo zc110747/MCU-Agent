@@ -1,6 +1,6 @@
 ---
 name: stm32-verification-acceptance
-description: STM32 嵌入式项目的端到端验收方法论：Debug/Release 双构零警告、OpenOCD 烧录、串口/网络真机验证、Python/C# verify 脚本 pass/fail 计数模式、增量交付清单。适用于"验收 STM32 固件""写嵌入式自测脚本""定义项目验收标准""真机烧录后如何确认功能正常""整理交付清单"。触发词：验收流程、零警告构建、OpenOCD 烧录验证、串口自测、verify 脚本、pass/fail 计数、交付清单、真机验证、嵌入式测试、snmp_verify、serial_test。
+description: STM32 嵌入式项目的端到端验收方法论：Debug/Release 双构零警告、OpenOCD 烧录、串口/网络真机验证、Python/C# verify 脚本 pass/fail 计数模式、增量交付清单。适用于"验收 STM32 固件""写嵌入式自测脚本""定义项目验收标准""真机烧录后如何确认功能正常""整理交付清单"。触发词：验收流程、零警告构建、OpenOCD 烧录验证、串口自测、verify 脚本、pass/fail 计数、交付清单、真机验证、嵌入式测试、snmp_verify、serial_test、openocd 烧录必须用 elf 非 bin、mdw 4字节对齐读取、没报错不等于有数据、COM code-31、LIBUSB_ERROR_ACCESS、PRINT_LOG 全局日志开关、SWD 验证日志开关行为。
 agent_created: true
 ---
 
@@ -62,6 +62,24 @@ openocd -f openocd/stm32h743_stlink.cfg \
 - 记录目标信息：ST-Link 固件版本、Target voltage、SWD DPIDR（H743=0x6ba02477，F429=0x2ba01477）。
 - 烧录后通过串口确认系统起来（心跳 LED / 启动日志）。
 
+⚠️ **OpenOCD 烧录必须用 `.elf`，不要用 `.bin`**：`.elf` 自带加载段与入口；`.bin` 会报
+`no flash bank found for address 0x00000000` 且 `wrote 0 bytes`。命令：
+`flash write_image erase build/xxx.elf` + `verify_image` + `reset run`
+（注意 Git-Bash 里 `cd` 路径必须用正斜杠，反斜杠会吞掉目录分隔）。
+- **改完代码后先烧录再抓串口**：只 `reset` 不复烧会看到旧固件行为，误判。
+
+### 3.1 OpenOCD `mdw` 内存直读（正向验证）
+- **`mdw` 读非 4 字节对齐地址会报 `Failed to read memory`**。读 `uint8/uint16` 混排的静态变量时
+  按 4 字节对齐整字读（`mdw <addr_aligned>`），再在 Python 里切字节。
+- 用 `arm-none-eabi-nm` 取符号地址 → OpenOCD `mdw` 直读目标内存里的数据结构，是「没报错≠有数据」的
+  正向验证手段（见 8.6）。
+
+### 3.2 「没报错 ≠ 有数据」铁律（验收必守）
+错误日志常被限流，且「调用返回 0」不等于「数据正确」。正向验证要用：
+- `arm-none-eabi-nm <elf> | grep <symbol>` 取址；
+- OpenOCD `mdw` / `arm-none-eabi-gdb` `x/...` 直读内存里的数据结构，比对预期值。
+例：传感器采样值、`g_dcmi_last_idx` 交替、SRAM 池完整性，均靠直读内存而非只看日志。
+
 ## 四、真机功能验证（串口 / 网络）
 
 ### 4.1 串口控制台（最常用）
@@ -75,6 +93,15 @@ openocd -f openocd/stm32h743_stlink.cfg \
 - Web：`curl http://IP/ | grep -q "<特征串>"`（避开 Git Bash 吞 `%{}`，见 `stm32-ai-dev-environment`）。
 - `arp -a <IP>` 核对 MAC OUI（ST=00:80:E1）防假通。
 - SNMP：用 PC 端工具或 `snmpget` 验证 Agent 响应（UDP 161）。
+
+### 4.3 全局日志开关 PRINT_LOG（可 SWD 验证）
+工程内所有应用日志统一走 `PRINT_LOG(...)`（编译期可整体关闭成 `((void)0)`），不再裸调
+`printf`（约定见 `102.stm32f429_tinyusb_ui`）。这带来一个**可 SWD 直读验证**的特性：
+关掉日志后，UART TX 环形缓冲写指针必须一个字节都没动过（见 `102` 的 `verify_log_switch.py`，
+`6/6 PASS`：`g_tx_head==0 && g_tx_busy==0`）。
+- 符号地址用 `arm-none-eabi-nm` 取，OpenOCD `mdw` 读（非 4 字节对齐先整字读再切字节，见 3.1）。
+- 串口不可用（如 CH340 code-31）时，这条「日志关 = 串口零字节」正是用 **SWD 取证代替串口抓日志**的范例。
+- 约定：ISR 内禁止调 `PRINT_LOG`（内部拿互斥量），中断上下文用 `uart_write()`。
 
 ## 五、verify 脚本模式（可复制模板）
 
@@ -199,6 +226,10 @@ s = serial.Serial('<COM端口>', 115200, timeout=0.3)   # H7: ST-Link VCP
 - **ST-Link 被 openocd/gdb 残留占用**：烧录报 `Error: init mode failed` / `ST-Link not found` →
   `tasklist | findstr openocd`（或 `findstr arm-none-eabi-gdb`）找残留 PID，`taskkill /F /PID <pid>`
   结束后再起新实例。同一时刻只能有一个 openocd 持有 ST-Link（见 8.1 常驻服务器做法可避免冲突）。
+- **`libusb_open() failed with LIBUSB_ERROR_ACCESS`**：反复用 openocd/gdb 后 USB 被残留进程占用，
+  先 `Get-Process openocd | Stop-Process -Force`（PowerShell）或 `taskkill /F /IM openocd.exe` 再烧。
+- **COM 口 `code-31 / PermissionError(13)`**：CH340 等会周期性进入「设备未发挥作用」状态，需重新插拔 USB
+  才能恢复；串口挂掉时可用 SWD 读内存取证（见 3.2）代替串口抓日志。
 
 ### 8.7 沙箱 / 环境局限（验收设计必知）
 - **QSPI 直写不可行**：openocd `stmqspi` 在本类环境常拉不起 H743 QSPI（probe 后 timeout / No QSPI）。升级包改走**设计的 U 盘路径**（QSPI FatFs + TinyUSB MSC，用户机器拷包）。

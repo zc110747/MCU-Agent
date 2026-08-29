@@ -14,10 +14,16 @@
   *   2. Status page (page 0)
   *      The three-band device status screen: 系统初始化 / 运行信息 / 故障·消息.
   *
-  *   3. Hardware information page (page 1)
-  *      AP3216C (IR / ambient light / proximity) and MPU9250 (accelerometer,
-  *      gyroscope, magnetometer).
-  *
+ *   3. Hardware information page (page 1)
+ *      AP3216C (IR / ambient light / proximity) and MPU9250 (accelerometer,
+ *      gyroscope, magnetometer).
+ *
+ *   4. Device control page (page 2)
+ *      Two buttons toggle the LED (PB0, low-active) and the buzzer
+ *      (PCF8574 P0, low = sound).  A status band shows the live LED / buzzer
+ *      state.  PB0 is driven ONLY from this page -- led_task no longer touches
+ *      it (see main.c), so the button state is not clobbered.
+ *
   *  Both pages carry the same bottom navigation bar with a left and a right
   *  icon button; switching wraps around, so the two pages form a ring.
   *
@@ -39,7 +45,7 @@ extern "C" {
 #endif
 
 /* Number of pages in the navigation ring. */
-#define UI_PAGE_COUNT   2U
+#define UI_PAGE_COUNT   3U
 
 /* Build the normal status screen (page 0). */
 void app_ui_create(void);

@@ -49,7 +49,10 @@ static void SystemClock_Config(void);
 void Error_Handler(void);
 void vApplicationAssertFailed(const char *file, int line);
 
-/* ---- LED task: LED0 heartbeat, LED1 reflects USB state ---- */
+/* ---- LED task: LED0 (PB1) heartbeat only.
+ *      LED1 (PB0) is now driven exclusively by the UI control page, so this
+ *      task must not touch it -- otherwise it would overwrite the user's
+ *      button presses every 100 ms. */
 static void led_task(void *arg)
 {
   (void)arg;
@@ -57,24 +60,7 @@ static void led_task(void *arg)
   for (;;)
   {
     cnt++;
-    if (cnt % 5 == 0) BSP_LED_Toggle(0);   /* ~500 ms heartbeat */
-
-    switch (g_usb_state)
-    {
-      case USB_MOUNTED:
-        BSP_LED_On(1);
-        break;
-      case USB_ERROR:
-        BSP_LED_Toggle(1);                 /* ~100 ms fast blink */
-        break;
-      case USB_ENUMERATED:
-      case USB_MSC_READY:
-        if (cnt % 4 == 0) BSP_LED_Toggle(1); /* ~400 ms slow blink */
-        break;
-      default:
-        BSP_LED_Off(1);
-        break;
-    }
+    if (cnt % 5 == 0) BSP_LED_Toggle(0);   /* ~500 ms heartbeat on LED0 (PB1) */
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 }

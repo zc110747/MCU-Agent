@@ -1,6 +1,6 @@
 ---
 name: zephyr-stm32-porting
-description: STM32 + Zephyr RTOS + LVGL 的移植实战：west 工作区与模块体系、设备树 overlay（SPI/MIPI-DBI/SDMMC/USART/LED）、25MHz HSE 时钟树覆盖、SDMMC/FatFs 卷名、GBK 中文点阵字库双段结构渲染、ST7789 DISPON patch、Zephyr shell 命令控制台、LVGL 内存池与 tick 来源。适用于"在 STM32 上跑 Zephyr""Zephyr 移植 LVGL""Zephyr 中文显示""设备树配置 ST7789/SD 卡""west build 调试"。触发词：Zephyr、west、STM32 Zephyr、LVGL Zephyr、设备树 overlay、nucleo_h743zi、MIPI-DBI、SDMMC、Zephyr shell、GBK 字库 Zephyr、ST7789 Zephyr、时钟树 25MHz、LVGL 内存池。
+description: STM32 + Zephyr RTOS + LVGL 的移植实战：west 工作区与模块体系、设备树 overlay（SPI/MIPI-DBI/SDMMC/USART/LED）、25MHz HSE 时钟树覆盖、SDMMC/FatFs 卷名、GBK 中文点阵字库双段结构渲染、ST7789 DISPON patch、Zephyr shell 命令控制台、LVGL 内存池与 tick 来源。适用于"在 STM32 上跑 Zephyr""Zephyr 移植 LVGL""Zephyr 中文显示""设备树配置 ST7789/SD 卡""west build 调试"。触发词：Zephyr、west、STM32 Zephyr、LVGL Zephyr、设备树 overlay、nucleo_h743zi、MIPI-DBI、SDMMC、Zephyr shell、GBK 字库 Zephyr、ST7789 Zephyr、时钟树 25MHz、LVGL 内存池、CMakeLists 工具链自动探测 ZEPHYR_TOOLCHAIN_VARIANT、west build -b 全新构建、build_oneclick if exist build、PowerShell west stderr 误报。
 agent_created: true
 ---
 
@@ -137,3 +137,37 @@ OpenOCD 调试。`serverpath` 指向 `openocd.exe`，`searchDir` 指向 scripts�
   + `SYS: Zephyr 3.7.0, LVGL 8.4.0, core clock 480000000 Hz`。
 - halt 后 PC 落在 OLED 刷新路径（`mipi_dbi_spi_write_helper`），确认持续渲染无总线错误。
 - 中文经 SD 字库实时取模渲染，数字/字母用移植 ASCII 点阵，未烧字表到 Flash。
+
+## 九、工程构建与 west 实操要点（009 真机教训）
+
+### 9.1 CMakeLists 工具链自动探测（find_package(Zephyr) 前）
+删除 `build/` 后重新编译常报 `ZEPHYR_TOOLCHAIN_VARIANT not set ... Could not find Zephyr-sdk`（致命）。
+在 `find_package(Zephyr)` 前加自动探测，零硬编码机器路径：
+```cmake
+if(NOT DEFINED ZEPHYR_TOOLCHAIN_VARIANT)
+  set(ZEPHYR_TOOLCHAIN_VARIANT gnuarmemb)
+endif()
+if(NOT DEFINED GNUARMEMB_TOOLCHAIN_PATH)
+  find_program(ARM_GCC arm-none-eabi-gcc)
+  if(ARM_GCC)
+    get_filename_component(_BIN "${ARM_GCC}" DIRECTORY)
+    get_filename_component(GNUARMEMB_TOOLCHAIN_PATH "${_BIN}/.." ABSOLUTE)
+  endif()
+endif()
+find_package(Zephyr REQUIRED HINTS <zephyr module path>)
+```
+
+### 9.2 删除 build/ 后必须支持全新构建
+- `west build -t clean` 在 `build/` 不存在时会触发一次无 BOARD 的伪 configure（被当 WARN 吞掉）；
+  `build_oneclick.bat` 的 clean 步骤改 `if exist build` 才执行，避免缺目录误报。
+- `tasks.json` 的 `build` 任务必须带 `-b <board>/<soc>`：`python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .`
+  （缺 `-b` 删除 build 后必失败）。顶层 `options.env` 注入 `ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb`。
+
+### 9.3 build_oneclick.bat（PowerShell/CI 友好）
+- 去掉阻塞 `pause`，收尾 `exit /b %ERR%` 直接返回真实错误码（阻塞 `pause` 在 PowerShell 下会卡死或返回 255）。
+- 纯 ASCII/CRLF；`cd` 先去 `%~dp0` 尾随 `\`（见 `stm32-project-scaffold` 第十节·致命坑 4）。
+- 本沙箱禁用 `cmd.exe`，`.bat` 端到端仅能在用户本机验证；其内核命令即已验证通过的 `west build`。
+
+### 9.4 PowerShell 把 west 的 stderr 误报成红色错误
+`west build` 进度打到 stderr，PowerShell 包装成 `RemoteException`/`NativeCommandError`（红字），但
+`BUILD_EXIT=0`、elf 正常生成。判定以**退出码**为准，别被红色吓到（详见 `stm32-ai-dev-environment` 4.8）。

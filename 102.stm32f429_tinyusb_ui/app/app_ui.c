@@ -12,11 +12,12 @@
   *  glass whatever orientation the controller ends up in, and it is the one
   *  place that has to change if LCD_WIDTH / LCD_HEIGHT are ever retuned.
   *
-  *  Pages
-  *  -----
-  *    0  状态       系统初始化 / 运行信息 / 故障·消息
-  *    1  硬件信息    AP3216C 与 MPU9250 实时读数
-  *
+ *  Pages
+ *  -----
+ *    0  状态       系统初始化 / 运行信息 / 故障·消息
+ *    1  硬件信息    AP3216C 与 MPU9250 实时读数
+ *    2  控制       两个按键切换 LED(PB0) 与蜂鸣器(PCF8574 P0)，并显示状态
+ *
   *  The bottom navigation bar is shared by both pages.  Its left and right
   *  buttons are drawn as LVGL line chevrons rather than text glyphs, so they
   *  render identically with or without the SD-card font files.
@@ -31,6 +32,8 @@
 #include "usb_host_app.h"
 #include "sd_card.h"
 #include "sensor_task.h"
+#include "bsp_led.h"
+#include "bsp_pcf8574.h"
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
 #include <string.h>
@@ -61,7 +64,8 @@
 typedef enum
 {
     PAGE_STATUS = 0,
-    PAGE_HWINFO = 1
+    PAGE_HWINFO = 1,
+    PAGE_CTRL   = 2
 } ui_page_t;
 
 /* Chevron point sets for the two navigation buttons.  lv_line keeps its own
@@ -89,6 +93,13 @@ typedef struct
     lv_obj_t *p1_gyr;
     lv_obj_t *p1_mag;
     lv_obj_t *p1_stat;
+    /* page 2 - device control */
+    lv_obj_t *p2_led_btn;
+    lv_obj_t *p2_beep_btn;
+    lv_obj_t *p2_led_lbl;
+    lv_obj_t *p2_beep_lbl;
+    lv_obj_t *p2_led_state;
+    lv_obj_t *p2_beep_state;
     /* shared */
     lv_obj_t *page_lbl;
 } ui_handles_t;
@@ -100,6 +111,8 @@ static uint32_t     s_last_sec_at = 0U;
 static uint8_t      s_built      = 0U;
 static uint8_t      s_refresh_req = 0U;
 static int          s_page       = (int)PAGE_STATUS;
+static uint8_t      s_led_on     = 0U;   /* LED1 (PB0) state shown on ctrl page */
+static uint8_t      s_beep_on    = 0U;   /* buzzer (PCF8574 P0) state */
 
 /* Derived layout, recomputed on every rebuild. */
 static lv_coord_t   s_w       = 0;
@@ -279,6 +292,100 @@ static lv_obj_t *mk_nav_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
 }
 
 /*----------------------------------------------------------------------------*/
+/* Control page buttons                                                       */
+/*----------------------------------------------------------------------------*/
+static void ctrl_btn_cb(lv_event_t *e);
+
+/*----------------------------------------------------------------------------*/
+/**
+ * @brief  Build a large square-ish control button with a centered label.
+ * @retval The label object, so the caller can update its caption on toggle.
+ */
+static lv_obj_t *mk_ctrl_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
+                                lv_coord_t w, lv_coord_t h,
+                                const char *title, int code)
+{
+    lv_obj_t *btn = lv_btn_create(parent);
+    lv_obj_t *lbl;
+
+    lv_obj_remove_style_all(btn);
+    lv_obj_set_size(btn, w, h);
+    lv_obj_set_pos(btn, x, y);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(COL_BTN), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(btn, lv_color_hex(COL_DIM), LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(btn, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(btn, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+
+    lbl = lv_label_create(btn);
+    lv_obj_set_style_text_font(lbl, &lv_font_gbk_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TXT), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(lbl, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(lbl, 0, LV_PART_MAIN);
+    lv_label_set_text(lbl, title);
+    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+    /* Let taps fall through to the button so the CLICKED event is delivered. */
+    lv_obj_clear_flag(lbl, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_add_event_cb(btn, ctrl_btn_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)code);
+
+    return lbl;
+}
+
+static void ctrl_btn_cb(lv_event_t *e)
+{
+    int code = (int)(intptr_t)lv_event_get_user_data(e);
+
+    LV_UNUSED(e);
+
+    if (code == 1)
+    {
+        /* LED1 = PB0, low-active: On() drives the pin low. */
+        s_led_on = s_led_on ? 0U : 1U;
+        if (s_led_on != 0U)
+        {
+            BSP_LED_On(1);
+        }
+        else
+        {
+            BSP_LED_Off(1);
+        }
+        if (s_ui.p2_led_lbl != NULL)
+        {
+            lv_label_set_text(s_ui.p2_led_lbl,
+                              s_led_on ? "LED 开" : "LED 关");
+        }
+        if (s_ui.p2_led_state != NULL)
+        {
+            lv_label_set_text(s_ui.p2_led_state,
+                              s_led_on ? "LED 状态  点亮" : "LED 状态  关闭");
+        }
+    }
+    else
+    {
+        /* Buzzer = PCF8574 P0, low = sound. */
+        s_beep_on = s_beep_on ? 0U : 1U;
+        BSP_BEEP_Set(s_beep_on);
+        if (s_ui.p2_beep_lbl != NULL)
+        {
+            lv_label_set_text(s_ui.p2_beep_lbl,
+                              s_beep_on ? "蜂鸣器 开" : "蜂鸣器 关");
+        }
+        if (s_ui.p2_beep_state != NULL)
+        {
+            lv_label_set_text(s_ui.p2_beep_state,
+                              s_beep_on ? "蜂鸣器  鸣响" : "蜂鸣器  静音");
+        }
+    }
+
+    PRINT_LOG("[UI  ] ctrl btn %d -> led=%d beep=%d\r\n",
+              code, (int)s_led_on, (int)s_beep_on);
+}
+
+/*----------------------------------------------------------------------------*/
 /* Data refresh                                                               */
 /*----------------------------------------------------------------------------*/
 static const char *usb_state_str(usb_state_t s)
@@ -440,6 +547,29 @@ static void refresh_hwinfo(void)
     }
 }
 
+static void refresh_ctrl(void)
+{
+    if (s_ui.p2_led_state != NULL)
+    {
+        lv_label_set_text(s_ui.p2_led_state,
+                          s_led_on ? "LED 状态  点亮" : "LED 状态  关闭");
+        if (s_ui.p2_led_lbl != NULL)
+        {
+            lv_label_set_text(s_ui.p2_led_lbl, s_led_on ? "LED 开" : "LED 关");
+        }
+    }
+    if (s_ui.p2_beep_state != NULL)
+    {
+        lv_label_set_text(s_ui.p2_beep_state,
+                          s_beep_on ? "蜂鸣器  鸣响" : "蜂鸣器  静音");
+        if (s_ui.p2_beep_lbl != NULL)
+        {
+            lv_label_set_text(s_ui.p2_beep_lbl,
+                              s_beep_on ? "蜂鸣器 开" : "蜂鸣器 关");
+        }
+    }
+}
+
 static void ui_tick_cb(lv_timer_t *timer)
 {
     uint32_t now = HAL_GetTick();
@@ -462,6 +592,10 @@ static void ui_tick_cb(lv_timer_t *timer)
             refresh_font();
             s_refresh_req = 0U;
         }
+    }
+    else if (s_page == (int)PAGE_CTRL)
+    {
+        refresh_ctrl();
     }
     else
     {
@@ -600,6 +734,49 @@ static void build_page_hwinfo(void)
     (void)mk_label(b3, 8, 56, &lv_font_gbk_16, COL_DIM, "I2C2  PH4(SCL) / PH5(SDA) 400kHz");
 }
 
+static void build_page_ctrl(void)
+{
+    lv_obj_t *scr = lv_scr_act();
+    lv_coord_t bw;
+    lv_coord_t bh;
+    lv_coord_t by;
+    lv_coord_t bx0;
+    lv_coord_t bx1;
+    lv_coord_t st_y;
+    lv_coord_t st_h;
+    lv_obj_t  *st;
+
+    /* Two side-by-side control buttons under the header. */
+    bw  = (lv_coord_t)((s_w - (3 * UI_PAD)) / 2);
+    bh  = 200;
+    by  = (lv_coord_t)(HDR_H + TOP_GAP + 16);
+    bx0 = UI_PAD;
+    bx1 = (lv_coord_t)(UI_PAD + bw + UI_PAD);
+
+    s_ui.p2_led_lbl  = mk_ctrl_button(scr, bx0, by, bw, bh, "LED", 1);
+    s_ui.p2_led_btn  = lv_obj_get_parent(s_ui.p2_led_lbl);
+    s_ui.p2_beep_lbl = mk_ctrl_button(scr, bx1, by, bw, bh, "蜂鸣器", 2);
+    s_ui.p2_beep_btn = lv_obj_get_parent(s_ui.p2_beep_lbl);
+
+    /* Status band fills the rest of the content area down to the nav bar. */
+    st_y = (lv_coord_t)(by + bh + BAND_GAP);
+    st_h = (lv_coord_t)(s_h - st_y - NAV_H - TOP_GAP);
+    if (st_h < (3 * BAND_GAP))
+    {
+        st_h = (lv_coord_t)(3 * BAND_GAP);
+    }
+
+    st = make_band(scr, st_y, st_h, "状态");
+    s_ui.p2_led_state  = mk_label(st, 8, 32, &lv_font_gbk_16, COL_TXT,
+                                  s_led_on ? "LED 状态  点亮" : "LED 状态  关闭");
+    s_ui.p2_beep_state = mk_label(st, 8, 56, &lv_font_gbk_16, COL_TXT,
+                                  s_beep_on ? "蜂鸣器  鸣响" : "蜂鸣器  静音");
+    (void)mk_label(st, 8, 80, &lv_font_gbk_16, COL_DIM,
+                   "LED = PB0  蜂鸣器 = PCF8574 P0");
+    (void)mk_label(st, 8, 104, &lv_font_gbk_16, COL_DIM,
+                   "左右箭头切换界面");
+}
+
 static void ui_build(void)
 {
     lv_obj_t *scr = lv_scr_act();
@@ -612,6 +789,10 @@ static void ui_build(void)
     if (s_page == (int)PAGE_HWINFO)
     {
         build_page_hwinfo();
+    }
+    else if (s_page == (int)PAGE_CTRL)
+    {
+        build_page_ctrl();
     }
     else
     {
@@ -743,6 +924,10 @@ void app_ui_switch_page(int delta)
         refresh_sd();
         refresh_font();
         refresh_runtime();
+    }
+    else if (s_page == (int)PAGE_CTRL)
+    {
+        refresh_ctrl();
     }
     else
     {

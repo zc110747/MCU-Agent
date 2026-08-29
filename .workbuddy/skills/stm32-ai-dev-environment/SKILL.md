@@ -1,6 +1,6 @@
 ---
 name: stm32-ai-dev-environment
-description: STM32 AI Agent 开发环境验证与 Windows/GitBash 踩坑：arm-none-eabi-gcc、cmake、ninja、openocd、python 的安装与 PATH 配置；Zephyr 的 west 调用方式；Git Bash 吞花括号、中文 GBK 编码、openocd swd 传输等平台坑。适用于"配置 AI 能直接构建的嵌入式环境""排查 Agent 构建失败""Windows 下交叉编译环境搭建""west 不在 PATH 怎么调"。触发词：AI 开发环境、工具链安装、arm-none-eabi-gcc、cmake ninja、openocd、west 调用、Git Bash 坑、GBK 编码、嵌入式环境验证、STM32 环境配置。
+description: STM32 AI Agent 开发环境验证与 Windows/GitBash 踩坑：arm-none-eabi-gcc、cmake、ninja、openocd、python 的安装与 PATH 配置；Zephyr 的 west 调用方式；Git Bash 吞花括号、中文 GBK 编码、openocd swd 传输等平台坑。适用于"配置 AI 能直接构建的嵌入式环境""排查 Agent 构建失败""Windows 下交叉编译环境搭建""west 不在 PATH 怎么调"。触发词：AI 开发环境、工具链安装、arm-none-eabi-gcc、cmake ninja、openocd、west 调用、Git Bash 坑、GBK 编码、嵌入式环境验证、STM32 环境配置、双 openocd 端口冲突、PowerShell stderr 误报红色错误、LIBUSB_ERROR_ACCESS、ST-Link 被残留进程占用。
 agent_created: true
 ---
 
@@ -95,6 +95,25 @@ taskkill /F /PID <pid>     # 结束残留再重试
 ```
 推荐常驻一个 openocd 调试服务器（见 `stm32-verification-acceptance` 第八节），避免重复实例抢 ST-Link。
 
+### 4.7.1 双 openocd 实例端口冲突（Git Bash 看不到进程）
+若 GDB 报 `Target not examined yet / refuse gdb connection`，先查是否有两个 `openocd.exe` 都绑了
+`3333/4444`。**Git Bash 的 `ps` 看不到 Windows 原生进程**，必须用：
+```bash
+tasklist | findstr openocd
+netstat -ano | findstr :3333
+# 拿到 PID 后
+taskkill /F /PID <pid>
+```
+最后只起一个 OpenOCD（或复用常驻服务器），端口冲突即解。
+
+### 4.8 PowerShell 把 stderr 包装成「红色报错」的误报
+`west build` / `cmake` 等把进度/警告打到 **stderr**，PowerShell 会将其包装成
+`RemoteException` / `NativeCommandError`（红色报错外观），但**实际 `BUILD_EXIT=0`、elf 正常生成**
+——属 PowerShell 的 stderr→error 误报，并非真失败。
+- 判定真失败以**退出码**为准：脚本里 `echo %ERRORLEVEL%` / `exit /b %ERR%`，看 `BUILD_EXIT`，别被红色吓到。
+- 在 `.bat` 里把 `pause` 改成 `exit /b %ERR%`，把阻塞 `pause` 去掉，便于 PowerShell/CI 拿到真实错误码（阻塞 `pause` 在 PowerShell 下会卡死或返回 255）。
+- 想在 PowerShell 看真实输出，用 `python -m west build ... 2>&1 | Tee-Object -Variable out` 后查 `BUILD_EXIT`。
+
 ## 五、编译期零警告约束
 
 本项目强约束 **Debug / Release 双构零警告**：
@@ -105,3 +124,26 @@ add_compile_options(-Wall -Wextra)
 - `-specs=nano.specs` 默认不链浮点 printf，需加 `-u _printf_float`（否则含浮点打印时显示空白，例如 IMU 九轴数据）。
 - mbedTLS 3.x 的 `-Warray-bounds` 假阳性（common.h 128 位 union），在 config 头
   `#pragma GCC diagnostic ignored "-Warray-bounds"` 屏蔽。
+
+## 六、预编译厂商库与工具链版本锁定（binutils 2.44 坑）
+
+部分厂商**预编译静态库**（如 STemWin 的 `STemWin_CM7_wc16.a`，由 ARM Compiler/armcc 构建）
+在 **GNU ld 2.44（随 arm-none-eabi-gcc 15.x 发布）** 下链接会直接中止：
+
+```
+(.text.xxx+0x..): undefined reference to `GUI_xxx'
+(GUI_xxx): Unknown destination type (ARM/Thumb)
+dangerous relocation: unsupported relocation
+```
+
+**根因**：库目标文件缺 `.type %function` / 映射符号相关的严格性检查，binutils 2.44 收紧后
+拒绝 interworking 重定位。给 `.a` 补 `$t` 映射符号**无法绕过** 2.44 的严格性。
+
+**已验证修复**：把工具链锁到 **binutils < 2.44** 的版本（GNU Arm Embedded
+**13.3.rel1 / 14.2.rel1**，binutils 2.43.1）—— 链接即正常。
+
+- 锁定方式（杜绝 PATH 回退到 15.x）：在 `cmake/arm-none-eabi.cmake` 探测目标工具链后，
+  把编译器/链接器/ar 等**全部以绝对路径 `FORCE` 写入 CMake 缓存**，并追加 `-B<tc_bin>`
+  让 gcc 驱动优先在该 `bin` 解析 `ld`/`as`。
+- 经验：凡用到**厂商预编译 `.a`**（emWin / 某些 DSP / 闭源协议栈），先确认其 binutils 兼容性，
+  必要时准备一个 binutils <2.44 的降级工具链，不要默认 newest（见 `stm32-peripheral-drivers` 十）。

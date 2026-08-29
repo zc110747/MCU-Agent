@@ -1,6 +1,6 @@
 ---
 name: stm32-vibe-coding-workflow
-description: STM32 嵌入式项目的 AI Agent（Vibe Coding）总方法论：如何让 AI 自动编译/调试/下载/仿真并走通自我迭代。涵盖开发环境要求、提示词（prompter）写法、分阶段验收节奏、人工干预时机、常见认知误区。适用于"用 AI 从零生成 STM32 工程""给 Agent 下嵌入式任务""规划单片机 AI 开发流程"。触发词：Vibe Coding、AI 写单片机、Agent 嵌入式开发、提示词模板、单片机 AI 环境、stm32 自动化构建、嵌入式验收流程。
+description: STM32 嵌入式项目的 AI Agent（Vibe Coding）总方法论：如何让 AI 自动编译/调试/下载/仿真并走通自我迭代。涵盖开发环境要求、提示词（prompter）写法、分阶段验收节奏、人工干预时机、常见认知误区。适用于"用 AI 从零生成 STM32 工程""给 Agent 下嵌入式任务""规划单片机 AI 开发流程""跨平台（ESP32）Vibe Coding"。触发词：Vibe Coding、AI 写单片机、Agent 嵌入式开发、提示词模板、单片机 AI 环境、stm32 自动化构建、嵌入式验收流程、跨平台 ESP32。
 agent_created: true
 ---
 
@@ -129,3 +129,16 @@ Debug + Release 双构零警告（ninja）
 - 硬件配置：`document/stm32h7_hw.md`、`document/stm32f4_hw.md`（示例，按实际文档结构放置）
 - 环境说明：`document/support.md`
 - 各项目提示词：`*/prompter.md`（可直接复制微调）
+
+## 八、跨平台延伸（ESP32-S3）
+
+同一套 Vibe Coding 方法论（环境就绪 → 计划 → 编码 → 双构零警告 → 真机/仿真验证 → verify 脚本
+→ 交付清单）同样适用于 STM32 之外的 MCU。本仓 `201`/`202` 即 **ESP32-S3 (N16R8)**：
+
+- 工具链不同：用 **arduino-cli / ESP-IDF** 而非 arm-none-eabi-gcc；构建/烧录走
+  `arduino-cli compile/upload`（FQBN `esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M`）
+  + CH343 串口下载，**不依赖 OpenOCD/ST-Link**。
+- 同样要求零警告构建、串口命令验证、pass/fail 计数脚本（见 `201` 的 `[SYS]/[MEM]/[TASK]` 状态上报）。
+- `202` 用 ESP32-S3 自带 Wi-Fi + USB Device 实现 **RNDIS** 网卡（lwIP + USB RNDIS），
+  是 USB 网络共享方向，与 STM32 的 USB 设备/主机栈思路可互参。
+- 验收思路完全一致：环境可构建 → 真机烧录 → 串口日志/命令断言 → 增量交付。

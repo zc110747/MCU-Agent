@@ -51,15 +51,18 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
 ✅ 009.基于zephyr系统实现lvgl显示功能  
-✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
+✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader
+✅ 011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)  
 
 🚀 **STM32F429IGT6项目**
 
 ✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
+✅ 102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板
 
-🚀 **STM32F429IGT6项目**
+🚀 **esp32s3项目**
 
 ✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
+✅ 202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享
 
 具体项目效果和提示词说明如下。
 
@@ -258,6 +261,19 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./010.stm32h743_boot/prompter.md)
 
+#### 基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)
+
+🚀 [011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)](./011.stm32h743_freertos_emwin/README.md)
+
+**AI开发**：工程骨架、emWin(STemWin) GUI栈移植、ST7789 SPI6 驱动、SD卡GBK字库、FreeRTOS
+**个人参与**: 仿真环境、提示词、真机验收
+
+工作量：
+
+1. 在 003 LVGL 版基础上用 emWin 重做整套 OLED 信息面板（界面/功能 1:1 对齐）
+2. 解决 STemWin 预编译库与 binutils 2.44 不兼容（锁定 GNU Arm Embedded 14.2.rel1 工具链）
+3. 修复 GUI_Init 死循环（CRC 时钟未使能）、ARGB 色序差异、LCD_* 符号冲突
+
 ### STM32F429IGT6项目
 
 #### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
@@ -289,9 +305,45 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./101.stm32f429_net/prompter.md)
 
+#### 基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板
+
+🚀 [102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板](./102.stm32f429_tinyusb_ui/README.md)
+
+**AI开发**：工程骨架、TinyUSB USB Host(MSC)、FatFs exFAT、LVGL、GT911/GT9147 软件I2C触摸、FreeRTOS+SDRAM、PRINT_LOG 日志系统
+**个人参与**: 仿真环境、提示词、真机验收
+
+工作量：
+
+1. F429 上跑 TinyUSB 主机栈读 U 盘（exFAT 真实支持，非 FAT32 伪装）
+2. LVGL + 800x480 FMC 8080 LCD + GBK 字库（SD/U盘双来源，启动加载器回退）
+3. GT911 触摸中断链路 + 中断风暴三层防护 + I2C 总线恢复
+
 ### esp32s3项目
 
-### ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
+#### ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
+
+🚀 [201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)](./201.esp32s3_rtos/README.md)
+
+**AI开发**：FreeRTOS 多任务骨架（任务/队列/信号量/互斥量/软件定时器）、ESP32-S3 Arduino Core
+**个人参与**: 仿真环境、提示词
+
+工作量：
+
+1. 建立可复用的 FreeRTOS 基础工程（config.h 集中 GPIO/参数，不猜测引脚）
+2. 4 任务 + 1 软件定时器构成设备监控器，UART 命令查看/控制
+3. 零警告构建 + CH343 串口下载 + 双核信息/任务表验收
+
+#### ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享
+
+🚀 [202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享](./202.esp32s3_usb_wifi/prompter.md)
+
+**AI开发**：ESP32-S3 自带 Wi-Fi + USB Device 实现 RNDIS 网卡（lwIP + USB RNDIS），CH343 串口下载
+**个人参与**: 仿真环境、提示词
+
+工作量：
+
+1. 参考 github 已有项目复刻 USB Wi-Fi 网络适配器
+2. ESP32-S3 STA 连 Wi-Fi，经 lwIP 桥接到 USB RNDIS，Windows 枚举为 RNDIS 网卡
 
 ## 开发经验总结
 

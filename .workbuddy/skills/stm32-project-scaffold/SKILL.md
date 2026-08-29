@@ -1,6 +1,6 @@
 ---
 name: stm32-project-scaffold
-description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、开发流程文档编写、工程 README 规范、CMSIS 启动文件 GLOB_RECURSE 禁止、HAL 目录 Cube 标准命名、startup_stm32h7xx 显式列出。
+description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、开发流程文档编写、工程 README 规范、CMSIS 启动文件 GLOB_RECURSE 禁止、HAL 目录 Cube 标准命名、startup_stm32h7xx 显式列出、sys_startup 本地设备层替代 Drivers/CMSIS/Device、build_oneclick 致命坑4 cd %~dp0 尾随反斜杠、.bat 纯英文、多缓冲防撕裂结构。
 agent_created: true
 ---
 
@@ -345,6 +345,22 @@ def sanitize(line):
 
 反斜杠 `\`（如 `..\support_tools\...` 路径）在 cmd 的 `echo` 中是字面量，**不受影响**，无需处理。
 
+**⚠️ 致命坑 4 —— `cd /d "%~dp0"` 尾随反斜杠 + `for` 块内 `2>&1` 触发 `此时不应有 .`**
+`%~dp0` 永远带尾随 `\`，`cd /d "D:\...\009.stm32h743_zephyr\"` 行尾 `\"` 被 cmd 当成转义引号 → 引号未闭合 →
+后续 `echo` 行被吞 → 遇路径里的 `.` 报 `此时不应有 .。`；且 `for %%T in (...) do ( where %%T >nul 2>&1 ... )`
+括号块内 `2>&1` 的 `&` 被当成命令分隔符解析报错。
+正确写法：先去尾随 `\` 再 `cd`；`2>&1` 改成 `> nul 2>nul`：
+```bat
+set "SD=%~dp0"
+if "%SD:~-1%"=="\" set "SD=%SD:~0,-1%"
+cd /d "%SD%"
+for %%T in (cmake ninja openocd arm-none-eabi-gcc) do ( where %%T > nul 2>nul )
+```
+> 该 `build_oneclick.bat` 坑已在 `009.stm32h743_zephyr` 真机复现并修复，沉淀于此避免新工程重蹈。
+
+**⚠️ 所有 `.bat` 文件必须纯英文（不含任何中文注释）**：GBK 控制台解析中文注释会乱码甚至语句截断，
+生成/手写 `.bat` 时一律用英文注释或干脆无注释。
+
 ---
 
 ## 十一、工作空间级一键编译全部工程 `build_all.bat`
@@ -407,3 +423,48 @@ def sanitize(line):
 - **验证**：用临时夹具（含「仅 zip 的 h743」「预解压的 f429/zephyr」「缺失/已存在条目工程」「2xx 跳过」）跑通四分支——h743 触发解压+拷贝、zephyr 走命名分支、f429 已有条目 SKIP+缺失 COPY、201 不被处理；产物树与打印均符合预期。
 
 > 本脚本与第十节 `build_oneclick.bat`、第十一节 `build_all.bat` 组成「依赖补齐 → 单工程编译 → 全工程编译」的完整工具链。
+
+---
+
+## 十四、sys_startup 本地设备层约定（强约束，替代 Drivers/CMSIS/Device）
+
+所有 STM32H7 CMake 工程统一用本地 `sys_startup/` 取代 `Drivers/CMSIS/Device/ST/STM32H7xx/`
+（已迁移并 Debug+Release 双构验证的工程：002/003/004/005/006/007/008/010；模板取自 `001/sys_startup`）。
+
+### 14.1 目录树（禁止在 Drivers/ 下放 CMSIS-Device）
+```
+<project>/
+├── sys_startup/                  # 本地设备层（替代 Drivers/CMSIS/Device）
+│   ├── stm32h743xx.h             # 设备头
+│   ├── stm32h7xx.h               # 系列头
+│   ├── system_stm32h7xx.h/.c     # 系统时钟
+│   ├── startup_stm32h743xx.s     # gcc 启动文件（arm/iar 同目录备用）
+│   └── STM32H743ZITX_FLASH.ld    # 链接脚本（各工程自有，ldscript/ 作废）
+├── Drivers/                      # 只放 CMSIS-Core / Include / DSP / NN + STM32x_HAL_Driver
+├── app/ bsp/ third_party/
+└── CMakeLists.txt
+```
+
+### 14.2 铁律
+- 设备层一律放本地 `sys_startup/`，**禁止依赖 `Drivers/CMSIS/Device/ST/STM32H7xx/`**。
+- **验收红线**：`grep -c "Drivers/CMSIS/Device" CMakeLists.txt` 出现次数 == 0；`sys_startup` 引用 ≥ 3 处。
+- `c_cpp_properties.json` 的 includePath 从 `Drivers/CMSIS/Device/ST/STM32H7xx/Include` 改为 `sys_startup`。
+- 迁移时删除旧位置（`Core/Src/system_stm32h7xx.c`、`startup/`、`Core/Startup/` 中的 startup/system 副本）。
+
+### 14.3 CMakeLists 引用写法
+```cmake
+set(SYS_STARTUP_DIR ${CMAKE_SOURCE_DIR}/sys_startup)
+include_directories(${SYS_STARTUP_DIR})
+set(STARTUP_SOURCES
+  ${SYS_STARTUP_DIR}/startup_stm32h743xx.s
+  ${SYS_STARTUP_DIR}/system_stm32h7xx.c
+)
+# 链接脚本随工程：除 007 用 stm32h743zi_flash.ld 外，H743 多数为 STM32H743ZITX_FLASH.ld
+set(LINKER_SCRIPT ${SYS_STARTUP_DIR}/STM32H743ZITX_FLASH.ld)
+set_target_properties(${PROJECT_NAME}.elf PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
+```
+
+### 14.4 新工程落地 5 步
+1. 拷贝 `001/sys_startup/` 作模板；2. 选对应 `.ld`（见 14.3 注释）；3. CMakeLists 改引用；
+4. `c_cpp_properties.json` includePath 改 `sys_startup`；5. 编译验证 `Drivers/CMSIS/Device` 出现次数 == 0。
+
