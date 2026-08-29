@@ -30,4 +30,17 @@ void BSP_I2C_Init(void);
   */
 int BSP_I2C_Recover(void);
 
+/**
+  * @brief  Shared I2C2 bus mutex.
+  *
+  *   Every I2C master on the bus (PCF8574, AP3216C, MPU9250, AT24C02 EEPROM)
+  *   MUST take this lock around each transfer.  The bus is shared across
+  *   FreeRTOS tasks (sensor sampling, beep/alarm, EEPROM save) and a
+  *   collision leaves SDA stuck low and the peripheral latched BUSY (see
+  *   §3.5.1 in the README).  The lock is a no-op before the scheduler is
+  *   running (only one thread touches the bus then).
+  */
+void BSP_I2C_Lock(void);
+void BSP_I2C_Unlock(void);
+
 #endif /* __BSP_I2C_H */

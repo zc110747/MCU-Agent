@@ -3,10 +3,11 @@
   * @file    bsp_eeprom_24c02.h
   * @brief   AT24C02 I2C EEPROM driver (256 B, 8 B/page) on I2C2 (PH4/PH5).
   *
-  *          AT24C02 sits on the shared I2C2 bus with PCF8574 / AP3216C /
-  *          MPU9250. The driver takes the shared bus mutex internally
-  *          (web_i2c_lock / web_i2c_unlock) so every caller is protected
-  *          against cross-task bus contention — callers do NOT need to lock.
+ *          AT24C02 sits on the shared I2C2 bus with PCF8574 / AP3216C /
+ *          MPU9250. The driver takes the shared bus mutex internally
+ *          (BSP_I2C_Lock / BSP_I2C_Unlock, defined in bsp_i2c.c) so every
+ *          caller is protected against cross-task bus contention — callers
+ *          do NOT need to lock.
   ******************************************************************************
   */
 #ifndef __BSP_EEPROM_24C02_H

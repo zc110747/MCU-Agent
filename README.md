@@ -24,7 +24,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 ⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝到内存卡内访问**
 
-⚠️注意：**项目.workbuddy/skills整理提炼了开发这些项目过程中的技能，可以优化后续开发过程**
+⚠️注意：**项目.workbuddy/skills整理提炼了开发这些项目过程中的技能，是本项目最重要的成果，可以直接使用workbuddy安装**
 
 ## 项目说明
 
@@ -56,13 +56,13 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 **STM32F429IGT6项目**
 
-✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
-✅ 102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板
+✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)  
+✅ 102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板  
 
 🚀 **esp32s3项目**
 
-✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
-✅ 202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享
+✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)  
+✅ 202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享  
 
 具体项目效果和提示词说明如下。
 

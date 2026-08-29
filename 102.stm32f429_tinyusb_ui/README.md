@@ -199,16 +199,17 @@ ui_task (OS 已启动)
 `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` 三个宏是换屏时唯一需要改的地方。
 每次触摸都会打印 `raw=(x,y) -> lv=(x,y)`，一次点击即可确定正确的组合。
 
-### 3.2.4 UI 三页面与底部导航
+### 3.2.4 UI 四页面与底部导航
 
 | 页 | 标题 | 内容 |
 |----|------|------|
 | 0 | 状态 | 系统初始化（LCD ID / SD 卡 / USB）/ 运行信息（USB 状态、字库、主频、运行时间、字形缓存）/ 故障·消息 |
 | 1 | 硬件信息 | AP3216C（红外 / 环境光 / 接近）+ MPU9250（加速度 / 角速度 / 磁场）+ 采样统计 |
 | 2 | 控制 | 两个大按键：`LED`（切 PB0，低电平点亮）/ `蜂鸣器`（切 PCF8574 P0，低电平响）；状态栏显示 LED / 蜂鸣器实时状态 |
+| 3 | 时钟 | 内部 RTC 实时钟：**时钟区占约 80% 原高度（两行 gbk_32）** `年-月-日` / `时:分:秒`（2 Hz 刷新）；**下方合并设置区**：时间 5 字段（年/月/日/时/分）+ 闹钟 2 字段（时/分）点选高亮；**底部两行按键**：上行 `上`(↑ 循环)/`下`(↓ 循环，箭头 chevron 非文字)/`设置`(整体写 RTC+启用闹钟)，下行 `闹钟开启`/`闹钟关闭`；`切换` 按钮已移除（改为点字段选中）；状态标签显示 `闹钟 HH:MM 开/关`，**仅在提交时刷新**（点击 `设置`/`闹钟开启`/`闹钟关闭` 才更新，上/下编辑不改动标签）；**上/下键均支持循环**（到最大再点回最小、到最小再点回最大）；闹钟**持久化到 AT24C02 EEPROM**（主存，初始化 `BSP_RTC_Alarm_LoadFromEEPROM()` 读入并同步写 RTC Alarm 备份寄存器），开启/关闭同步改 RTC 状态+设置+EEPROM（变更检测：未变不重复写）；**闹钟关闭同时关闭蜂鸣器**；到点由 2 Hz tick 软件比对驱动蜂鸣器响铃，**响铃后 60 s 自动关闭**（停止蜂鸣器 + 持久化 off + 刷新标签）；页面代码已拆分到 `app/ui/`（`page_status.c`/`page_hwinfo.c`/`page_ctrl.c`/`page_rtc.c`，框架在 `app_ui.c` + `app/ui/ui_common.h`） |
 
-底部导航条三页共用：左 / 右两个**图标按钮**（LVGL `lv_line` 画的 V 形箭头，
-不依赖字库文件）+ 中间页码 `x / 3`。点左/右以 `±1` 循环翻页（`app_ui_switch_page()`）。
+底部导航条四页共用：左 / 右两个**图标按钮**（LVGL `lv_line` 画的 V 形箭头，
+不依赖字库文件）+ 中间页码 `x / 4`。点左/右以 `±1` 循环翻页（`app_ui_switch_page()`）。
 
 - **PB0 由 UI 独占**：`main.c` 的 `led_task` 原先用 `LED1(PB0)` 做 USB 状态指示，会与
   控制页的手动开关互相覆盖；现 `led_task` 只保留 `LED0(PB1)` 心跳，`PB0` 完全交给控制页。
@@ -488,7 +489,8 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 | **GT9147/GT911 软件 I2C 识别 + ID 校验** | ✅ 硬件验证通过 | 2026-08-28 COM5 实测：`product ID = "911" (addr 0x14) -> MATCH`，自报分辨率 480×800 |
 | **T_PEN 中断链路（EXTI→ISR→信号量→任务）** | ✅ PASS 7/7 | `verify_touch_irq.py` 经 `EXTI_SWIER` 软注入 line 7，任务被唤醒（§7.7.1） |
 | **AP3216C + MPU9250 采样** | ✅ 硬件验证通过 | 2026-08-28 COM5 实测：`AP3216C init OK` / `MPU9250 init OK (WHO_AM_I check)` |
-| **UI 三页面 + 底部左右图标按钮** | ✅ 编译 + 代码审查通过 | 布局自适应 480×800 画布；翻页循环(0→1→2→0)；图标用 `lv_line` 画，不依赖字库文件 |
+| **UI 四页面 + 底部左右图标按钮** | ✅ 编译 + 代码审查通过 | 布局自适应 480×800 画布；翻页循环(0→1→2→3→0)；图标用 `lv_line` 画，不依赖字库文件 |
+| **RTC 时钟页（内部 RTC 走时 + 时间/闹钟设置写回）** | ✅ 编译 + 烧录 + SWD 寄存器验证 | Release/Debug 零警告；OpenOCD 校验（Release 310084 B / 29.57%、Debug 269716 B / 25.72%）；布局按反馈重排：**时钟区缩至 80% 原高度**、时间+闹钟合并为一区、上/下改箭头 chevron、`切换` 移除；**底部两行按键**：上行 `上`/`下`/`设置`，下行 `闹钟开启`/`闹钟关闭`；**上/下键均循环**（到极值回绕）；新增 `bsp_rtc` 闹钟 **AT24C02 EEPROM 持久化** API（`BSP_RTC_Alarm_LoadFromEEPROM` 初始化读入并写 RTC Alarm 备份寄存器、`BSP_RTC_Alarm_Persist` 变更检测避免重复写）；SWD 读 RTC `TR` 0x2→0x5（3 s 走时），EEPROM→BKP 镜像一致、`Persist(7,30,1)` 跨复位存活（`verify_alarm_eeprom.py` **PASS 6/6**）；**修复 HAL RTC 备份寄存器索引语义坑**（`HAL_RTCEx_BKUPWrite` 的 `BackupRegister` 是索引 0..19，须用 `RTC_BKP_DRx` 而非 `RTC_BKPxR`=0xFFFFFFFFUL 位掩码，否则写到垃圾地址、备份永不更新；首上电标志 `RTC_BKP0R` 一并修正）；**UI 重构为 `app/ui/` 每页独立文件**（`page_status/page_hwinfo/page_ctrl/page_rtc` + 框架 `app_ui.c`/`ui_common.h`，零警告双构）；本次新增行为（逻辑编译通过 + SWD 启动/走时已验证，点屏交互待人工确认）：**闹钟标签仅提交时刷新**（设置/开启/关闭才更新，上/下编辑不改）、**闹钟关闭同时关蜂鸣器**、**响铃 60 s 自动关闭**（停蜂鸣器+持久化 off+刷新标签） |
 | **控制页（LED PB0 / 蜂鸣器 PCF8574 P0 切换 + 状态显示）** | ✅ 编译 + 烧录 + SWD 启动验证 | Release/Debug 零警告；OpenOCD 校验 300516 B；SWD 读 `s_uptime_sec` 4→9 证明 UI tick 运行；LED/蜂鸣器电气动作需手指点屏确认 |
 | **手指触摸坐标上报 / 实际翻页** | ⏳ 待人工 | 需手指点屏确认，脚本 `verify_touch.py` 已就绪（§7.7.2） |
 | **PRINT_LOG 替换全部 printf + 全局开关** | ✅ **PASS 6/6** | 三种配置零警告；SWD 实测开关行为（§7.8） |
@@ -844,7 +846,13 @@ RESULT: 7 passed, 0 failed -> PASS
 │   ├── fs_diskio.c/.h             # ★ 统一 FatFs diskio 胶水：pdrv0=USB MSC, pdrv1=SDIO + fs_lock
 │   ├── sd_card.c/.h               # ★ microSD 上电流程：SDIO 初始化 + f_mount("1:")
 │   ├── ui_task.c/.h               # ★ 启动加载状态机 + LVGL 渲染泵 + LVGL indev 注册
-│   ├── app_ui.c/.h                # ★ 双页面（状态 / 硬件信息）+ 底部左右导航按钮
+│   ├── app_ui.c/.h                # ★ UI 框架：布局 / 导航条 / 2 Hz tick / 页面分发 / 公共 API
+│   ├── ui/                        # ★ 每页独立文件，共享声明在 ui_common.h
+│   │   ├── ui_common.h            #   几何宏 / 页枚举 / 各页 widget 句柄 / extern 全局 / 辅助&构建原型
+│   │   ├── page_status.c          #   页 0：USB / 字库 / SD / 运行时长
+│   │   ├── page_hwinfo.c          #   页 1：AP3216C 光感 + MPU9250 传感器
+│   │   ├── page_ctrl.c            #   页 2：LED / 蜂鸣器控制
+│   │   └── page_rtc.c             #   页 3：RTC 时钟 + 时间/闹钟设置 + 报警 60s 自动关
 │   ├── log.c/.h                   # ★ PRINT_LOG 日志系统（全局 PRINT_LOG_ENABLE 开关）
 │   ├── touch_task.c/.h            # ★ T_PEN 中断 → 信号量 → GT9147 轮询 → 发布坐标
 │   ├── sensor_task.c/.h           # ★ AP3216C + MPU9250 周期采样（500 ms）

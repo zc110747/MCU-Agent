@@ -35,6 +35,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MCU_FLAGS} -T${LINKER_SC
 # ------------------------------------------------------------------
 include_directories(
   app
+  app/ui
   bsp
   sys_startup
   Drivers/CMSIS/Include
@@ -77,6 +78,7 @@ endif()
 # Sources
 # ------------------------------------------------------------------
 file(GLOB APP_SOURCES app/*.c)
+file(GLOB UI_SOURCES app/ui/*.c)
 file(GLOB BSP_SOURCES
   bsp/bsp_delay.c
   bsp/bsp_led.c
@@ -101,6 +103,9 @@ file(GLOB BSP_SOURCES
   bsp/lv_gbk_map.c
   bsp/lv_port_disp.c
   bsp/lv_port_indev.c
+  bsp/bsp_rtc.c
+  # AT24C02 EEPROM (alarm persistence) on the shared I2C2 bus
+  bsp/bsp_eeprom_24c02.c
 )
 
 set(CMSIS_SOURCES
@@ -132,6 +137,8 @@ set(HAL_SOURCES
   # low-level SDMMC command/data engine
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rtc.c
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rtc_ex.c
 )
 
 # FreeRTOS V11 kernel (native API): core + ARM_CM4F port + heap_5 (SDRAM).
@@ -182,6 +189,7 @@ set(CMAKE_EXECUTABLE_SUFFIX .elf)
 
 add_executable(${PROJECT_NAME}.elf
   ${APP_SOURCES}
+  ${UI_SOURCES}
   ${BSP_SOURCES}
   ${CMSIS_SOURCES}
   ${HAL_SOURCES}

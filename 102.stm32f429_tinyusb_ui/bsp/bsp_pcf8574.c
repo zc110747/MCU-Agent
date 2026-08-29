@@ -7,8 +7,13 @@
   */
 HAL_StatusTypeDef BSP_PCF8574_Write(uint8_t data)
 {
-  return HAL_I2C_Master_Transmit(&hi2c2, (uint16_t)(PCF8574_ADDR << 1U),
-                                 &data, 1U, 100U);
+  HAL_StatusTypeDef st;
+
+  BSP_I2C_Lock();
+  st = HAL_I2C_Master_Transmit(&hi2c2, (uint16_t)(PCF8574_ADDR << 1U),
+                                &data, 1U, 100U);
+  BSP_I2C_Unlock();
+  return st;
 }
 
 /**

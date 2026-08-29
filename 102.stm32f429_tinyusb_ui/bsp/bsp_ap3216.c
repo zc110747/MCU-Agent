@@ -28,14 +28,22 @@
 
 static int ap3216_write_reg(uint8_t reg, uint8_t val)
 {
-  return (HAL_I2C_Mem_Write(&hi2c2, AP3216C_ADDR << 1, reg, 1,
-                            &val, 1, AP3216C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  int rc;
+  BSP_I2C_Lock();
+  rc = (HAL_I2C_Mem_Write(&hi2c2, AP3216C_ADDR << 1, reg, 1,
+                           &val, 1, AP3216C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  BSP_I2C_Unlock();
+  return rc;
 }
 
 static int ap3216_read_reg(uint8_t reg, uint8_t *val)
 {
-  return (HAL_I2C_Mem_Read(&hi2c2, AP3216C_ADDR << 1, reg, 1,
-                           val, 1, AP3216C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  int rc;
+  BSP_I2C_Lock();
+  rc = (HAL_I2C_Mem_Read(&hi2c2, AP3216C_ADDR << 1, reg, 1,
+                          val, 1, AP3216C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  BSP_I2C_Unlock();
+  return rc;
 }
 
 int bsp_ap3216c_init(void)

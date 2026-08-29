@@ -24,7 +24,12 @@
  *      state.  PB0 is driven ONLY from this page -- led_task no longer touches
  *      it (see main.c), so the button state is not clobbered.
  *
-  *  Both pages carry the same bottom navigation bar with a left and a right
+ *   5. RTC clock page (page 3)
+ *      Large centered clock (year-month-day hour:minute:second) from the internal
+ *      RTC, plus a 时间设置 band (year/month/day/hour/minute select + up/down +
+ *      设置更新时间) and an 闹钟（待实现）placeholder band.
+ *
+  *  All pages carry the same bottom navigation bar with a left and a right
   *  icon button; switching wraps around, so the two pages form a ring.
   *
   *  Every page carries Chinese text, so pages 0 and 1 are only reachable once
@@ -45,7 +50,7 @@ extern "C" {
 #endif
 
 /* Number of pages in the navigation ring. */
-#define UI_PAGE_COUNT   3U
+#define UI_PAGE_COUNT   4U
 
 /* Build the normal status screen (page 0). */
 void app_ui_create(void);

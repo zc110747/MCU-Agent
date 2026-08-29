@@ -1,7 +1,13 @@
 /**
   ******************************************************************************
   * @file    app_ui.c
-  * @brief   Multi-page LVGL screen for the STM32F429 panel (minimal dark theme).
+  * @brief   UI framework core for the STM32F429 panel (minimal dark theme).
+  *
+  *  This file owns the framework: geometry, the shared widget helpers, the
+  *  bottom navigation bar, the 2 Hz refresh tick, the page dispatch and the
+  *  public API (app_ui.h).  Each page's widgets are built in app/ui/page_*.c
+  *  (status / hwinfo / ctrl / rtc); the shared declarations they need live in
+  *  app/ui/ui_common.h.
   *
   *  Geometry
   *  --------
@@ -12,121 +18,44 @@
   *  glass whatever orientation the controller ends up in, and it is the one
   *  place that has to change if LCD_WIDTH / LCD_HEIGHT are ever retuned.
   *
- *  Pages
- *  -----
- *    0  状态       系统初始化 / 运行信息 / 故障·消息
- *    1  硬件信息    AP3216C 与 MPU9250 实时读数
- *    2  控制       两个按键切换 LED(PB0) 与蜂鸣器(PCF8574 P0)，并显示状态
- *
-  *  The bottom navigation bar is shared by both pages.  Its left and right
-  *  buttons are drawn as LVGL line chevrons rather than text glyphs, so they
-  *  render identically with or without the SD-card font files.
+  *  Screen teardown goes through ui_teardown(), which deletes the refresh
+  *  timer BEFORE clearing the screen.  Skipping that order would leave the
+  *  timer holding lv_obj_t pointers into freed objects (hard fault on the next
+  *  tick).  Page switching uses ui_rebuild(), which keeps the timer alive and
+  *  only re-creates the widgets.
   ******************************************************************************
   */
-#include "app_ui.h"
-#include "lvgl.h"
-#include "lv_font_gbk.h"
-#include "bsp_lcd.h"
-#include "bsp_lcd_text.h"
-#include "bsp_touch.h"
-#include "usb_host_app.h"
-#include "sd_card.h"
-#include "sensor_task.h"
-#include "bsp_led.h"
-#include "bsp_pcf8574.h"
-#include "stm32f4xx_hal.h"
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include "log.h"
+#include "ui_common.h"
+#include "app_ui.h"   /* public API prototypes (app_ui_create / app_ui_switch_page / ...) */
 
-/* ---- Geometry -------------------------------------------------------------- */
-#define UI_PAD      12
-#define HDR_H       34
-#define NAV_H       56
-#define BAND_GAP    10
-#define TOP_GAP     8
-
-/* ---- Nav bar --------------------------------------------------------------- */
-#define NAV_BTN_W   72
-#define NAV_BTN_H   44
-
-/* ---- Palette (minimal: dark bg, light text, no accents) -------------------- */
-#define COL_BG      0x000000
-#define COL_HDR     0x12161C
-#define COL_TXT     0xD2D6DC
-#define COL_DIM     0x808890
-#define COL_BTN     0x1C222B
-
-/* 2 Hz refresh: snappy enough for the sensor page, cheap enough for the pump. */
-#define UI_REFRESH_MS  500U
-
-typedef enum
-{
-    PAGE_STATUS = 0,
-    PAGE_HWINFO = 1,
-    PAGE_CTRL   = 2
-} ui_page_t;
+/* ---- Core-only state (not shared with pages) ------------------------------ */
+static lv_timer_t  *s_timer       = NULL;
+uint32_t     s_uptime_sec   = 0U;   /* shared with the status page (ui_common.h) */
+static uint32_t     s_last_sec_at  = 0U;
+static uint8_t      s_built        = 0U;
+static uint8_t      s_refresh_req  = 0U;
 
 /* Chevron point sets for the two navigation buttons.  lv_line keeps its own
  * coordinate space, so these are relative to the line object's top-left. */
 static const lv_point_t s_chevron_left[3]  = { { 14, 2 }, { 5, 10 }, { 14, 18 } };
 static const lv_point_t s_chevron_right[3] = { { 6, 2 }, { 15, 10 }, { 6, 18 } };
 
-typedef struct
-{
-    /* page 0 - status */
-    lv_obj_t *p0_sd;
-    lv_obj_t *p0_usb;
-    lv_obj_t *p0_font;
-    lv_obj_t *p0_freq;
-    lv_obj_t *p0_uptime;
-    lv_obj_t *p0_cache;
-    lv_obj_t *p0_f1;
-    lv_obj_t *p0_f2;
-    lv_obj_t *p0_f3;
-    /* page 1 - hardware information */
-    lv_obj_t *p1_ir;
-    lv_obj_t *p1_als;
-    lv_obj_t *p1_ps;
-    lv_obj_t *p1_acc;
-    lv_obj_t *p1_gyr;
-    lv_obj_t *p1_mag;
-    lv_obj_t *p1_stat;
-    /* page 2 - device control */
-    lv_obj_t *p2_led_btn;
-    lv_obj_t *p2_beep_btn;
-    lv_obj_t *p2_led_lbl;
-    lv_obj_t *p2_beep_lbl;
-    lv_obj_t *p2_led_state;
-    lv_obj_t *p2_beep_state;
-    /* shared */
-    lv_obj_t *page_lbl;
-} ui_handles_t;
-
-static ui_handles_t s_ui;
-static lv_timer_t  *s_timer      = NULL;
-static uint32_t     s_uptime_sec = 0U;
-static uint32_t     s_last_sec_at = 0U;
-static uint8_t      s_built      = 0U;
-static uint8_t      s_refresh_req = 0U;
-static int          s_page       = (int)PAGE_STATUS;
-static uint8_t      s_led_on     = 0U;   /* LED1 (PB0) state shown on ctrl page */
-static uint8_t      s_beep_on    = 0U;   /* buzzer (PCF8574 P0) state */
-
-/* Derived layout, recomputed on every rebuild. */
-static lv_coord_t   s_w       = 0;
-static lv_coord_t   s_h       = 0;
-static lv_coord_t   s_band_y[3];
-static lv_coord_t   s_band_h  = 0;
-static lv_coord_t   s_nav_y   = 0;
+/* ---- Shared state (defined here, declared extern in ui_common.h) ---------- */
+ui_handles_t s_ui;
+int          s_page       = (int)PAGE_STATUS;
+lv_coord_t   s_w       = 0;
+lv_coord_t   s_h       = 0;
+lv_coord_t   s_band_y[3];
+lv_coord_t   s_band_h  = 0;
+lv_coord_t   s_nav_y   = 0;
+uint8_t      s_led_on     = 0U;   /* LED1 (PB0) state shown on ctrl page */
+uint8_t      s_beep_on    = 0U;   /* buzzer (PCF8574 P0) state */
 
 /*----------------------------------------------------------------------------*/
-/* Helpers                                                                    */
+/* Helpers (shared with pages via ui_common.h)                                */
 /*----------------------------------------------------------------------------*/
-static lv_obj_t *mk_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
-                          const lv_font_t *font, uint32_t color,
-                          const char *text)
+lv_obj_t *mk_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
+                   const lv_font_t *font, uint32_t color, const char *text)
 {
     lv_obj_t *lbl = lv_label_create(parent);
 
@@ -140,9 +69,9 @@ static lv_obj_t *mk_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
     return lbl;
 }
 
-static lv_obj_t *mk_label_center(lv_obj_t *parent, lv_coord_t y,
-                                const lv_font_t *font, uint32_t color,
-                                const char *text)
+lv_obj_t *mk_label_center(lv_obj_t *parent, lv_coord_t y,
+                          const lv_font_t *font, uint32_t color,
+                          const char *text)
 {
     lv_obj_t *lbl = mk_label(parent, 0, y, font, color, text);
 
@@ -153,8 +82,8 @@ static lv_obj_t *mk_label_center(lv_obj_t *parent, lv_coord_t y,
     return lbl;
 }
 
-static lv_obj_t *make_band(lv_obj_t *parent, lv_coord_t y, lv_coord_t h,
-                           const char *title)
+lv_obj_t *make_band(lv_obj_t *parent, lv_coord_t y, lv_coord_t h,
+                    const char *title)
 {
     lv_obj_t *card = lv_obj_create(parent);
 
@@ -179,32 +108,6 @@ static void ui_set_screen_bg(lv_obj_t *scr)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
-}
-
-/**
-  * @brief  Format a float with two decimals without pulling in the floating
-  *         point printf support of newlib-nano (which is not linked).
-  */
-static void fmt_fixed2(char *buf, size_t n, float v)
-{
-    int  neg = (v < 0.0f) ? 1 : 0;
-    float a  = neg ? -v : v;
-    long ip  = (long)a;
-    long fp  = (long)((a - (float)ip) * 100.0f + 0.5f);
-
-    if (fp >= 100L) { fp -= 100L; ip += 1L; }
-    (void)snprintf(buf, n, "%s%ld.%02ld", neg ? "-" : "", ip, fp);
-}
-
-static void fmt_vec3(char *buf, size_t n, const char *name,
-                     float a, float b, float c, const char *unit)
-{
-    char fa[16], fb[16], fc[16];
-
-    fmt_fixed2(fa, sizeof(fa), a);
-    fmt_fixed2(fb, sizeof(fb), b);
-    fmt_fixed2(fc, sizeof(fc), c);
-    (void)snprintf(buf, n, "%s  X %s  Y %s  Z %s %s", name, fa, fb, fc, unit);
 }
 
 /**
@@ -258,8 +161,8 @@ static void ui_layout(void)
 /*----------------------------------------------------------------------------*/
 /* Navigation bar                                                             */
 /*----------------------------------------------------------------------------*/
-static lv_obj_t *mk_nav_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
-                               const lv_point_t *chevron)
+lv_obj_t *mk_nav_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
+                        const lv_point_t *chevron)
 {
     lv_obj_t *btn = lv_btn_create(parent);
     lv_obj_t *line;
@@ -296,14 +199,9 @@ static lv_obj_t *mk_nav_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
 /*----------------------------------------------------------------------------*/
 static void ctrl_btn_cb(lv_event_t *e);
 
-/*----------------------------------------------------------------------------*/
-/**
- * @brief  Build a large square-ish control button with a centered label.
- * @retval The label object, so the caller can update its caption on toggle.
- */
-static lv_obj_t *mk_ctrl_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
-                                lv_coord_t w, lv_coord_t h,
-                                const char *title, int code)
+lv_obj_t *mk_ctrl_button(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
+                         lv_coord_t w, lv_coord_t h,
+                         const char *title, int code)
 {
     lv_obj_t *btn = lv_btn_create(parent);
     lv_obj_t *lbl;
@@ -386,190 +284,8 @@ static void ctrl_btn_cb(lv_event_t *e)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Data refresh                                                               */
+/* Data refresh (core: uptime + per-page dispatchers)                         */
 /*----------------------------------------------------------------------------*/
-static const char *usb_state_str(usb_state_t s)
-{
-    switch (s)
-    {
-        case USB_DISCONNECTED: return "未连接";
-        case USB_CONNECTED:     return "已连接";
-        case USB_ENUMERATED:    return "已枚举";
-        case USB_MSC_READY:     return "MSC 就绪";
-        case USB_MOUNTED:       return "已挂载";
-        case USB_ERROR:         return "错误";
-        default:                return "未知";
-    }
-}
-
-static void refresh_usb(void)
-{
-    if (s_ui.p0_usb != NULL)
-    {
-        lv_label_set_text_fmt(s_ui.p0_usb, "USB 状态  %s", usb_state_str(g_usb_state));
-    }
-}
-
-static void refresh_font(void)
-{
-    uint32_t mask = lcd_driver_font_status();
-    const char *src = lcd_driver_font_source();
-    const char *status;
-
-    if (s_ui.p0_font == NULL)
-    {
-        return;
-    }
-
-    if (mask == 0U)
-    {
-        lv_label_set_text(s_ui.p0_font, "字库  未加载");
-        return;
-    }
-
-    if (src[0] == '1')
-    {
-        status = "字库  SD 卡 GBK12/16/24/32 已就绪";
-    }
-    else if (src[0] == '0')
-    {
-        status = "字库  U 盘 GBK12/16/24/32 已就绪";
-    }
-    else if ((mask & (FONT_MASK_GBK12 | FONT_MASK_GBK16 |
-                      FONT_MASK_GBK24 | FONT_MASK_GBK32)) ==
-             (FONT_MASK_GBK12 | FONT_MASK_GBK16 |
-              FONT_MASK_GBK24 | FONT_MASK_GBK32))
-    {
-        status = "字库  GBK12/16/24/32 已就绪";
-    }
-    else
-    {
-        status = "字库  部分就绪";
-    }
-    lv_label_set_text(s_ui.p0_font, status);
-}
-
-static void refresh_sd(void)
-{
-    if (s_ui.p0_sd == NULL)
-    {
-        return;
-    }
-
-    if (sd_card_is_ready() != 0)
-    {
-        lv_label_set_text_fmt(s_ui.p0_sd, "SD 卡  %lu MB (SDIO 4bit)",
-                              (unsigned long)sd_card_capacity_mb());
-    }
-    else
-    {
-        lv_label_set_text(s_ui.p0_sd, "SD 卡  未检测到");
-    }
-}
-
-static void refresh_runtime(void)
-{
-    uint32_t hits = 0U;
-    uint32_t miss = 0U;
-
-    if (s_ui.p0_uptime != NULL)
-    {
-        lv_label_set_text_fmt(s_ui.p0_uptime, "运行  %02d:%02d:%02d",
-                              (int)(s_uptime_sec / 3600U),
-                              (int)((s_uptime_sec / 60U) % 60U),
-                              (int)(s_uptime_sec % 60U));
-    }
-
-    if (s_ui.p0_cache != NULL)
-    {
-        lv_font_gbk_cache_stats(&hits, &miss);
-        lv_label_set_text_fmt(s_ui.p0_cache, "缓存  命中 %d / 读卡 %d",
-                              (int)hits, (int)miss);
-    }
-}
-
-static void refresh_hwinfo(void)
-{
-    sensor_data_t d;
-    char buf[80];
-
-    sensor_get(&d);
-
-    if (s_ui.p1_ir != NULL)
-    {
-        if (d.ap3216_ok != 0U)
-        {
-            lv_label_set_text_fmt(s_ui.p1_ir, "红外 IR  %u", (unsigned int)d.ir);
-            lv_label_set_text_fmt(s_ui.p1_als, "环境光  %u lux", (unsigned int)d.als);
-            lv_label_set_text_fmt(s_ui.p1_ps, "接近  %u", (unsigned int)d.ps);
-        }
-        else
-        {
-            lv_label_set_text(s_ui.p1_ir, "红外 IR  --");
-            lv_label_set_text(s_ui.p1_als, "环境光  --");
-            lv_label_set_text(s_ui.p1_ps, "接近  --");
-        }
-    }
-
-    if (s_ui.p1_acc != NULL)
-    {
-        if (d.mpu_ok != 0U)
-        {
-            fmt_vec3(buf, sizeof(buf), "加速度", d.ax, d.ay, d.az, "g");
-            lv_label_set_text(s_ui.p1_acc, buf);
-
-            fmt_vec3(buf, sizeof(buf), "角速度", d.gx, d.gy, d.gz, "dps");
-            lv_label_set_text(s_ui.p1_gyr, buf);
-
-            if (d.mag_ok != 0U)
-            {
-                fmt_vec3(buf, sizeof(buf), "磁场", d.mx, d.my, d.mz, "uT");
-                lv_label_set_text(s_ui.p1_mag, buf);
-            }
-            else
-            {
-                lv_label_set_text(s_ui.p1_mag, "磁场  AK8963 未装配");
-            }
-        }
-        else
-        {
-            lv_label_set_text(s_ui.p1_acc, "加速度  --");
-            lv_label_set_text(s_ui.p1_gyr, "角速度  --");
-            lv_label_set_text(s_ui.p1_mag, "磁场  --");
-        }
-    }
-
-    if (s_ui.p1_stat != NULL)
-    {
-        lv_label_set_text_fmt(s_ui.p1_stat, "采样  成功 %lu / 失败 %lu  触摸事件 %lu",
-                              (unsigned long)d.samples, (unsigned long)d.errors,
-                              (unsigned long)bsp_touch_press_count());
-    }
-}
-
-static void refresh_ctrl(void)
-{
-    if (s_ui.p2_led_state != NULL)
-    {
-        lv_label_set_text(s_ui.p2_led_state,
-                          s_led_on ? "LED 状态  点亮" : "LED 状态  关闭");
-        if (s_ui.p2_led_lbl != NULL)
-        {
-            lv_label_set_text(s_ui.p2_led_lbl, s_led_on ? "LED 开" : "LED 关");
-        }
-    }
-    if (s_ui.p2_beep_state != NULL)
-    {
-        lv_label_set_text(s_ui.p2_beep_state,
-                          s_beep_on ? "蜂鸣器  鸣响" : "蜂鸣器  静音");
-        if (s_ui.p2_beep_lbl != NULL)
-        {
-            lv_label_set_text(s_ui.p2_beep_lbl,
-                              s_beep_on ? "蜂鸣器 开" : "蜂鸣器 关");
-        }
-    }
-}
-
 static void ui_tick_cb(lv_timer_t *timer)
 {
     uint32_t now = HAL_GetTick();
@@ -581,6 +297,8 @@ static void ui_tick_cb(lv_timer_t *timer)
         s_last_sec_at = now;
         s_uptime_sec++;
     }
+
+    rtc_check_alarm();   /* alarm rings on any page */
 
     if (s_page == (int)PAGE_STATUS)
     {
@@ -596,6 +314,10 @@ static void ui_tick_cb(lv_timer_t *timer)
     else if (s_page == (int)PAGE_CTRL)
     {
         refresh_ctrl();
+    }
+    else if (s_page == (int)PAGE_RTC)
+    {
+        rtc_refresh_clock();
     }
     else
     {
@@ -671,112 +393,6 @@ static void build_header(void)
     (void)mk_label_center(hdr, 5, &lv_font_gbk_24, COL_TXT, "STM32F429 信息面板");
 }
 
-static void build_page_status(void)
-{
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_t *b1;
-    lv_obj_t *b2;
-    lv_obj_t *b3;
-    LCD_INFO *info;
-
-    /* Band 1 - 系统初始化 (hardware init summary). */
-    b1 = make_band(scr, s_band_y[0], s_band_h, "系统初始化");
-    info = get_lcd_info();
-    {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "LCD 控制器  ID = 0x%04X",
-                 (unsigned int)((info != NULL) ? info->lcd_id : 0U));
-        (void)mk_label(b1, 8, 32, &lv_font_gbk_16, COL_TXT, buf);
-        s_ui.p0_sd = mk_label(b1, 8, 56, &lv_font_gbk_16, COL_TXT, "SD 卡  --");
-        (void)mk_label(b1, 8, 80, &lv_font_gbk_16, COL_TXT, "USB 主机  已初始化");
-        (void)mk_label(b1, 8, 104, &lv_font_gbk_16, COL_DIM, "LVGL 渲染  已就绪");
-    }
-
-    /* Band 2 - 运行信息. */
-    b2 = make_band(scr, s_band_y[1], s_band_h, "运行信息");
-    s_ui.p0_usb   = mk_label(b2, 8, 32,  &lv_font_gbk_16, COL_TXT, "USB 状态  --");
-    s_ui.p0_font  = mk_label(b2, 8, 56,  &lv_font_gbk_16, COL_TXT, "字库  --");
-    s_ui.p0_freq  = mk_label(b2, 8, 80,  &lv_font_gbk_16, COL_TXT, "");
-    lv_label_set_text_fmt(s_ui.p0_freq, "主频  %d MHz",
-                          (int)(HAL_RCC_GetSysClockFreq() / 1000000U));
-    s_ui.p0_uptime = mk_label(b2, 8, 104, &lv_font_gbk_16, COL_TXT, "运行  00:00:00");
-    s_ui.p0_cache  = mk_label(b2, 8, 128, &lv_font_gbk_16, COL_DIM, "缓存  命中 0 / 读卡 0");
-
-    /* Band 3 - 故障/消息. */
-    b3 = make_band(scr, s_band_y[2], s_band_h, "故障 / 消息");
-    s_ui.p0_f1 = mk_label(b3, 8, 32, &lv_font_gbk_16, COL_TXT, "系统正常");
-    s_ui.p0_f2 = mk_label(b3, 8, 56, &lv_font_gbk_16, COL_TXT, "");
-    s_ui.p0_f3 = mk_label(b3, 8, 80, &lv_font_gbk_16, COL_TXT, "");
-}
-
-static void build_page_hwinfo(void)
-{
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_t *b1;
-    lv_obj_t *b2;
-    lv_obj_t *b3;
-
-    /* Band 1 - AP3216C. */
-    b1 = make_band(scr, s_band_y[0], s_band_h, "环境传感器  AP3216C");
-    s_ui.p1_ir  = mk_label(b1, 8, 32, &lv_font_gbk_16, COL_TXT, "红外 IR  --");
-    s_ui.p1_als = mk_label(b1, 8, 56, &lv_font_gbk_16, COL_TXT, "环境光  --");
-    s_ui.p1_ps  = mk_label(b1, 8, 80, &lv_font_gbk_16, COL_TXT, "接近  --");
-
-    /* Band 2 - MPU9250 accel + gyro. */
-    b2 = make_band(scr, s_band_y[1], s_band_h, "运动传感器  MPU9250");
-    s_ui.p1_acc = mk_label(b2, 8, 32, &lv_font_gbk_16, COL_TXT, "加速度  --");
-    s_ui.p1_gyr = mk_label(b2, 8, 56, &lv_font_gbk_16, COL_TXT, "角速度  --");
-    s_ui.p1_mag = mk_label(b2, 8, 80, &lv_font_gbk_16, COL_TXT, "磁场  --");
-
-    /* Band 3 - sampling health. */
-    b3 = make_band(scr, s_band_y[2], s_band_h, "采样状态");
-    s_ui.p1_stat = mk_label(b3, 8, 32, &lv_font_gbk_16, COL_DIM, "采样  --");
-    (void)mk_label(b3, 8, 56, &lv_font_gbk_16, COL_DIM, "I2C2  PH4(SCL) / PH5(SDA) 400kHz");
-}
-
-static void build_page_ctrl(void)
-{
-    lv_obj_t *scr = lv_scr_act();
-    lv_coord_t bw;
-    lv_coord_t bh;
-    lv_coord_t by;
-    lv_coord_t bx0;
-    lv_coord_t bx1;
-    lv_coord_t st_y;
-    lv_coord_t st_h;
-    lv_obj_t  *st;
-
-    /* Two side-by-side control buttons under the header. */
-    bw  = (lv_coord_t)((s_w - (3 * UI_PAD)) / 2);
-    bh  = 200;
-    by  = (lv_coord_t)(HDR_H + TOP_GAP + 16);
-    bx0 = UI_PAD;
-    bx1 = (lv_coord_t)(UI_PAD + bw + UI_PAD);
-
-    s_ui.p2_led_lbl  = mk_ctrl_button(scr, bx0, by, bw, bh, "LED", 1);
-    s_ui.p2_led_btn  = lv_obj_get_parent(s_ui.p2_led_lbl);
-    s_ui.p2_beep_lbl = mk_ctrl_button(scr, bx1, by, bw, bh, "蜂鸣器", 2);
-    s_ui.p2_beep_btn = lv_obj_get_parent(s_ui.p2_beep_lbl);
-
-    /* Status band fills the rest of the content area down to the nav bar. */
-    st_y = (lv_coord_t)(by + bh + BAND_GAP);
-    st_h = (lv_coord_t)(s_h - st_y - NAV_H - TOP_GAP);
-    if (st_h < (3 * BAND_GAP))
-    {
-        st_h = (lv_coord_t)(3 * BAND_GAP);
-    }
-
-    st = make_band(scr, st_y, st_h, "状态");
-    s_ui.p2_led_state  = mk_label(st, 8, 32, &lv_font_gbk_16, COL_TXT,
-                                  s_led_on ? "LED 状态  点亮" : "LED 状态  关闭");
-    s_ui.p2_beep_state = mk_label(st, 8, 56, &lv_font_gbk_16, COL_TXT,
-                                  s_beep_on ? "蜂鸣器  鸣响" : "蜂鸣器  静音");
-    (void)mk_label(st, 8, 80, &lv_font_gbk_16, COL_DIM,
-                   "LED = PB0  蜂鸣器 = PCF8574 P0");
-    (void)mk_label(st, 8, 104, &lv_font_gbk_16, COL_DIM,
-                   "左右箭头切换界面");
-}
-
 static void ui_build(void)
 {
     lv_obj_t *scr = lv_scr_act();
@@ -793,6 +409,10 @@ static void ui_build(void)
     else if (s_page == (int)PAGE_CTRL)
     {
         build_page_ctrl();
+    }
+    else if (s_page == (int)PAGE_RTC)
+    {
+        build_page_rtc();
     }
     else
     {
@@ -928,6 +548,10 @@ void app_ui_switch_page(int delta)
     else if (s_page == (int)PAGE_CTRL)
     {
         refresh_ctrl();
+    }
+    else if (s_page == (int)PAGE_RTC)
+    {
+        /* build_page_rtc() already loaded the edit buffer and clock. */
     }
     else
     {

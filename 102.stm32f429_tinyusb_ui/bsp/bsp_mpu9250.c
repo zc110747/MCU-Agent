@@ -55,14 +55,22 @@ static uint8_t g_mag_id = 0U;       /* AK8963 WIA read during init          */
 
 static int mpu_write(uint8_t reg, uint8_t val)
 {
-  return (HAL_I2C_Mem_Write(&hi2c2, MPU9250_ADDR << 1, reg, 1,
-                            &val, 1, I2C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  int rc;
+  BSP_I2C_Lock();
+  rc = (HAL_I2C_Mem_Write(&hi2c2, MPU9250_ADDR << 1, reg, 1,
+                           &val, 1, I2C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  BSP_I2C_Unlock();
+  return rc;
 }
 
 static int mpu_read(uint8_t reg, uint8_t *val)
 {
-  return (HAL_I2C_Mem_Read(&hi2c2, MPU9250_ADDR << 1, reg, 1,
-                           val, 1, I2C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  int rc;
+  BSP_I2C_Lock();
+  rc = (HAL_I2C_Mem_Read(&hi2c2, MPU9250_ADDR << 1, reg, 1,
+                          val, 1, I2C_TIMEOUT) == HAL_OK) ? 0 : -1;
+  BSP_I2C_Unlock();
+  return rc;
 }
 
 /* Timing (fixed 2026-08-29): slave 0 only transfers on an MPU sample, and with
@@ -181,9 +189,11 @@ int bsp_mpu9250_read(mpu9250_data_t *d)
   uint8_t buf[6];
 
   /* accel (0x3B, 6 bytes) */
+  BSP_I2C_Lock();
   if (HAL_I2C_Mem_Read(&hi2c2, MPU9250_ADDR << 1, MPU_ACCEL_XOUT_H, 1,
                        buf, 6, I2C_TIMEOUT) != HAL_OK)
   {
+    BSP_I2C_Unlock();
     return -1;
   }
   d->ax = (float)rd16(buf) / 4096.0f;      /* +-8g */
@@ -194,8 +204,10 @@ int bsp_mpu9250_read(mpu9250_data_t *d)
   if (HAL_I2C_Mem_Read(&hi2c2, MPU9250_ADDR << 1, MPU_GYRO_XOUT_H, 1,
                        buf, 6, I2C_TIMEOUT) != HAL_OK)
   {
+    BSP_I2C_Unlock();
     return -2;
   }
+  BSP_I2C_Unlock();
   d->gx = (float)rd16(buf) / 16.4f;        /* +-2000 dps */
   d->gy = (float)rd16(buf + 2) / 16.4f;
   d->gz = (float)rd16(buf + 4) / 16.4f;

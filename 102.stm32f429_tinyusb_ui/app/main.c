@@ -40,6 +40,7 @@
 #include "ui_task.h"
 #include "touch_task.h"
 #include "sensor_task.h"
+#include "bsp_rtc.h"
 #include "log.h"
 
 /* Single SDRAM heap region, defined in sdram_heap.c. */
@@ -91,6 +92,18 @@ int main(void)
   BSP_I2C_Recover();
   BSP_PCF8574_Write(0x7FU);
   PRINT_LOG("I2C / PCF8574 init OK\r\n");
+
+  /* Internal RTC (LSE, fallback LSI). Loads default time on first power-on.
+   * Only needs PWR + LSE, so it is safe before the FreeRTOS heap is up. */
+  BSP_RTC_Init();
+  PRINT_LOG("RTC Init done\r\n");
+
+  /* Restore the alarm from EEPROM (defaults to current RTC time + OFF on a
+   * first power-on / erased chip) and arm it via the backup registers.
+   * The I2C mutex is a no-op before the scheduler runs, which is fine here
+   * because no other task can touch the bus yet. */
+  BSP_RTC_Alarm_LoadFromEEPROM();
+  PRINT_LOG("RTC alarm restored from EEPROM\r\n");
 
   /* ---- External SDRAM MUST come up before any FreeRTOS object ---- */
   PRINT_LOG("SDRAM Init ...\r\n");

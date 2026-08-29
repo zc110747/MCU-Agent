@@ -1,9 +1,47 @@
 #include "bsp_i2c.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
 /* Defined in main.c */
 void Error_Handler(void);
 
 I2C_HandleTypeDef hi2c2;
+
+/* ---- Shared I2C2 bus mutex ----------------------------------------------- */
+/* Lazily created on first post-scheduler use (the heap is not ready before
+ * vTaskStartScheduler, and Lock/Unlock skip the mutex pre-scheduler). */
+static SemaphoreHandle_t s_i2c_mutex = NULL;
+
+static SemaphoreHandle_t i2c_mutex_get(void)
+{
+    if (s_i2c_mutex == NULL)
+    {
+        SemaphoreHandle_t m;
+        /* Single-core: a brief IRQ disable makes the check-create atomic so
+         * two tasks racing to first use cannot create two mutexes. */
+        __disable_irq();
+        if (s_i2c_mutex == NULL) s_i2c_mutex = xSemaphoreCreateMutex();
+        m = s_i2c_mutex;
+        __enable_irq();
+        (void)m;
+    }
+    return s_i2c_mutex;
+}
+
+void BSP_I2C_Lock(void)
+{
+    if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) return;
+    SemaphoreHandle_t m = i2c_mutex_get();
+    if (m != NULL) (void)xSemaphoreTake(m, portMAX_DELAY);
+}
+
+void BSP_I2C_Unlock(void)
+{
+    if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) return;
+    if (s_i2c_mutex != NULL) xSemaphoreGive(s_i2c_mutex);
+}
 
 /**
   * @brief  Initialize I2C2 on PH4(SCL)/PH5(SDA) at 100 kHz (standard mode).

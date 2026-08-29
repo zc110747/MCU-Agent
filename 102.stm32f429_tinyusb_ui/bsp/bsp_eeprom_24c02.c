@@ -11,17 +11,16 @@
   *          mode too). HAL_I2C_Mem_Read/Write are interrupt-driven and would
   *          time out forever without the NVIC lines enabled.
   *
-  *          The I2C2 bus is shared across tasks (web httpd/httpsd reading
-  *          sensors, PCF8574 controlling ETH_RESET, and netcfg saving to
-  *          EEPROM). To prevent cross-task bus contention the driver takes
-  *          the shared bus mutex (web_i2c_lock / web_i2c_unlock) around every
+  *          The I2C2 bus is shared across tasks (sensor sampling, PCF8574
+  *          beep/ETH reset, and alarm saving to EEPROM). To prevent
+  *          cross-task bus contention the driver takes the shared bus mutex
+  *          (BSP_I2C_Lock / BSP_I2C_Unlock, defined in bsp_i2c.c) around every
   *          transfer, so callers never need to lock manually.
   ******************************************************************************
   */
 #include "bsp_eeprom_24c02.h"
 #include "bsp_i2c.h"
 #include "bsp_delay.h"
-#include "web_serve.h"   /* web_i2c_lock / web_i2c_unlock (shared I2C bus) */
 
 #include "stm32f4xx_hal.h"
 
@@ -36,19 +35,19 @@ int EEPROM24_Read(uint16_t mem_addr, uint8_t *buf, uint16_t len)
   if (buf == NULL || len == 0) return -1;
   if ((uint32_t)mem_addr + len > EEPROM_24C02_SIZE) return -1;
 
-  web_i2c_lock();
+  BSP_I2C_Lock();
 
   /* Phase 1: send the 1-byte memory address we want to read from. */
   uint8_t addr = (uint8_t)(mem_addr & 0xFFU);
   HAL_StatusTypeDef st = HAL_I2C_Master_Transmit(&hi2c2, EEPROM_DEV_7BIT,
                                                  &addr, 1U, 100U);
-  if (st != HAL_OK) { web_i2c_unlock(); return -1; }
+  if (st != HAL_OK) { BSP_I2C_Unlock(); return -1; }
 
   /* Phase 2: repeated-start read of len bytes. */
   st = HAL_I2C_Master_Receive(&hi2c2, (uint16_t)(EEPROM_DEV_7BIT | 0x01U),
                               buf, len, 100U);
 
-  web_i2c_unlock();
+  BSP_I2C_Unlock();
   return (st == HAL_OK) ? 0 : -1;
 }
 
@@ -57,7 +56,7 @@ int EEPROM24_Write(uint16_t mem_addr, const uint8_t *buf, uint16_t len)
   if (buf == NULL || len == 0) return -1;
   if ((uint32_t)mem_addr + len > EEPROM_24C02_SIZE) return -1;
 
-  web_i2c_lock();
+  BSP_I2C_Lock();
 
   uint16_t off = 0;
   while (off < len)
@@ -79,7 +78,7 @@ int EEPROM24_Write(uint16_t mem_addr, const uint8_t *buf, uint16_t len)
     HAL_StatusTypeDef st = HAL_I2C_Master_Transmit(&hi2c2, EEPROM_DEV_7BIT,
                                                    tx, (uint16_t)(1U + chunk),
                                                    100U);
-    if (st != HAL_OK) { web_i2c_unlock(); return -1; }
+    if (st != HAL_OK) { BSP_I2C_Unlock(); return -1; }
 
     /* Wait for the internal write cycle to finish before the next access. */
     bsp_delay_ms(EEPROM_24C02_WR_MS);
@@ -88,6 +87,6 @@ int EEPROM24_Write(uint16_t mem_addr, const uint8_t *buf, uint16_t len)
     off = (uint16_t)(off + chunk);
   }
 
-  web_i2c_unlock();
+  BSP_I2C_Unlock();
   return 0;
 }
