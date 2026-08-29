@@ -58,6 +58,37 @@
 | 31 | 手指触摸坐标上报（`[TOUCH] raw=.. -> lv=.. irq=N`）+ 实际翻页 | ⏳ **待人工** | 脚本 `verify_touch.py` 已就绪 |
 | 32 | 修复 4 个缺陷：触摸画布取到 1×1、UI 布局硬编码 800×480、磁力计失败致整包丢弃、首条错误日志被吞 | **Hardware-Verified** | ✅ PASS |
 
+### 1.3 第四版增量（2026-08-29）：PRINT_LOG 日志系统替换全部 printf
+
+| # | 验收项 | 标签 | 结果 |
+|---|--------|------|------|
+| 33 | 新增 `app/log.c/.h`（`printf_log` / `vprintf_log` / `PRINT_LOG` + `PRINT_LOG_ENABLE`） | **Hardware-Verified** | ✅ PASS |
+| 34 | `app/` + `bsp/` 全部 `printf()` 替换为 `PRINT_LOG()`（`snprintf` 保留） | Compile-Verified + Code-Review | ✅ PASS（12 文件 / 79 处） |
+| 35 | `bsp_uart` 升级为 101 语义：调度器未运行→阻塞轮询，已运行→互斥量+临界区；新增 `uart_flush()` | **Hardware-Verified** | ✅ PASS |
+| 36 | CMake `ENABLE_PRINT_LOG` 开关，三种配置零警告 | Compile-Verified | ✅ PASS |
+| 37 | 日志**开**：日志进入 TX 环且被完整排空（SWD 实测 `g_tx_head=0x0350`, head==tail） | **Hardware-Verified** | ✅ PASS |
+| 38 | 日志**关**：串口零字节 + 系统仍完整启动（SWD 实测 `g_tx_head=0x0000`, `g_usb_state=4`） | **Hardware-Verified** | ✅ PASS |
+| 39 | U 盘内容 dump 同步受开关控制（关日志时连盘都不读） | Compile-Verified + Code-Review | ✅ PASS |
+| 40 | 串口文本逐行比对（COM5） | ⏳ **待人工** | COM5 处于 code-31 驱动故障，需重新插拔后补跑 |
+
+> 第四轮（2026-08-29）验证时 COM5 不可用，改用 **SWD 读目标内存**取证
+> （`g_tx_head` / `g_tx_tail` / `g_tx_busy` / `g_usb_state`），见 §6.3。
+
+### 1.4 第五版增量（2026-08-29）：修复 I2C2 中断风暴 + 传感器自愈
+
+| # | 验收项 | 标签 | 结果 |
+|---|--------|------|------|
+| 41 | **PH7 (T_PEN) 改 `GPIO_PULLUP`**（仅地址锁存用 NOPULL）+ 位绑定事务期屏蔽 EXTI line 7 | **Hardware-Verified** | ✅ PASS |
+| 42 | **ISR 内立即屏蔽 line 7** + 任务侧消抖 5 ms 后 `bsp_touch_irq_rearm()` 重新武装 | **Hardware-Verified** | ✅ PASS（46 925/s → ~20 Hz） |
+| 43 | **IRQ 速率看门狗**（> 1000/s 打 WARNING） | **Hardware-Verified** | ✅ PASS（它给出了 46925/s 的决定性数据） |
+| 44 | 传感器读取用 `vTaskSuspendAll()` 包成**原子操作** | **Hardware-Verified** | ✅ PASS |
+| 45 | I2C 超时 10 ms → **50 ms** + 失败先 `BSP_I2C_Recover()` 再立即重试一次 | **Hardware-Verified** | ✅ PASS（`errors=0`） |
+| 46 | 触摸轮询循环上限 `TOUCH_MAX_POLLS`(3 s) | Compile-Verified + Code-Review | ✅ PASS |
+| 47 | 新增 `verify_sensors.py`：SWD 直读 `s_data` 做**正向**验证 | **Hardware-Verified** | ✅ **PASS 7/7** |
+| 48 | 修复 AK8963 时序（等待 2 ms → 20 ms，≥2 个采样周期） | Compile-Verified + Code-Review | ✅ PASS |
+| 49 | 新增 `AK8963_WIA` 器件检测：本板 WIA=0x00，**无磁力计**，不再谎报 0.0 uT | **Hardware-Verified** | ✅ PASS |
+| 50 | 修复后回归：启动流程 17/17、触摸中断链路 7/7 | **Hardware-Verified** | ✅ PASS |
+
 > 标签含义：
 > - **Compile-Verified**：在目标工具链下成功编译/链接（零警告），逻辑经审查或等价 PC 程序验证。
 > - **Code-Review**：通过源码静态审查确认设计/接线/顺序正确。
@@ -269,6 +300,57 @@ openocd -s %OPENOCD_SCRIPTS% -f openocd/stm32f429_stlink.cfg \
 
 ---
 
+### 6.4 第五版真机验证证据（2026-08-29，PASS 7/7 + 回归 17/17、7/7）
+
+**故障**：用户报"系统未启动时工作正常，FreeRTOS 启动后 I2C 访问 AP3216/MPU9250 读取失败"，
+日志同时有 `irq=93014` 与卡住的 `raw=(436,771)`。
+
+**定位**：传感器 init 在**触摸 EXTI 使能之前**成功、之后全败 → 指向触摸中断。
+新加的 IRQ 速率看门狗给出了决定性数字：
+```
+[TOUCH] WARNING: T_PEN interrupt storm 46925/s (> 1000/s) - check PH7 pull-up / crosstalk from PH6
+```
+
+**根因链**：PH7 浮空 + 紧邻 PH6(位绑定 SCL 165 kHz) 串扰 → 中断风暴；
+`HAL_I2C_Mem_*` 是轮询式传输，被 idle+4 的触摸任务抢占 → HAL 10 ms 超时 →
+**从机拉住 SDA、I2C2 锁 BUSY**；旧代码只退避重试、从不调 `BSP_I2C_Recover()` → 永久失效。
+
+**修复后正向验证**（`verify_sensors.py`，SWD 直读 `s_data`，不依赖"没报错"）：
+```
+AP3216C : ok=1  IR=5   环境光=4 lux  接近=30
+MPU9250 : ok=1 (mag=0)
+  加速度  ax=-0.03 ay=+0.01 az=+1.00 g     |a| = 1.00 g ← 板子平放，重力全在 Z
+  角速度  gx=-0.1 gy=+0.2 gz=-2.1 dps
+  统计    : samples=38  errors=0   AK8963 WIA=0x00
+RESULT: 7 passed, 0 failed -> PASS
+```
+- `errors=0`（修复前每 2 s 一条 FAILED）、`samples=38` 正常推进、
+  环境光随光照 0 → 4 → 10 lux 变化，证明传感器确实在采。
+- **AK8963 WIA=0x00**：本模块**没有可用磁力计**（硬件事实）。
+  旧代码把全零当"读取成功"上报属谎报；现在 init 返回 `-3`、页面显示「磁场  AK8963 未装配」。
+
+**回归**：`verify_boot_flow.py` 17/17、`verify_touch_irq.py` 7/7，均无退化。
+
+### 6.3 第四版真机验证证据（2026-08-29，SWD 读内存，PASS 6/6）
+
+验证时 **COM5 (CH340 @ LOCATION=1-8) 报 `PermissionError(13) / code 31`**，
+另一个 CH340 在 COM4 但并非本板（抓到 0 字节），串口侧无法取证，
+故改用 **SWD 读目标内存** 直接检查 UART TX 环形缓冲的状态变量：
+
+```
+python tools/verify_serial/verify_log_switch.py
+
+PRINT_LOG 开 : g_tx_head=0x0350  g_tx_tail=0x0350  g_tx_busy=0  g_usb_state=4
+PRINT_LOG 关 : g_tx_head=0x0000  g_tx_tail=0x0000  g_tx_busy=0  g_usb_state=4
+========== RESULT: 6 passed, 0 failed -> VERDICT: PASS ==========
+```
+
+- 日志开：**848 字节**进入 TX 环且 `head == tail`（被 ISR 完整排空，无丢字节）。
+- 日志关：`g_tx_head` 恒为 0、`g_tx_busy` 恒为 0 → **一个字节都没进环**；
+  同时 `g_usb_state=4 (USB_MOUNTED)` 证明系统照常完整启动。
+- 三种构建均零警告（README §5.3）：Release 开 **298,120 B** / Release 关 **291,960 B**
+  （省 **6,160 B**）/ Debug 开 **259,236 B**。
+
 ## 6.1 第二版真机验证证据（COM5，2026-08-28）
 
 **方法**：OpenOCD 0.12.0 + STLink（SWD）烧录 `.elf`（`flash write_image erase` + `verify_image`
@@ -419,6 +501,36 @@ USB 挂载 → 字库 `mask=0x1F` → 主界面 → `glyph cache: hits=83 misses
 - [x] `tools/verify_serial/verify_touch_irq.py`（中断链路全自动 7/7）+ `verify_touch.py`（交互式）
 - [x] 修复 4 个缺陷（画布 1×1 / 布局硬编码 / 磁力计整包丢弃 / 首条错误被吞）
 - [x] README.md（§1 引脚表、§3.2.3~3.2.4、§3.5、§5.3、§6.1、§7.7、§8）+ 本报告同步更新
+
+**第四版增量（2026-08-29）**
+
+- [x] **`app/log.c/.h`**：`printf_log()` / `vprintf_log()` / `PRINT_LOG()` +
+      `PRINT_LOG_ENABLE` 全局开关；192 B 栈缓冲 + `vsnprintf`，不分配堆
+- [x] **全量替换**：`app/` 12 个文件共 79 处 `printf()` → `PRINT_LOG()`
+      （`snprintf` 全部保留，未动）
+- [x] **`bsp/bsp_uart.c`** 升级为 101 语义：调度器未运行→`HAL_UART_Transmit()` 阻塞轮询、
+      已运行→**惰性创建**的 TX 互斥量 + 临界区入环；新增 `uart_flush()`（带超时保护）
+- [x] **CMake `ENABLE_PRINT_LOG`**（默认 ON）→ `-DPRINT_LOG_ENABLE=0|1`，
+      配置时打印当前状态
+- [x] U 盘内容 dump 用 `#if PRINT_LOG_ENABLE` 包住（关日志时连盘都不读），
+      避免绕过开关直连 `uart_write()`
+- [x] `tools/verify_serial/verify_log_switch.py`（SWD 读内存，COM5 故障时可用，6/6 PASS）
+- [x] README.md（§3.6 日志系统、§5.2 构建开关、§5.3 三配置产物、§7.8 实测、§8）+
+      本报告同步更新
+
+**第五版增量（2026-08-29）**
+
+- [x] **PH7 改 `GPIO_PULLUP`**（地址锁存阶段仍用 NOPULL），消除浮空拾噪
+- [x] 位绑定 I2C 事务期间屏蔽 EXTI line 7，消除自身 SCL 串扰
+- [x] **ISR 内立即屏蔽 line 7** + `bsp_touch_irq_rearm()`（任务侧消抖 5 ms 后重新武装）
+- [x] **IRQ 速率看门狗**（1 s 窗口，> 1000/s 打 WARNING）
+- [x] 传感器读取用 `vTaskSuspendAll()`/`xTaskResumeAll()` 包成原子操作
+- [x] I2C 超时 10 → 50 ms；失败先 `BSP_I2C_Recover()` 再立即重试一次
+- [x] 触摸轮询循环上限 `TOUCH_MAX_POLLS`(200 × 15 ms = 3 s)
+- [x] 修复 AK8963 时序（`MPU_SLAVE_SETTLE_MS` 2 → 20 ms，≥2 个采样周期）
+- [x] 新增 `bsp_mpu9250_mag_id()`：`AK8963_WIA` 器件检测，不存在时不再谎报 0.0 uT
+- [x] `tools/verify_serial/verify_sensors.py`（SWD 直读 `s_data` 正向验证，7/7 PASS）
+- [x] README.md（§3.5 + 新增 §3.5.1 根因与防护、§6 验收表、§7.9 实测）+ 本报告同步更新
 
 ---
 

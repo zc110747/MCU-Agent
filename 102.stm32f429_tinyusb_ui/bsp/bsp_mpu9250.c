@@ -15,7 +15,11 @@
 
 #define MPU9250_ADDR        0x68U
 #define AK8963_ADDR         0x0CU
-#define I2C_TIMEOUT         10U
+/* See the comment on AP3216C_TIMEOUT: HAL_I2C_Mem_* is a polling transfer and
+ * 10 ms was not enough headroom once the touch task (higher priority) started
+ * bit-banging on the neighbouring pins.  50 ms rides out preemption; a timeout
+ * here leaves the bus with SDA held low, so it must not happen spuriously. */
+#define I2C_TIMEOUT         50U
 
 /* MPU9250 registers */
 #define MPU_SMPLRT_DIV      0x19U
@@ -36,13 +40,18 @@
 #define MPU_I2C_SLV0_DO     0x63U
 
 /* AK8963 registers */
+#define AK8963_WIA          0x00U   /* device ID, must read 0x48            */
+#define AK8963_ST1          0x02U   /* status 1: bit0 = data ready          */
 #define AK8963_HXL          0x03U
 #define AK8963_CNTL         0x0AU
 #define AK8963_ASAX         0x10U
+#define AK8963_ST2          0x09U   /* status 2: bit3 = magnetic overflow   */
 
+#define AK8963_WIA_VALUE    0x48U
 #define AK8963_CNTL_CONT2   0x16U   /* continuous mode 2, 16-bit output */
 
-static float g_asa[3] = { 1.0f, 1.0f, 1.0f };
+static float   g_asa[3] = { 1.0f, 1.0f, 1.0f };
+static uint8_t g_mag_id = 0U;       /* AK8963 WIA read during init          */
 
 static int mpu_write(uint8_t reg, uint8_t val)
 {
@@ -56,6 +65,14 @@ static int mpu_read(uint8_t reg, uint8_t *val)
                            val, 1, I2C_TIMEOUT) == HAL_OK) ? 0 : -1;
 }
 
+/* Timing (fixed 2026-08-29): slave 0 only transfers on an MPU sample, and with
+ * SMPLRT_DIV = 7 the sample rate is 1 kHz / 8 = 125 Hz, i.e. one transfer every
+ * 8 ms.  Waiting only 2 ms read EXT_SENS_DATA before the first transfer had
+ * happened, so every magnetometer axis came back as exactly 0.0 uT while the
+ * call still reported success - a silently wrong value, which is worse than a
+ * failure.  MPU_SLAVE_SETTLE_MS covers two sample periods. */
+#define MPU_SLAVE_SETTLE_MS  20U
+
 /* Write one byte to the AK8963 through the MPU9250 I2C master (slave 0). */
 static int ak8963_write(uint8_t reg, uint8_t val)
 {
@@ -63,18 +80,18 @@ static int ak8963_write(uint8_t reg, uint8_t val)
   if (mpu_write(MPU_I2C_SLV0_REG, reg) != 0) return -1;
   if (mpu_write(MPU_I2C_SLV0_DO, val) != 0) return -1;
   if (mpu_write(MPU_I2C_SLV0_CTRL, 0x81U) != 0) return -1;              /* 1 byte + enable */
-  bsp_delay_ms(2);
+  bsp_delay_ms(MPU_SLAVE_SETTLE_MS);
   return 0;
 }
 
 /* Read N bytes from the AK8963 via EXT_SENS_DATA (slave 0 must be set to
- * continuous-read those registers). */
+ * continuous-read those registers).  See MPU_SLAVE_SETTLE_MS for the timing. */
 static int ak8963_read(uint8_t reg, uint8_t *buf, uint8_t n)
 {
   if (mpu_write(MPU_I2C_SLV0_ADDR, (AK8963_ADDR << 1) | 1U) != 0) return -1; /* read */
   if (mpu_write(MPU_I2C_SLV0_REG, reg) != 0) return -1;
   if (mpu_write(MPU_I2C_SLV0_CTRL, (uint8_t)(0x80U | n)) != 0) return -1;    /* n bytes + enable */
-  bsp_delay_ms(2);
+  bsp_delay_ms(MPU_SLAVE_SETTLE_MS);
 
   for (uint8_t i = 0; i < n; i++)
   {
@@ -126,6 +143,20 @@ int bsp_mpu9250_init(void)
     }
   }
 
+  /* ---- probe the AK8963 before trusting it ----------------------------- *
+   * Plenty of "MPU9250" modules either carry no magnetometer at all or have
+   * one that does not answer on the internal I2C master.  WIA (0x00) must read
+   * 0x48; without this check a dead magnetometer silently reports 0.0 uT for
+   * every axis, which looks like a successful read. */
+  g_mag_id = 0U;
+  (void)ak8963_read(AK8963_WIA, &g_mag_id, 1);
+
+  if (g_mag_id != AK8963_WIA_VALUE)
+  {
+    /* accel and gyro are fine; report the missing magnetometer as -3. */
+    return -3;
+  }
+
   /* AK8963: continuous measurement mode 2, 16-bit */
   if (ak8963_write(AK8963_CNTL, AK8963_CNTL_CONT2) != 0)
   {
@@ -133,6 +164,16 @@ int bsp_mpu9250_init(void)
   }
 
   return 0;
+}
+
+/**
+  * @brief  AK8963 device ID read during init (0x48 when the magnetometer
+  *         answers).  Lets the caller tell "no magnetometer fitted" apart from
+  *         "magnetometer read failed".
+  */
+uint8_t bsp_mpu9250_mag_id(void)
+{
+  return g_mag_id;
 }
 
 int bsp_mpu9250_read(mpu9250_data_t *d)

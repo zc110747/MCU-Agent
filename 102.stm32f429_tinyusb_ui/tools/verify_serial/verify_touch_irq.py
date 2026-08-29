@@ -40,6 +40,7 @@ BOOT_WAIT_SEC = int(os.environ.get("BOOT_WAIT_SEC", "14"))
 POST_WAIT_SEC = int(os.environ.get("POST_WAIT_SEC", "5"))
 
 EXTI_BASE = 0x40013C00
+EXTI_IMR = EXTI_BASE + 0x00
 EXTI_SWIER = EXTI_BASE + 0x10
 EXTI_LINE7 = 0x80
 
@@ -94,6 +95,10 @@ def main():
         "-c", "reset run",
         "-c", "sleep %d" % (BOOT_WAIT_SEC * 1000),
         "-c", "halt",
+        # The touch ISR now masks EXTI line 7 on entry (debounce against the
+        # ~47 kHz noise the INT pin picks up).  Force the mask bit back on
+        # before injecting, otherwise the software interrupt is dropped.
+        "-c", "mww 0x%08X 0x%08X" % (EXTI_IMR, EXTI_LINE7),
         "-c", "mww 0x%08X 0x%08X" % (EXTI_SWIER, EXTI_LINE7),
         "-c", "resume",
         "-c", "sleep %d" % (POST_WAIT_SEC * 1000),

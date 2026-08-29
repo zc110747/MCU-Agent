@@ -26,7 +26,11 @@ void touch_task(void *arg)
 {
     (void)arg;
     uint32_t idle_polls = 0U;
-    uint8_t  wake_logged = 0U;
+    uint32_t polls      = 0U;
+    uint8_t  wake_logged  = 0U;
+    uint8_t  storm_logged = 0U;
+    uint32_t irq_window_at = 0U;
+    uint32_t irq_window_base = 0U;
 
     PRINT_LOG("[TOUCH] task started, probing GT9147 (T_SCK=PH6 T_MOSI=PI3 "
            "T_CS=PI8 T_PEN=PH7)\r\n");
@@ -61,9 +65,36 @@ void touch_task(void *arg)
                    (unsigned long)bsp_touch_irq_count());
         }
 
-        idle_polls = 0U;
-        while (idle_polls < TOUCH_RELEASE_POLLS)
+        /* Interrupt sanity check, evaluated once per second.  A real GT9xx
+         * reports at ~100 Hz; a rate in the kHz range means the INT line is
+         * picking up noise and the storm will starve the lower-priority I2C2
+         * sensor task (which is exactly how its bus got wedged). */
+        if ((storm_logged == 0U) && (irq_window_at == 0U))
         {
+            irq_window_at   = HAL_GetTick();
+            irq_window_base = bsp_touch_irq_count();
+        }
+        else if ((storm_logged == 0U) &&
+                 ((HAL_GetTick() - irq_window_at) >= 1000U))
+        {
+            uint32_t rate = bsp_touch_irq_count() - irq_window_base;
+
+            if (rate > TOUCH_IRQ_STORM_HZ)
+            {
+                storm_logged = 1U;
+                PRINT_LOG("[TOUCH] WARNING: T_PEN interrupt storm %lu/s "
+                       "(> %lu/s) - check PH7 pull-up / crosstalk from PH6\r\n",
+                       (unsigned long)rate, (unsigned long)TOUCH_IRQ_STORM_HZ);
+            }
+            irq_window_at   = HAL_GetTick();
+            irq_window_base = bsp_touch_irq_count();
+        }
+
+        idle_polls = 0U;
+        polls      = 0U;
+        while ((idle_polls < TOUCH_RELEASE_POLLS) && (polls < TOUCH_MAX_POLLS))
+        {
+            polls++;
             if (bsp_touch_scan() > 0)
             {
                 idle_polls = 0U;
@@ -82,5 +113,21 @@ void touch_task(void *arg)
             }
             vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_MS));
         }
+
+        /* Hit the cap without ever seeing a release: the panel is reporting a
+         * stuck/phantom contact.  Say so once per occurrence and go back to
+         * waiting on the semaphore - the poll loop must never spin for ever. */
+        if (polls >= TOUCH_MAX_POLLS)
+        {
+            PRINT_LOG("[TOUCH] WARNING: contact held for %lu ms without "
+                   "release (phantom touch?) - re-arming\r\n",
+                   (unsigned long)(TOUCH_MAX_POLLS * TOUCH_POLL_MS));
+        }
+
+        /* Debounce guard before re-arming the interrupt, so a line that is
+         * picking up noise cannot retrigger the ISR the instant we unmask it.
+         * The poll loop above would see a real touch in the meantime anyway. */
+        vTaskDelay(pdMS_TO_TICKS(TOUCH_IRQ_REARM_MS));
+        bsp_touch_irq_rearm();
     }
 }

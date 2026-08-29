@@ -52,6 +52,9 @@ static void touch_refresh_geometry(void)
     }
 }
 
+/* Line 7 (T_PEN = PH7) bit in the EXTI registers. */
+#define TOUCH_EXTI_LINE_MSK   (1UL << 7)
+
 /* -------------------------------------------------------------------------- */
 /* Interrupt side                                                             */
 /* -------------------------------------------------------------------------- */
@@ -66,11 +69,52 @@ static void touch_exti_cb(void)
 
     s_irq_count++;
 
+    /* Mask the line straight away.  On this board the INT pin picks up
+     * ~47 kHz of noise once the FMC/LCD parallel bus is running (measured with
+     * the watchdog in touch_task).  Left unmasked that is ~10% of the CPU spent
+     * in the ISR plus continuous PendSV traffic, which starved the
+     * lower-priority I2C2 sensor task and wedged its bus.
+     *
+     * The task re-arms the line with bsp_touch_irq_rearm() after the debounce
+     * guard, so a real touch is still picked up within a few tens of ms - and
+     * in the meantime the poll loop sees it anyway. */
+    EXTI->IMR &= ~TOUCH_EXTI_LINE_MSK;
+
     if (s_touch_sem != NULL)
     {
         xSemaphoreGiveFromISR(s_touch_sem, &higher_prio_task_woken);
         portYIELD_FROM_ISR(higher_prio_task_woken);
     }
+}
+
+/**
+  * @brief  Re-arm EXTI line 7 after an interrupt.  Called from the touch task
+  *         once the debounce guard has elapsed; drops any edge that arrived
+  *         while the line was masked so it cannot fire immediately again.
+  */
+void bsp_touch_irq_rearm(void)
+{
+    taskENTER_CRITICAL();
+    EXTI->PR  =  TOUCH_EXTI_LINE_MSK;
+    EXTI->IMR |= TOUCH_EXTI_LINE_MSK;
+    taskEXIT_CRITICAL();
+}
+
+/**
+  * @brief  Mask EXTI line 7 for the duration of a bit-banged I2C transaction.
+  *
+  *  PH6 (bit-banged SCL, ~165 kHz) and PH7 (T_PEN) are adjacent pins.  While
+  *  the software I2C is clocking, capacitive crosstalk couples edges into PH7;
+  *  with the pin left floating that produced a measured ~15 kHz interrupt
+  *  storm on this board (the irq counter climbed past 93 000 within seconds),
+  *  which starved the I2C2 sensor task and ended up locking its bus.
+  *
+  *  Only the transaction itself is masked, never the idle time between polls,
+  *  so a new touch is still caught by the interrupt straight away.
+  */
+static void touch_exti_mask(void)
+{
+    EXTI->IMR &= ~TOUCH_EXTI_LINE_MSK;
 }
 
 static int touch_exti_init(void)
@@ -233,7 +277,13 @@ int bsp_touch_scan(void)
      * may have finished bringing the panel up after this task started. */
     touch_refresh_geometry();
 
+    /* The whole controller read is a bit-banged I2C burst on PH6/PI3; keep
+     * EXTI line 7 (PH7) masked across it so the crosstalk it induces cannot
+     * fire the touch interrupt (see touch_exti_mask()).  It stays masked
+     * afterwards - the task re-arms it through bsp_touch_irq_rearm(). */
+    touch_exti_mask();
     n = bsp_gt9147_read(pts, GT9147_MAX_POINTS);
+
     if (n < 0)
     {
         return -1;

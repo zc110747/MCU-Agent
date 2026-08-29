@@ -222,10 +222,88 @@ AP3216C（`0x1E`）与 MPU9250（`0x68`，内含 AK8963 `0x0C`）都挂 I2C2，�
 结果通过 `sensor_get()` 拷贝给 UI 线程（临界区保护）。
 
 - 采样在自己的任务里做：MPU9250 一轮约 14 次 I2C 事务、耗时 ~15 ms，放进渲染泵会卡住重绘。
-- **磁力计单独标记**：`bsp_mpu9250_read()` 返回 `-3` 表示**只有 AK8963 读失败**，
-  此时加速度/陀螺仪数据是好的，仍然发布，页面只在"磁场"一行显示 `AK8963 未就绪`。
+- **磁力计是可选的**：`AK8963_WIA`(0x00) 必须读到 `0x48` 才算存在。**本板实测 WIA=0x00**
+  —— 这颗"MPU9250"没有可用磁力计。此时 init 返回 `-3`，加速度/陀螺照常采样，
+  页面显示「磁场  AK8963 未装配」而**不是**谎报 0.0 uT（旧代码正是把全零当成功上报）。
 - **失败退避 + 限流打印**：失败后隔 2 s 重试；同一设备的错误最多每 60 s 打印一次
   （UART TX 环形缓冲满会静默丢字节，见 §6.1）。
+
+### 3.5.1 ⚠️ I2C2 在 FreeRTOS 起来后失败的根因与防护（2026-08-29 实测定位）
+
+**症状**：传感器 init 全部成功，但触摸中断使能之后
+`[SENS ] ... read FAILED (rc=-1)`，且**之后每次都失败**。
+
+**根因链**
+
+1. **T_PEN (PH7) 中断风暴** —— PH7 原先是浮空输入，且紧邻 PH6（位绑定 SCL，165 kHz）。
+   实测 **46 925 次/秒**（`irq` 计数在数秒内冲到 93 014）。
+2. `HAL_I2C_Mem_Read/Write` 是**轮询式**传输，CPU 必须留在循环里逐字节搬运；
+   而触摸任务优先级（idle+4）高于传感器任务（idle+1），传输会被位绑定扫描抢占。
+3. 抢占 → HAL 10 ms 超时 → **从机仍拉住 SDA、I2C2 锁在 BUSY**。
+4. 旧代码失败后只退避重试，**从不调 `BSP_I2C_Recover()`** → 总线永久卡死。
+
+**三层防护（缺一不可）**
+
+| 层 | 措施 | 解决什么 |
+|----|------|----------|
+| 源头 | PH7 改 `GPIO_PULLUP`（仅地址锁存那一瞬用 NOPULL） | 浮空引脚拾噪 |
+| 源头 | 位绑定 I2C 事务期间屏蔽 EXTI line 7 | 自身 SCL 串扰 |
+| 源头 | **ISR 内立即屏蔽 line 7**；任务侧消抖 5 ms 后 `bsp_touch_irq_rearm()` 重新武装 | ISR 速率 ~47 kHz → ~20 Hz |
+| 隔离 | 传感器读取用 `vTaskSuspendAll()`/`xTaskResumeAll()` 包成**原子操作**（中断仍开） | 传输不被抢占 |
+| 容错 | I2C 超时 10 ms → **50 ms**；失败先 `BSP_I2C_Recover()` 再**立即重试一次** | 单次抖动不成故障；总线自愈 |
+| 兜底 | 触摸轮询循环上限 `TOUCH_MAX_POLLS`(3 s)，幻接触不能永久占用任务 | 不死循环 |
+| 自诊断 | IRQ 速率看门狗，超 1000/s 打一条 WARNING | 一眼看出风暴 |
+
+**验证**：SWD 直读 `s_data`（`tools/verify_serial/verify_sensors.py`，**7/7 PASS**）
+—— `errors=0`、`samples=38` 正常推进、`|a| = 1.00 g`（板子平放，重力全在 Z 轴）。
+
+### 3.6 日志系统：PRINT_LOG 全局可控（替换全部 printf）
+
+**约定：工程内所有应用日志一律用 `PRINT_LOG(...)`，不再直接调用 `printf()`。**
+`snprintf()` 属于字符串格式化，不属于日志，**保留不动**。
+
+```
+PRINT_LOG(fmt, ...)                 app/log.h   -> 开关关闭时展开为 ((void)0)
+   └─> printf_log()                 app/log.c   -> va_list 转发
+         └─> vsnprintf() 栈缓冲(192 B)          -> 定长，不分配堆
+               └─> uart_write()     bsp/bsp_uart.c
+                     ├─ 调度器未运行 -> HAL_UART_Transmit() 阻塞轮询（启动横幅不丢字节）
+                     └─ 调度器已运行 -> 互斥量 + 临界区入环，由 TXE ISR 排空
+```
+
+**为什么要换掉 printf**
+
+| 问题 | printf | PRINT_LOG |
+|------|--------|-----------|
+| 全局开关 | 无，只能逐处注释 | `PRINT_LOG_ENABLE=0` 一处关掉，编译成空语句 |
+| 走 newlib 路径 | 是（会重入 `_write` → `uart_write`） | 否，直接调 `uart_write` 并带显式长度 |
+| 堆依赖 | 可能分配 | 无（192 B 栈缓冲），堆损坏/未初始化时仍可用 |
+| 启动阶段 | 依赖 `syscalls _write` | 调度器未启动自动切阻塞轮询，横幅不丢 |
+| 多任务串行化 | 无 | 互斥量 + 整行临界区入环，日志行不交错 |
+
+**开关方式**
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_PRINT_LOG=OFF -S .
+```
+
+CMake 会打印 `-- PRINT_LOG: compiled out (PRINT_LOG_ENABLE=0)`。
+`app/log.h` 里也有 `#ifndef PRINT_LOG_ENABLE` 兜底默认值为 1。
+
+**两条必须遵守的规则**
+
+1. **`PRINT_LOG` 不能在 ISR 里调用** —— 里面会拿互斥量。中断上下文请用
+   `uart_write()` / `uart_puts()`。
+2. **U 盘内容 dump 不走 `PRINT_LOG`** —— 它是二进制原文且可能不含 NUL，不能直接当格式串
+   （文件内容里出现 `%s` 会被当成格式化指令直接崩）。它走 `uart_write()` 直连，
+   并单独用 `#if PRINT_LOG_ENABLE` 包住，所以关日志时连盘都不会读。
+
+**已知限制**
+
+- `PRINT_LOG` 与 newlib-nano 一样**不支持 `%f`**（链接参数没有 `-u _printf_float`）。
+  需要小数请手工拆成整数 + `%02d`（见 `app/app_ui.c` 的 `fmt_fixed2()`）。
+- 单行上限 192 B，超长会被 `vsnprintf` 截断（当前最长日志行约 110 B）。
+- `syscalls.c` 的 `_write` 仍然保留，作为第三方库 / 残留 `printf` 的兜底通道。
 
 ### 3.4 UI 线程（FMC/8080 LCD + LVGL + GBK 字库）
 
@@ -328,14 +406,21 @@ U 盘插入
 ### 5.2 命令
 
 ```bash
-# Release（默认）
+# Release（默认，日志开）
 cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
 cmake --build build --target stm32f429_tinyusb_ui.elf
 
 # Debug
 cmake -B build_dbg -DCMAKE_BUILD_TYPE=Debug -S .
 cmake --build build_dbg --target stm32f429_tinyusb_ui.elf
+
+# 关闭全部应用日志（PRINT_LOG_ENABLE=0）
+cmake -B build_nolog -DCMAKE_BUILD_TYPE=Release -DENABLE_PRINT_LOG=OFF -S .
+cmake --build build_nolog --target stm32f429_tinyusb_ui.elf
 ```
+
+- `ENABLE_PRINT_LOG`（CMake option，默认 ON）→ 产出 `-DPRINT_LOG_ENABLE=0|1`。
+  关掉后所有 `PRINT_LOG(...)` 编译成空语句，FLASH 省约 6 KB、串口零流量（见 §3.6）。
 
 - 编译标志：`-Wall -Wextra -Wno-unused-parameter -Wno-unused-function -fdata-sections -ffunction-sections -g`；
   Debug 用 `-Og`，Release 用 `-Os`。
@@ -347,18 +432,19 @@ cmake --build build_dbg --target stm32f429_tinyusb_ui.elf
 
 ### 5.3 产物（双构建，零警告）
 
-> 下表为接入 **电容触摸(GT9147/GT911 + 软件 I2C + T_PEN EXTI) + I2C2 传感器 +
-> UI 双页面导航** 后的最新占用。相比上一版：
-> FLASH +25 KB（AP3216C/MPU9250 驱动 + `stm32f4xx_hal_exti.c` + LVGL indev + 第二页），
-> RAM 基本不变（新增状态均为少量静态变量）。
+> 下表为接入 **PRINT_LOG 日志系统（替换全部 printf）** 后的最新占用。相比上一版
+> （触摸 + 传感器 + 双页面）FLASH **-4.1 KB**：`PRINT_LOG` 走 `vsnprintf` + `uart_write`
+> 的定长路径，绕开了 newlib `printf` 的完整格式化栈，代码反而更小。
 
-| 构建 | FLASH | RAM (内部) | SDRAM 堆 | 警告 |
-|------|-------|-----------|----------|------|
-| Release | 302,244 B / 1 MB (28.82%) | 30,296 B / 192 KB (15.41%) | 512 KB / 32 MB (1.56%) | 0 |
-| Debug   | 261,664 B / 1 MB (24.95%) | 30,288 B / 192 KB (15.41%) | 512 KB / 32 MB (1.56%) | 0 |
+| 构建 | 日志 | FLASH | RAM (内部) | SDRAM 堆 | 警告 |
+|------|------|-------|-----------|----------|------|
+| Release | 开 | 298,120 B / 1 MB (28.43%) | 30,272 B / 192 KB (15.40%) | 512 KB / 32 MB (1.56%) | 0 |
+| Debug   | 开 | 259,236 B / 1 MB (24.72%) | 30,264 B / 192 KB (15.39%) | 512 KB / 32 MB (1.56%) | 0 |
+| Release | **关** | **291,960 B / 1 MB (27.84%)** | 30,272 B / 192 KB (15.40%) | 512 KB / 32 MB (1.56%) | 0 |
 
 > 说明：本工程 `-Og`(Debug) 产出的代码比 `-Os`(Release) 更小（与工具链版本相关的既有现象，
-> 上一版同样如此），两种构建均**零警告**。
+> 上一版同样如此），三种配置均**零警告**。日志关掉后省下 **6,160 B** FLASH
+> （全部格式串 + 调用点被 `--gc-sections` 回收），串口**零字节**输出（§3.6 已用 SWD 实测）。
 
 ### 5.4 exFAT 验证工具
 
@@ -400,6 +486,9 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 | **AP3216C + MPU9250 采样** | ✅ 硬件验证通过 | 2026-08-28 COM5 实测：`AP3216C init OK` / `MPU9250 init OK (WHO_AM_I check)` |
 | **UI 双页面 + 底部左右图标按钮** | ✅ 编译 + 代码审查通过 | 布局自适应 480×800 画布；翻页循环；图标用 `lv_line` 画，不依赖字库文件 |
 | **手指触摸坐标上报 / 实际翻页** | ⏳ 待人工 | 需手指点屏确认，脚本 `verify_touch.py` 已就绪（§7.7.2） |
+| **PRINT_LOG 替换全部 printf + 全局开关** | ✅ **PASS 6/6** | 三种配置零警告；SWD 实测开关行为（§7.8） |
+| **I2C2 中断风暴根因修复 + 三层防护** | ✅ **PASS 7/7** | 传感器 `errors=0`、`\|a\|=1.00 g`；SWD 直读 `s_data`（§7.9） |
+| **启动流程回归（修复后）** | ✅ **PASS 17/17** | `verify_boot_flow.py` 无退化 |
 
 > 详细证据与「编译验证 vs 硬件验证」标签见 **`ACCEPTANCE_REPORT.md`**。
 
@@ -670,6 +759,74 @@ SERIAL_PORT=COM5 TOUCH_WAIT_SEC=30 python tools/verify_serial/verify_touch.py
   `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` 三个宏（各只需 0/1 切换），
   对照日志里的 `raw=` 与 `lv=` 一行即可确定。
 
+### 7.8 PRINT_LOG 日志系统实测（2026-08-29，PASS 6/6）
+
+本轮验证时 **COM5 (CH340) 处于驱动 code-31 故障状态**（`PermissionError(13)`，
+需重新插拔 USB 转串口），因此改用 **SWD 读内存**取证：日志关掉后，
+`bsp_uart.c` 的 TX 环形缓冲写指针必须一个字节都没动过。
+
+```bash
+python tools/verify_serial/verify_log_switch.py
+```
+
+```
+---- PRINT_LOG 开 (build/stm32f429_tinyusb_ui.elf) ----
+  g_tx_head=0x0350  g_tx_tail=0x0350  g_tx_busy=0  g_usb_state=4
+  [PASS] 系统完整启动（USB 已挂载, g_usb_state=4）
+  [PASS] 日志已送入 UART TX 环（g_tx_head != 0）      实测 0x0350 = 848 字节
+  [PASS] TX 环已被 ISR 排空（head == tail）           无丢字节
+
+---- PRINT_LOG 关 (build_nolog/stm32f429_tinyusb_ui.elf) ----
+  g_tx_head=0x0000  g_tx_tail=0x0000  g_tx_busy=0  g_usb_state=4
+  [PASS] 系统完整启动（USB 已挂载, g_usb_state=4）
+  [PASS] 一个字节都没进 TX 环（g_tx_head == 0）
+  [PASS] 发送器从未启动（g_tx_busy == 0）
+========== RESULT: 6 passed, 0 failed / VERDICT: PASS ==========
+```
+
+要点：
+- **日志关 = 串口零字节**，且系统照常启动到 USB 挂载（`g_usb_state=4`）——
+  证明开关真的切断了输出，而不是把日志丢在别处。
+- 日志开时 `head == tail`，说明互斥量 + 临界区入环 + ISR 排空这条路径没有丢字节。
+- 符号地址由 `arm-none-eabi-nm` 从 `.elf` 取，再通过 OpenOCD `mdw` 读；
+  TX 计数器是 `uint8 + uint16 + uint16` 混排、地址不对齐，所以脚本按 4 字节对齐
+  整字读取后在 Python 里切字节（`mdw` 直接读非对齐地址会报 `Failed to read memory`）。
+
+> COM5 恢复后建议再跑一遍 `verify_boot_flow.py` / `verify_touch_irq.py`，
+> 用串口侧确认日志文本与改动前逐行一致。
+
+### 7.9 I2C2 故障修复实测（2026-08-29，PASS 7/7）
+
+**故障现象**（用户报）：系统未启动时 I2C 正常，FreeRTOS 起来后
+`AP3216C / MPU9250 read FAILED (rc=-1)`，且之后每次都失败。日志同时显示
+`irq=93014`、触摸坐标卡在 `raw=(436,771)` 不变。
+
+**定位**：传感器 init 在触摸 EXTI 使能**之前**成功、之后失败 —— 指向触摸中断。
+加了 IRQ 速率看门狗后一击命中：
+
+```
+[TOUCH] WARNING: T_PEN interrupt storm 46925/s (> 1000/s) - check PH7 pull-up / crosstalk from PH6
+```
+
+**修复后**（`tools/verify_serial/verify_sensors.py`，SWD 直读 `s_data`）：
+
+```
+AP3216C : ok=1  IR=5   环境光=4 lux  接近=30
+MPU9250 : ok=1 (mag=0)
+  加速度  ax=-0.03 ay=+0.01 az=+1.00 g      |a| = 1.00 g  ← 板子平放，重力全在 Z
+  角速度  gx=-0.1 gy=+0.2 gz=-2.1 dps
+  统计    : samples=38  errors=0   AK8963 WIA=0x00
+RESULT: 7 passed, 0 failed -> PASS
+```
+
+- **`errors=0`**：修复前每 2 s 就报一次 FAILED，现在整轮 22 s 零错误。
+- **`samples=38`** 正常推进，环境光随光照在 0 → 4 → 10 lux 变化，传感器确实活着。
+- **AK8963 WIA=0x00**：本模块**没有可用磁力计**（硬件事实）。改前代码把全零当
+  "读取成功"上报，改后 init 返回 `-3`、页面显示「磁场  AK8963 未装配」。
+
+> COM5 已恢复，启动流程回归 `verify_boot_flow.py` 17/17、`verify_touch_irq.py` 7/7 均通过。
+> 仍未完成的只有**手指触摸 + 翻页**的人工确认（`verify_touch.py`）。
+
 ---
 
 ## 8. 目录结构
@@ -683,6 +840,7 @@ SERIAL_PORT=COM5 TOUCH_WAIT_SEC=30 python tools/verify_serial/verify_touch.py
 │   ├── sd_card.c/.h               # ★ microSD 上电流程：SDIO 初始化 + f_mount("1:")
 │   ├── ui_task.c/.h               # ★ 启动加载状态机 + LVGL 渲染泵 + LVGL indev 注册
 │   ├── app_ui.c/.h                # ★ 双页面（状态 / 硬件信息）+ 底部左右导航按钮
+│   ├── log.c/.h                   # ★ PRINT_LOG 日志系统（全局 PRINT_LOG_ENABLE 开关）
 │   ├── touch_task.c/.h            # ★ T_PEN 中断 → 信号量 → GT9147 轮询 → 发布坐标
 │   ├── sensor_task.c/.h           # ★ AP3216C + MPU9250 周期采样（500 ms）
 │   ├── tusb_config.h              # TinyUSB 主机配置 (CFG_TUH_MSC=1)
@@ -718,6 +876,7 @@ SERIAL_PORT=COM5 TOUCH_WAIT_SEC=30 python tools/verify_serial/verify_touch.py
 │   ├── verify_boot_flow.py        # ★ 启动加载流程验收（烧录 + COM5 抓 25s + pass/fail）
 │   ├── verify_touch_irq.py        # ★ T_PEN 中断链路验收（SWIER 软注入，全自动 7/7）
 │   ├── verify_touch.py            # ★ 手指触摸 + 翻页验收（烧录 + 交互式，需人工点屏）
+│   ├── verify_log_switch.py       # ★ PRINT_LOG 开关验收（串口不可用时改走 SWD 读内存）
 │   ├── capture_reset.py           # ★ 只复位不烧录，抓控制类日志（--raw 看全量）
 │   └── verify_ui_com5.py / explore_com5_test.py / ...   # 既有 U 盘遍历验收
 ├── CMakeLists.txt / cmake/arm-none-eabi-gcc.cmake

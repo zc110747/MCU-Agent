@@ -421,7 +421,7 @@ static void refresh_hwinfo(void)
             }
             else
             {
-                lv_label_set_text(s_ui.p1_mag, "磁场  AK8963 未就绪");
+                lv_label_set_text(s_ui.p1_mag, "磁场  AK8963 未装配");
             }
         }
         else

@@ -3,6 +3,9 @@
 ## 硬件平台
 - MCU: STM32F429IGT6, HSE 25MHz, 内部 SRAM 256KB / SDRAM(W9825G6KH-6 32MB) 经 FMC.
 - 调试串口: **USART3 (PB10/PB11) @ 115200 8N1**, 本机枚举为 **COM5** (用户确认 COM5 即通讯串口).
+  ⚠️ COM5 的 CH340 会周期性进入 **code-31 / `PermissionError(13)`** 状态，需重新插拔 USB
+  才能恢复；机器上还有另一个 CH340 占 **COM4**，但**不是**本板（抓不到任何字节）。
+  串口挂掉时可用 SWD 读内存取证（`verify_log_switch.py` 的做法）。
 - 烧录: OpenOCD + ST-Link; openocd 在 `D:/software/ST/OpenOCD/bin/openocd.exe`, scripts 在 `D:/software/ST/OpenOCD/share/openocd/scripts`; cfg=`interface/stlink.cfg`+`target/stm32f4x.cfg`.
 - USB: TinyUSB Host (U 盘 MSC), FatFs 卷 **`0:`**; 字库在 `0:/SYSTEM/FONT/` (GBK12/16/24/32.FON + UNIGBK.BIN).
 - microSD: **SDIO 4-bit**, PC8=D0 PC9=D1 PC10=D2 PC11=D3 PC12=CK PD2=CMD (AF12, 上拉), FatFs 卷 **`1:`**,
@@ -21,6 +24,22 @@
   与画布一致 → 恒等映射。184B 配置块是 9147 专用，**绝不能给 GT911 上传**。
 - I2C2 (PH4/PH5): AP3216C(0x1E) + MPU9250(0x68, 内含 AK8963 0x0C) + PCF8574(0x20) + AT24C02(0xA0)。
   传感器由 `app/sensor_task.c` 每 500ms 采样。
+  **本板 MPU9250 无可用磁力计**（`AK8963 WIA=0x00`，兼容片），磁力计必须按"可选"处理，
+  不要把 0.0 uT 当成功上报。
+- **PH7 (T_PEN) 极易产生中断风暴**：浮空输入 + 紧邻 PH6(位绑定 SCL 165 kHz) 串扰，
+  实测 **46 925 次/秒**。必须上拉；且 ISR 内立即屏蔽 line 7、任务侧消抖后重新武装。
+  风暴会抢占低优先级的轮询式 I2C 传输并**锁死 I2C2 总线**（见下方"已知坑"）。
+
+## 日志约定（用户明确指令，2026-08-29）
+- **应用日志一律用 `PRINT_LOG(...)`（`app/log.h`），不要写裸 `printf()`**；
+  `snprintf` 属字符串格式化，保留不动。
+- 全局开关 `PRINT_LOG_ENABLE`；构建层用 `cmake -DENABLE_PRINT_LOG=OFF`，
+  CMake 传 `-DPRINT_LOG_ENABLE=0|1`。关闭后所有日志编译成空语句（省 ~6 KB FLASH）。
+- `PRINT_LOG` **不能在 ISR 里调**（内部拿互斥量）；中断上下文用 `uart_write()`。
+- 二进制/无 NUL 的内容 dump 不要走 `PRINT_LOG`（当格式串遇到 `%s` 会崩），
+  保持 `uart_write()` 直连并自己用 `#if PRINT_LOG_ENABLE` 包住。
+- **`BSP_UART_Init()` 早于 SDRAM/`vPortDefineHeapRegions()`**，所以 TX 互斥量
+  **不能在 init 里创建**（会破坏尚未定义的堆），改成调度器运行后惰性创建。
 
 ## 工作流约定（用户明确指令）
 - **每次改完代码 → 直接构建 + OpenOCD 烧录 + COM5 串口真机验证，不再只交付 ELF 让用户手动跑**。环境（COM5/OpenOCD/ST-Link）已就绪。
@@ -54,5 +73,20 @@
   任务随后以 15ms 轮询直到连续 3 次无触点。
 - **无需手指即可验证 EXTI 链路**: `EXTI->SWIER`(0x40013C10) 写 1 产生与引脚边沿等价的中断。
   OpenOCD `halt` → `mww 0x40013C10 0x80` → `resume`（已封装 `verify_touch_irq.py`）。
-- newlib-nano 未链 `-u _printf_float`, **`printf`/`lv_label_set_text_fmt` 不能用 `%f`**；
+- newlib-nano 未链 `-u _printf_float`, **`printf`/`PRINT_LOG`/`lv_label_set_text_fmt` 不能用 `%f`**；
   需要小数时手工拆成整数+%02d（见 `app_ui.c` 的 `fmt_fixed2()`）。
+- **OpenOCD `mdw` 读非 4 字节对齐地址会报 `Failed to read memory`**。
+  读 `uint8`/`uint16` 混排的静态变量时要按 4 字节对齐整字读，再在 Python 里切字节。
+- **残留 openocd.exe 会让 ST-Link 报 `libusb_open() failed with LIBUSB_ERROR_ACCESS`**，
+  先 taskkill 再烧。
+- **轮询式 HAL 传输（无 DMA 的 I2C/SPI）会被高优先级任务的忙等抢占而超时**，
+  超时后**从机仍拉住 SDA、外设锁在 BUSY** → 必须调 `BSP_I2C_Recover()`，
+  否则一次失败变永久失败。防护三件套：加大 timeout(10→50ms) +
+  `vTaskSuspendAll()` 包成原子操作 + 失败先 recover 再立即重试一次。
+- **"没报错" ≠ "有数据"**：错误日志还是限流的，正向验证要用
+  `arm-none-eabi-nm` 取址 + OpenOCD `mdw` 直读目标内存里的数据结构
+  （`tools/verify_serial/verify_sensors.py`）。
+- **给所有外部中断加"速率看门狗"**（1 s 窗口计数、超阈值打一条 WARNING）：
+  实测把"中断风暴"从猜测变成 46925/s 这样的数字，是这类问题最划算的诊断投入。
+- **噪声中断的正解是 ISR 内屏蔽 + 任务侧延时重新武装**（~47 kHz → ~20 Hz），
+  不是在 ISR 里做软件滤波。

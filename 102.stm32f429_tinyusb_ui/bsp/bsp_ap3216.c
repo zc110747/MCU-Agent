@@ -9,7 +9,14 @@
 #include "bsp_delay.h"
 
 #define AP3216C_ADDR       0x1EU
-#define AP3216C_TIMEOUT    10U
+/* HAL_I2C_Mem_* is a POLLING transfer: the CPU has to stay in the loop to move
+ * every byte.  At 100 kHz a one-byte transaction needs well under 1 ms, but a
+ * higher-priority task (the touch task bit-bangs the GT9xx bus in ~1 ms
+ * bursts) can preempt us right in the middle.  10 ms turned out to be too
+ * little headroom and produced sporadic rc=-1 - and since a timeout leaves the
+ * slave holding SDA low, one of them used to wedge the bus permanently.
+ * 50 ms costs nothing and rides out preemption. */
+#define AP3216C_TIMEOUT    50U
 
 #define AP3216C_SYSTEMCONG 0x00U
 #define AP3216C_IRDATALOW  0x0AU

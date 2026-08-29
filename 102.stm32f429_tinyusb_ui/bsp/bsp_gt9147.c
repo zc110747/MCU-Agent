@@ -215,6 +215,26 @@ int bsp_gt9147_init(void)
     HAL_GPIO_Init(GT_INT_PORT, &gpio);
     bsp_delay_ms(100U);
 
+    /* ---- re-enable the pull-up on INT ------------------------------------ *
+     * NOPULL above is only correct for the address latch (the pin must read
+     * HIGH to select 0x14).  From here on INT drives EXTI line 7, and a
+     * floating interrupt pin is a noise antenna:
+     *
+     *   - it picks up ambient noise and generates spurious edges;
+     *   - worse, PH6 is the bit-banged SCL toggling at ~165 kHz and it is the
+     *     adjacent pin, so capacitive crosstalk injects edges straight into
+     *     PH7.  Measured on this board: ~15 kHz of phantom interrupts (the
+     *     irq counter climbed past 93 000 within seconds), which starved the
+     *     I2C2 sensor task and ended up locking its bus.
+     *
+     * The controller idles INT high and pulls it low to report, so a pull-up
+     * is the correct termination for the interrupt use. */
+    gpio.Mode = GPIO_MODE_INPUT;
+    gpio.Pull = GPIO_PULLUP;
+    gpio.Pin  = GT_INT_PIN;
+    HAL_GPIO_Init(GT_INT_PORT, &gpio);
+    bsp_delay_ms(2U);
+
     /* ---- find the chip and read its product ID -------------------------- */
     for (i = 0; i < 2; i++)
     {

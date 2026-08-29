@@ -75,9 +75,18 @@ int bsp_touch_wait(TickType_t ticks);
 
 /**
   * @brief  Poll the controller once and publish the result for LVGL.
+  *         Masks the T_PEN interrupt while the (bit-banged) bus transaction
+  *         runs and leaves it masked; the caller must re-arm it with
+  *         bsp_touch_irq_rearm() once the debounce guard has elapsed.
   *  @retval number of contacts (>=1 = pressed), 0 = released, -1 = not ready.
   */
 int bsp_touch_scan(void);
+
+/**
+  * @brief  Re-arm EXTI line 7 after the ISR masked it.  Drops any edge that
+  *         arrived while masked so a noisy line cannot retrigger immediately.
+  */
+void bsp_touch_irq_rearm(void);
 
 /**
   * @brief  Current published state (last scan).
