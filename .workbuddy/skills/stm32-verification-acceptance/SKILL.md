@@ -46,6 +46,15 @@ cmake --build build-release
   - 例：`FLASH 310808B / 1024KB (29.79%)`、`RAM 85992B / 192KB (43.74%)`
 - 仅 RWX 段良性提示可豁免（裸机/链接脚本特性），其余警告须清零。
 
+### 2.1 构建目录清理（沙箱 safe-delete 拦截坑）
+CI / 沙箱里 `rm -rf build` 可能触发 **safe-delete 批量确认拦截**（文件数超过阈值时命令被拦、实际未执行），
+导致陈旧 `build/` 被复用、新增 `.c` 没进编译、出现「改了代码却没生效」的假象。
+**正确做法**（二选一）：
+- 用 `cmake --fresh -B build` 强制重配（最稳，保留同一目录名）；
+- 或改用全新目录名（`build_dbg`/`build_rel`）避免复用陈旧产物。
+⚠️ 只要动过 `CMakeLists.txt` 的 `GLOB` 源清单（新增 `app/ui/*.c` 等），**必须重跑 cmake 重新 GLOB**，
+否则 ninja 增量不会自动重扫（见 `stm32-project-scaffold` 第二节）。
+
 ## 三、OpenOCD 烧录验证
 
 ```bash
@@ -73,6 +82,13 @@ openocd -f openocd/stm32h743_stlink.cfg \
   按 4 字节对齐整字读（`mdw <addr_aligned>`），再在 Python 里切字节。
 - 用 `arm-none-eabi-nm` 取符号地址 → OpenOCD `mdw` 直读目标内存里的数据结构，是「没报错≠有数据」的
   正向验证手段（见 8.6）。
+
+⚠️ **一次性 `-c "init; ...; mdw ...; shutdown"` 读数会被缓冲吞掉**：在 `shutdown` 前 OpenOCD 常不 flush
+ stdout，成功 mdw 行在管道里丢失，只透出错误/PC 行。两种稳法：
+- 落盘：`openocd ... -c "...; mdw 0x..; resume; shutdown" > ocd.log 2>&1`，再 `grep 0x2000 ocd.log`；
+- 或分两步：先 `halt` 做完 mdw，最后单独 `shutdown`，不要在一行里紧跟 mdw 后 shutdown。
+- **`halt` 后必须 `wait_halt` + 短 `sleep` 再 `mdw`**：刚 halt 瞬间目标还在跑，读 SRAM 会报
+  `Failed to read memory`；`wait_halt` 等停稳再读即正常（详见 `stm32-swd-forensics` 第三节）。
 
 ### 3.2 「没报错 ≠ 有数据」铁律（验收必守）
 错误日志常被限流，且「调用返回 0」不等于「数据正确」。正向验证要用：
@@ -183,6 +199,11 @@ x/8xw 0x08040000                    # 回读 8 字，应等于写入 pattern
 ⚠️ **GDB 可靠性边界（来自真机教训）**：`-O2`/Release 下 GDB 读取局部变量不可靠，
 且 Cortex-M **勿用 `call` 触发复杂函数**（易 HardFault，尤其涉及 OS 调度/中断/浮点）。隔离验证
 优先用 hw-bp + `finish` + `call` 简单函数；复杂路径改用"直调 + 8.3 超时挂死检测"而非交互式 `call`。
+
+⚠️ **GDB 断点打在「含 FreeRTOS 互斥量获取」的函数会死锁**（真机教训）：这类函数内部
+ `xSemaphoreTake` 在调度器未起或已有任务持锁时 `call` 会永久阻塞 gdb。隔离验证时：
+- 断点打在 `vTaskStartScheduler()` **之前**，或确认该函数此刻无持锁窗口；
+- 否则改用「hw-bp 命中该函数入口 → `finish` 跑完 → 看返回值」而非交互式 `call`，避免 gdb 卡死。
 
 ### 8.3 挂死自动检测驱动（python 包 gdb）
 ```python
