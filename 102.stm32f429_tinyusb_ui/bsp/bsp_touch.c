@@ -9,6 +9,7 @@
 #include "bsp_lcd.h"
 #include "semphr.h"
 #include <stdio.h>
+#include "log.h"
 
 EXTI_HandleTypeDef g_touch_exti;
 
@@ -99,7 +100,7 @@ static int touch_exti_init(void)
 
     /* Register-level echo: if the interrupt never fires this is the one line
      * that shows whether the line is muxed to GPIOH at all. */
-    printf("[TOUCH] EXTI cfg: EXTICR2=0x%08lX IMR=0x%04lX FTSR=0x%04lX prio=%u\r\n",
+    PRINT_LOG("[TOUCH] EXTI cfg: EXTICR2=0x%08lX IMR=0x%04lX FTSR=0x%04lX prio=%u\r\n",
            (unsigned long)SYSCFG->EXTICR[1], (unsigned long)EXTI->IMR,
            (unsigned long)EXTI->FTSR, (unsigned int)TOUCH_EXTI_PREEMPT_PRIO);
 
@@ -156,7 +157,7 @@ int bsp_touch_init(void)
             waited += 50U;
             if (waited >= 10000U)
             {
-                printf("[TOUCH] LCD never came up, mapping to 1x1\r\n");
+                PRINT_LOG("[TOUCH] LCD never came up, mapping to 1x1\r\n");
                 return -1;
             }
         }
@@ -171,7 +172,7 @@ int bsp_touch_init(void)
     }
     if (s_touch_sem == NULL)
     {
-        printf("[TOUCH] semaphore create FAILED\r\n");
+        PRINT_LOG("[TOUCH] semaphore create FAILED\r\n");
         return -1;
     }
     (void)xSemaphoreTake(s_touch_sem, 0U);      /* start empty */
@@ -179,19 +180,19 @@ int bsp_touch_init(void)
     ret = bsp_gt9147_init();
     if (ret != 0)
     {
-        printf("[TOUCH] controller init FAILED (%d)\r\n", ret);
+        PRINT_LOG("[TOUCH] controller init FAILED (%d)\r\n", ret);
         return -1;
     }
 
     if (touch_exti_init() != 0)
     {
-        printf("[TOUCH] EXTI init FAILED\r\n");
+        PRINT_LOG("[TOUCH] EXTI init FAILED\r\n");
         return -1;
     }
 
     touch_refresh_geometry();
 
-    printf("[TOUCH] ready: id=%s addr=0x%02X cfg=0x%02X, touch %ux%u -> canvas %ux%u, "
+    PRINT_LOG("[TOUCH] ready: id=%s addr=0x%02X cfg=0x%02X, touch %ux%u -> canvas %ux%u, "
            "swap=%d invX=%d invY=%d\r\n",
            bsp_gt9147_id(), (unsigned int)bsp_gt9147_addr(),
            (unsigned int)bsp_gt9147_cfg_version(),
@@ -258,7 +259,7 @@ int bsp_touch_scan(void)
          * shows whether the T_PEN interrupt reached us - if it stays at 0
          * while contacts are detected, the touch is only working because of
          * the task's idle poll. */
-        printf("[TOUCH] raw=(%u,%u) -> lv=(%u,%u) points=%d irq=%lu\r\n",
+        PRINT_LOG("[TOUCH] raw=(%u,%u) -> lv=(%u,%u) points=%d irq=%lu\r\n",
                (unsigned int)pts[0].x, (unsigned int)pts[0].y,
                (unsigned int)mx, (unsigned int)my, n,
                (unsigned long)s_irq_count);

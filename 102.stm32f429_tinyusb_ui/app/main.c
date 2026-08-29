@@ -40,6 +40,7 @@
 #include "ui_task.h"
 #include "touch_task.h"
 #include "sensor_task.h"
+#include "log.h"
 
 /* Single SDRAM heap region, defined in sdram_heap.c. */
 extern HeapRegion_t xHeapRegions[];
@@ -94,7 +95,7 @@ int main(void)
   /* Debug console (USART3 PB10/PB11).  No FreeRTOS object is created here,
    * so it is safe to use before SDRAM / the FreeRTOS heap is up. */
   BSP_UART_Init();
-  printf("\r\nSystem Init\r\n");
+  PRINT_LOG("\r\nSystem Init\r\n");
 
   /* I2C2 (PH4/PH5) -> PCF8574 expander.  Recover bus first (SDA may be stuck
    * low from a previous reset), then release ETH_PHY from reset (P7=0 ->
@@ -103,28 +104,28 @@ int main(void)
   BSP_I2C_Init();
   BSP_I2C_Recover();
   BSP_PCF8574_Write(0x7FU);
-  printf("I2C / PCF8574 init OK\r\n");
+  PRINT_LOG("I2C / PCF8574 init OK\r\n");
 
   /* ---- External SDRAM MUST come up before any FreeRTOS object ---- */
-  printf("SDRAM Init ...\r\n");
+  PRINT_LOG("SDRAM Init ...\r\n");
   if (bsp_sdram_init() != 0)
   {
-    printf("SDRAM Init FAILED\r\n");
+    PRINT_LOG("SDRAM Init FAILED\r\n");
     Error_Handler();
   }
-  printf("SDRAM Init OK\r\n");
+  PRINT_LOG("SDRAM Init OK\r\n");
 
   /* Register the SDRAM region with heap_5.  From now on xTaskCreate /
    * pvPortMalloc allocate from ucHeap @0xC0000000.  No earlier FreeRTOS
    * allocation is allowed (would corrupt the heap free list). */
   vPortDefineHeapRegions(xHeapRegions);
-  printf("FreeRTOS Heap configured (SDRAM @0xC0000000)\r\n");
+  PRINT_LOG("FreeRTOS Heap configured (SDRAM @0xC0000000)\r\n");
 
   /* FatFs serialization mutex (shared by the USB MSC and microSD transports).
    * Must exist before any task touches a filesystem. */
   if (!fs_diskio_init())
   {
-    printf("fs_diskio_init FAILED\r\n");
+    PRINT_LOG("fs_diskio_init FAILED\r\n");
     Error_Handler();
   }
 
@@ -137,11 +138,11 @@ int main(void)
 
   if (!usbh_app_init())
   {
-    printf("usbh_app_init FAILED\r\n");
+    PRINT_LOG("usbh_app_init FAILED\r\n");
     Error_Handler();
   }
 
-  printf("Waiting for USB disk...\r\n");
+  PRINT_LOG("Waiting for USB disk...\r\n");
 
   /* Create tasks (all allocate from the SDRAM heap, now valid).
    *

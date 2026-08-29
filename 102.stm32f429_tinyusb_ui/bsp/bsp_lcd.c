@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "bsp_lcd.h"
+#include "log.h"
 
 /* -------------------------------------------------------------------------- */
 /* Local state                                                                */
@@ -72,7 +73,7 @@ GlobalType_t lcd_driver_init(void)
     }
     else
     {
-        printf("[LCD ] FMC SRAM init FAILED\r\n");
+        PRINT_LOG("[LCD ] FMC SRAM init FAILED\r\n");
     }
     return result;
 }
@@ -314,7 +315,7 @@ static void lcd_config_init(void)
     lcd_write_reg(0xDC00);
     id[1] = lcd_rd_data();
     g_lcd_info.lcd_id = (uint16_t)(id[0] << 8 | id[1]);
-    printf("[LCD ] controller ID = 0x%04X\r\n", g_lcd_info.lcd_id);
+    PRINT_LOG("[LCD ] controller ID = 0x%04X\r\n", g_lcd_info.lcd_id);
 
     if (g_lcd_info.lcd_id == 0x8000)
     {
@@ -714,7 +715,7 @@ static void lcd_config_init(void)
          * minimal standard init that should light the panel; tune the gamma /
          * VCOM registers on real hardware.  Orientation is applied by
          * lcd_scan_dir() below. */
-        printf("[LCD ] using ILI9806E generic init (tune on hardware)\r\n");
+        PRINT_LOG("[LCD ] using ILI9806E generic init (tune on hardware)\r\n");
         lcd_write_reg(0x01);          /* software reset */
         lcd_delay_us(10);
         lcd_delay_us(120);
@@ -736,7 +737,7 @@ static void lcd_config_init(void)
     lcd_driver_clear(LCD_BLACK);
     LCD_BACKLIGHT_ON();
     g_lcd_ready = 1U;
-    printf("[LCD ] active GRAM window %lux%lu (panel spec 800x480)\r\n",
+    PRINT_LOG("[LCD ] active GRAM window %lux%lu (panel spec 800x480)\r\n",
            (unsigned long)g_lcd_info.lcd_width, (unsigned long)g_lcd_info.lcd_height);
 }
 

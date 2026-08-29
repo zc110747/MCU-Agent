@@ -21,6 +21,7 @@
 #include "sd_card.h"
 #include "fs_diskio.h"
 #include "bsp_sdio.h"
+#include "log.h"
 
 static FATFS  s_sd_fs;
 static int    s_mounted = 0;
@@ -49,13 +50,13 @@ GlobalType_t sd_card_init(void)
     {
         if (s_quiet == 0)
         {
-            printf("[SD  ] SDIO init FAILED (no card?)\r\n");
+            PRINT_LOG("[SD  ] SDIO init FAILED (no card?)\r\n");
         }
         return RT_FAIL;
     }
 
     (void)bsp_sdio_get_info(&blocks, &bsize);
-    printf("[SD  ] SDIO init OK  (%lu MB, block=%u)\r\n",
+    PRINT_LOG("[SD  ] SDIO init OK  (%lu MB, block=%u)\r\n",
            (unsigned long)((blocks / 1024u) * (uint32_t)bsize / 1024u),
            (unsigned int)bsize);
 
@@ -65,12 +66,12 @@ GlobalType_t sd_card_init(void)
 
     if (rc != FR_OK)
     {
-        printf("[SD  ] f_mount(\"" FS_VOL_SD "\") failed rc=%d\r\n", (int)rc);
+        PRINT_LOG("[SD  ] f_mount(\"" FS_VOL_SD "\") failed rc=%d\r\n", (int)rc);
         return RT_FAIL;
     }
 
     s_mounted = 1;
-    printf("[SD  ] mounted " FS_VOL_SD "\r\n");
+    PRINT_LOG("[SD  ] mounted " FS_VOL_SD "\r\n");
     return RT_OK;
 }
 

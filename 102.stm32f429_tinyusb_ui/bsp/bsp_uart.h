@@ -4,11 +4,14 @@
 #include "stm32f4xx_hal.h"
 
 /* Debug console on USART3: PB10(TX) / PB11(RX), 115200 8N1.
- * IMPORTANT: this driver intentionally uses NO FreeRTOS objects (no queue,
- * no mutex).  The TX path is a simple critical-section ring buffer drained by
- * the USART3 TXE interrupt, so BSP_UART_Init() is safe to call BEFORE the
- * SDRAM (and therefore before the FreeRTOS heap) is up -- it never allocates
- * from ucHeap.  Retargets printf via syscalls _write -> uart_write(). */
+ * IMPORTANT: BSP_UART_Init() creates NO FreeRTOS object.  This project brings
+ * the console up BEFORE the SDRAM and therefore before vPortDefineHeapRegions()
+ * (see main.c), so anything that allocates from ucHeap here would corrupt the
+ * heap free list.  The TX mutex is created lazily on first use instead.
+ *
+ * printf() is retargeted through syscalls _write -> uart_write(), but
+ * application code must log through PRINT_LOG() (app/log.h) instead - that is
+ * what the global PRINT_LOG_ENABLE switch controls. */
 extern UART_HandleTypeDef huart3;
 
 /* 2048, not 512.  uart_write() DROPS bytes when the ring is full, and at
@@ -21,18 +24,32 @@ extern UART_HandleTypeDef huart3;
 
 /**
   * @brief  Initialize USART3 (PB10/PB11) at 115200 8N1 and the TX ring.
-  *         No FreeRTOS object is created here.
+  *         No FreeRTOS object is created here (see the note above).
   */
 void BSP_UART_Init(void);
 
 /**
- * @brief  Put data into the TX ring and start the transmitter.  Falls back
- *         to a blocking polled transmit before the UART IRQ is live.
- *         Returns bytes queued/polled -- NOTE this can be less than len:
- *         bytes are dropped when the ring fills up.
- */
+  * @brief  Put data into the TX ring and start the transmitter.
+  *
+  *         Two transmit paths, chosen at call time:
+  *           - RTOS scheduler RUNNING      -> mutex-protected ring enqueue,
+  *                                            drained by the TXE interrupt
+  *           - RTOS scheduler NOT running  -> blocking polled HAL transmit
+  *             (or the UART not initialised yet)
+  *
+  * @return bytes accepted.  NOTE this can be less than len: on the interrupt
+  *         path bytes are dropped when the ring fills up.
+  */
 int  uart_write(const uint8_t *data, int len);
 int  uart_puts(const char *s);
+
+/**
+  * @brief  Block until the TX ring is fully drained by the USART3 ISR
+  *         (transmitter idle).  Use before a reset/reboot so the last message
+  *         really reaches the wire.  Has a bounded wait so a stuck transmitter
+  *         can never hang the caller.
+  */
+void uart_flush(void);
 
 /* USART3 interrupt service routine (defined in bsp_uart.c). */
 void BSP_UART_IRQHandler(void);

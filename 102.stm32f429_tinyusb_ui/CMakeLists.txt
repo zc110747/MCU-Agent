@@ -58,6 +58,22 @@ add_compile_definitions(
 )
 
 # ------------------------------------------------------------------
+# Global logging switch (app/log.h)
+# ------------------------------------------------------------------
+#   PRINT_LOG_ENABLE=1 -> PRINT_LOG() routes to printf_log() -> uart_write()
+#   PRINT_LOG_ENABLE=0 -> every PRINT_LOG() compiles to nothing, so the log
+#                         costs no FLASH, no stack and no UART bandwidth.
+# Switch it off with:  cmake -S . -B build -DENABLE_PRINT_LOG=OFF
+option(ENABLE_PRINT_LOG "Compile in PRINT_LOG() application logging" ON)
+if(ENABLE_PRINT_LOG)
+  add_compile_definitions(PRINT_LOG_ENABLE=1)
+  message(STATUS "PRINT_LOG: enabled (PRINT_LOG_ENABLE=1)")
+else()
+  add_compile_definitions(PRINT_LOG_ENABLE=0)
+  message(STATUS "PRINT_LOG: compiled out (PRINT_LOG_ENABLE=0)")
+endif()
+
+# ------------------------------------------------------------------
 # Sources
 # ------------------------------------------------------------------
 file(GLOB APP_SOURCES app/*.c)

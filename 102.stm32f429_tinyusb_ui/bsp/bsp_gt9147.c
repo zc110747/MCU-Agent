@@ -23,6 +23,7 @@
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
 #include <string.h>
+#include "log.h"
 
 /* ---- Pin assignment ------------------------------------------------------- */
 #define GT_RST_PORT         GPIOI
@@ -231,7 +232,7 @@ int bsp_gt9147_init(void)
 
     if (s_addr == 0U)
     {
-        printf("[TOUCH] GT9147 not found on 0x%02X / 0x%02X (check T_SCK/T_MOSI wiring)\r\n",
+        PRINT_LOG("[TOUCH] GT9147 not found on 0x%02X / 0x%02X (check T_SCK/T_MOSI wiring)\r\n",
                (unsigned int)GT_ADDR_LO, (unsigned int)GT_ADDR_HI);
         return -1;
     }
@@ -244,12 +245,12 @@ int bsp_gt9147_init(void)
                     (strcmp(s_id, "9271") == 0) ||
                     (strcmp(s_id, "928")  == 0);
 
-        printf("[TOUCH] product ID = \"%s\" (addr 0x%02X) -> %s\r\n",
+        PRINT_LOG("[TOUCH] product ID = \"%s\" (addr 0x%02X) -> %s\r\n",
                s_id, (unsigned int)s_addr, known ? "MATCH" : "MISMATCH");
 
         if (!known)
         {
-            printf("[TOUCH] expected one of 911 / 9147 / 1158 / 9271 / 928\r\n");
+            PRINT_LOG("[TOUCH] expected one of 911 / 9147 / 1158 / 9271 / 928\r\n");
             return -2;
         }
     }
@@ -268,7 +269,7 @@ int bsp_gt9147_init(void)
             s_panel_x = (uint16_t)(((uint16_t)cfg[2] << 8) | cfg[1]);
             s_panel_y = (uint16_t)(((uint16_t)cfg[4] << 8) | cfg[3]);
         }
-        printf("[TOUCH] stored config: version=0x%02X resolution=%ux%u\r\n",
+        PRINT_LOG("[TOUCH] stored config: version=0x%02X resolution=%ux%u\r\n",
                (unsigned int)s_ver, (unsigned int)s_panel_x, (unsigned int)s_panel_y);
     }
 
@@ -279,7 +280,7 @@ int bsp_gt9147_init(void)
         tmp = 0x02U;
         if (gt_write(GT_CTRL_REG, &tmp, 1U) != 0)
         {
-            printf("[TOUCH] soft reset write FAILED\r\n");
+            PRINT_LOG("[TOUCH] soft reset write FAILED\r\n");
             return -2;
         }
 
@@ -287,11 +288,11 @@ int bsp_gt9147_init(void)
         {
             if (gt_send_cfg(1) != 0)
             {
-                printf("[TOUCH] config upload FAILED\r\n");
+                PRINT_LOG("[TOUCH] config upload FAILED\r\n");
             }
             else
             {
-                printf("[TOUCH] config updated (%u bytes, %ux%u) and saved\r\n",
+                PRINT_LOG("[TOUCH] config updated (%u bytes, %ux%u) and saved\r\n",
                        (unsigned int)GT_CFG_LEN,
                        (unsigned int)GT9147_PANEL_X, (unsigned int)GT9147_PANEL_Y);
                 s_ver     = GT_CFG_VERSION;
@@ -301,7 +302,7 @@ int bsp_gt9147_init(void)
         }
         else
         {
-            printf("[TOUCH] config already up to date, kept as is\r\n");
+            PRINT_LOG("[TOUCH] config already up to date, kept as is\r\n");
         }
 
         /* release the soft reset */

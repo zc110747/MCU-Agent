@@ -71,6 +71,18 @@ static void led_task(void *arg)
   }
 }
 
+void bsp_delay_ms(uint32_t ms)
+{
+  if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) 
+  {
+    vTaskDelay(pdMS_TO_TICKS(ms)); 
+  } 
+  else 
+  {
+    HAL_Delay(ms);
+  }
+}
+
 __attribute__((weak)) void exit(int status)
 {
     __disable_irq();

@@ -22,6 +22,7 @@
 #include "bsp_mpu9250.h"
 
 #include "sensor_task.h"
+#include "log.h"
 
 /* Re-attempt a device that failed once, at this interval (in sample rounds). */
 #define RETRY_ROUNDS    4U      /* 4 x 500 ms = 2 s */
@@ -45,7 +46,7 @@ static void report_error(uint32_t *last_at, const char *fmt, int code)
     if ((*last_at == 0U) || ((s_round - *last_at) >= ERR_PRINT_ROUNDS))
     {
         *last_at = s_round;
-        printf(fmt, code);
+        PRINT_LOG(fmt, code);
     }
 }
 
@@ -139,13 +140,13 @@ void sensor_task(void *arg)
     int ap_init  = -1;
     int mpu_init = -1;
 
-    printf("[SENS ] task started, probing I2C2 devices\r\n");
+    PRINT_LOG("[SENS ] task started, probing I2C2 devices\r\n");
 
     ap_init = bsp_ap3216c_init();
-    printf("[SENS ] AP3216C init %s\r\n", (ap_init == 0) ? "OK" : "FAILED");
+    PRINT_LOG("[SENS ] AP3216C init %s\r\n", (ap_init == 0) ? "OK" : "FAILED");
 
     mpu_init = bsp_mpu9250_init();
-    printf("[SENS ] MPU9250 init %s (%s)\r\n",
+    PRINT_LOG("[SENS ] MPU9250 init %s (%s)\r\n",
            (mpu_init == 0) ? "OK" : "FAILED",
            (mpu_init == -2) ? "AK8963 unreachable" : "WHO_AM_I check");
 

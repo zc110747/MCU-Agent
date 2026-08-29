@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+#include "log.h"
 
 #define FONT_NUMS       5
 #define FONT_MAX_BYTES  192     /* 32x32 needs 128, leave headroom */
@@ -124,7 +125,7 @@ GlobalType_t lcd_driver_font_init(const char *vol)
         }
         else
         {
-            printf("[FONT] open %s failed rc=%d\r\n", path, (int)res);
+            PRINT_LOG("[FONT] open %s failed rc=%d\r\n", path, (int)res);
         }
     }
     fs_unlock();

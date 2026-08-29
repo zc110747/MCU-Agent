@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include "log.h"
 
 /* ---- Geometry -------------------------------------------------------------- */
 #define UI_PAD      12
@@ -748,7 +749,7 @@ void app_ui_switch_page(int delta)
         refresh_hwinfo();
     }
 
-    printf("[UI  ] page -> %d / %d\r\n",
+    PRINT_LOG("[UI  ] page -> %d / %d\r\n",
            (int)(s_page + 1), (int)UI_PAGE_COUNT);
 }
 

@@ -31,6 +31,7 @@
 
 #include "usb_host_app.h"
 #include "fs_diskio.h"
+#include "log.h"
 
 /* Defined in main.c; used here so a tusb_init() failure can trap safely. */
 extern void Error_Handler(void);
@@ -81,7 +82,7 @@ static FRESULT format_exfat(void)
   opt.au_size  = EXFAT_AU_SIZE_BYTES; /* 128 KB allocation unit (cluster) */
   opt.n_root   = 0;
 
-  printf("Formatting exFAT (AU=128KB, align=128KB)...\r\n");
+  PRINT_LOG("Formatting exFAT (AU=128KB, align=128KB)...\r\n");
   return f_mkfs("0:", &opt, work, sizeof(work));
 }
 
@@ -111,7 +112,7 @@ static void seed_demo_files(void)
     FRESULT rc = f_open(&f, seeds[i].path, FA_CREATE_ALWAYS | FA_WRITE);
     if (rc != FR_OK)
     {
-      printf("seed open '%s' failed rc=%d\r\n", seeds[i].path, rc);
+      PRINT_LOG("seed open '%s' failed rc=%d\r\n", seeds[i].path, rc);
       continue;
     }
     UINT bw;
@@ -145,6 +146,14 @@ static void dump_chunk(const char *buf, UINT len)
 {
   char out[64];
   UINT j = 0;
+
+#if PRINT_LOG_ENABLE == 0
+  /* Logging is compiled out: the dump is raw file content written straight to
+   * uart_write() (it is not a log line and may contain no NUL), so it has to
+   * be gated here rather than by the PRINT_LOG macro. */
+  (void)buf; (void)len; (void)out; (void)j;
+  return;
+#else
   for (UINT i = 0; i < len; i++)
   {
     char c = buf[i];
@@ -157,6 +166,7 @@ static void dump_chunk(const char *buf, UINT len)
     }
   }
   if (j) uart_write((const uint8_t *)out, (int)j);
+#endif
 }
 
 /* Running total of dumped content bytes, reset at the start of each pass. */
@@ -164,6 +174,13 @@ static uint32_t s_dump_used;
 
 static void dump_file(const char *path, uint32_t fsize)
 {
+#if PRINT_LOG_ENABLE == 0
+  /* Logging is compiled out: nothing would be printed, so do not even read
+   * the file off the disk.  The early return also keeps the locals below from
+   * triggering "unused variable" in the log-off build. */
+  (void)path; (void)fsize;
+  return;
+#else
   FIL fil;
   FRESULT rc;
   UINT br;
@@ -175,31 +192,31 @@ static void dump_file(const char *path, uint32_t fsize)
    * full for minutes and every other log line would be dropped. */
   if (fsize > DISK_MAX_DUMP_BYTES)
   {
-    printf("  [content skipped: %lu bytes > %u]\r\n",
+    PRINT_LOG("  [content skipped: %lu bytes > %u]\r\n",
            (unsigned long)fsize, (unsigned)DISK_MAX_DUMP_BYTES);
     return;
   }
 
   if (s_dump_used >= DISK_DUMP_BUDGET)
   {
-    printf("  [content skipped: dump budget exhausted]\r\n");
+    PRINT_LOG("  [content skipped: dump budget exhausted]\r\n");
     return;
   }
 
   room = DISK_DUMP_BUDGET - s_dump_used;
   if (fsize > room)
   {
-    printf("  [content skipped: dump budget exhausted]\r\n");
+    PRINT_LOG("  [content skipped: dump budget exhausted]\r\n");
     return;
   }
 
   rc = f_open(&fil, path, FA_READ);
   if (rc != FR_OK)
   {
-    printf("  [open failed rc=%d]\r\n", rc);
+    PRINT_LOG("  [open failed rc=%d]\r\n", rc);
     return;
   }
-  printf("  === content (%lu bytes) ===\r\n", (unsigned long)fsize);
+  PRINT_LOG("  === content (%lu bytes) ===\r\n", (unsigned long)fsize);
   char buf[64];
   total = 0;
   truncated = false;
@@ -216,11 +233,12 @@ static void dump_file(const char *path, uint32_t fsize)
     dump_chunk(buf, br);
     total += br;
   }
-  if (rc != FR_OK) printf("\r\n  [read error rc=%d]\r\n", rc);
+  if (rc != FR_OK) PRINT_LOG("\r\n  [read error rc=%d]\r\n", rc);
   f_close(&fil);
-  if (truncated) printf("\r\n  [truncated at %u bytes]\r\n", DISK_MAX_DUMP_BYTES);
-  printf("  === end ===\r\n");
+  if (truncated) PRINT_LOG("\r\n  [truncated at %u bytes]\r\n", DISK_MAX_DUMP_BYTES);
+  PRINT_LOG("  === end ===\r\n");
   s_dump_used += total;
+#endif /* PRINT_LOG_ENABLE */
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,7 +253,7 @@ static void explore_dir(const char *dir_path, int depth,
   FRESULT rc = f_opendir(&dir, dir_path);
   if (rc != FR_OK)
   {
-    printf("f_opendir('%s') failed rc=%d\r\n", dir_path, rc);
+    PRINT_LOG("f_opendir('%s') failed rc=%d\r\n", dir_path, rc);
     return;
   }
 
@@ -245,7 +263,7 @@ static void explore_dir(const char *dir_path, int depth,
     rc = f_readdir(&dir, &fno);
     if (rc != FR_OK)
     {
-      printf("f_readdir failed rc=%d\r\n", rc);
+      PRINT_LOG("f_readdir failed rc=%d\r\n", rc);
       break;
     }
     if (fno.fname[0] == 0) break;  /* end of directory */
@@ -263,13 +281,13 @@ static void explore_dir(const char *dir_path, int depth,
     if (is_dir)
     {
       (*pdirs)++;
-      printf("[DIR ] %s\r\n", full);
+      PRINT_LOG("[DIR ] %s\r\n", full);
       explore_dir(full, depth + 1, pfiles, pdirs);
     }
     else
     {
       (*pfiles)++;
-      printf("[FILE] %s  (%lu bytes)\r\n", full, (unsigned long)fno.fsize);
+      PRINT_LOG("[FILE] %s  (%lu bytes)\r\n", full, (unsigned long)fno.fsize);
       dump_file(full, fno.fsize);
     }
   }
@@ -283,16 +301,16 @@ static void usb_disk_explore(void)
 {
   uint32_t nfiles = 0, ndirs = 0;
 
-  printf("USB Disk Mounted\r\n");
+  PRINT_LOG("USB Disk Mounted\r\n");
 
 #if USB_DISK_SEED_DEMO
   seed_demo_files();
 #endif
 
-  printf("========== USB DISK CONTENTS ==========\r\n");
+  PRINT_LOG("========== USB DISK CONTENTS ==========\r\n");
   s_dump_used = 0;
   explore_dir("0:/", 0, &nfiles, &ndirs);
-  printf("========== END (dirs=%lu files=%lu) ==========\r\n",
+  PRINT_LOG("========== END (dirs=%lu files=%lu) ==========\r\n",
          (unsigned long)ndirs, (unsigned long)nfiles);
 
   /* Print the address of a heap object to prove the FreeRTOS heap lives in
@@ -300,7 +318,7 @@ static void usb_disk_explore(void)
   void *p = pvPortMalloc(32);
   if (p)
   {
-    printf("Heap object @ 0x%08X (SDRAM base 0xC0000000)\r\n", (unsigned int)(uintptr_t)p);
+    PRINT_LOG("Heap object @ 0x%08X (SDRAM base 0xC0000000)\r\n", (unsigned int)(uintptr_t)p);
     vPortFree(p);
   }
 }
@@ -343,7 +361,7 @@ static void file_task(void *arg)
       }
       if (rc != FR_OK)
       {
-        printf("f_mount failed: %d\r\n", rc);
+        PRINT_LOG("f_mount failed: %d\r\n", rc);
         g_usb_state = USB_ERROR;
         fs_unlock();
         continue;
@@ -363,7 +381,7 @@ static void file_task(void *arg)
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
   (void)dev_addr;
-  printf("USB Disk Connected (MSC ready)\r\n");
+  PRINT_LOG("USB Disk Connected (MSC ready)\r\n");
   g_usb_state = USB_ENUMERATED;
   /* Unblock the file task.  NOTE: this callback runs inside tuh_task(), which
    * executes in the usbh_host_task context (NOT an ISR), so the plain
@@ -377,7 +395,7 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
 void tuh_msc_umount_cb(uint8_t dev_addr)
 {
   (void)dev_addr;
-  printf("USB Disk Removed\r\n");
+  PRINT_LOG("USB Disk Removed\r\n");
   g_usb_state = USB_DISCONNECTED;
   f_mount(NULL, "0:", 0);
 }
@@ -413,10 +431,10 @@ void usbh_host_task(void *arg)
   tusb_rhport_init_t host_init = { .role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO };
   if (!tusb_init(0, &host_init))
   {
-    printf("tusb_init FAILED\r\n");
+    PRINT_LOG("tusb_init FAILED\r\n");
     Error_Handler();
   }
-  printf("USB Host Init\r\n");
+  PRINT_LOG("USB Host Init\r\n");
 
   for (;;)
   {

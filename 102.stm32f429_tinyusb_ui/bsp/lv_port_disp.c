@@ -29,6 +29,7 @@
 #include "bsp_lcd.h"
 #include "FreeRTOS.h"
 #include <stdio.h>
+#include "log.h"
 
 /* Rows kept in the draw buffer.  240 x 60 px x 2 B = 28.8 kB, i.e. a quarter of
  * the screen - well above the 1/10 LVGL asks for, and it keeps the number of
@@ -62,7 +63,7 @@ void lv_port_disp_init(void)
                                             sizeof(lv_color_t));
     if (s_draw_buf == NULL)
     {
-        printf("[LVGL] draw buffer alloc FAILED (SDRAM heap?)\r\n");
+        PRINT_LOG("[LVGL] draw buffer alloc FAILED (SDRAM heap?)\r\n");
         return;
     }
 

@@ -48,6 +48,7 @@
 #include "app_ui.h"
 
 #include "ui_task.h"
+#include "log.h"
 
 /* How long the boot screen may stay up before the loader gives up. */
 #define LOADER_TIMEOUT_MS    10000U
@@ -101,11 +102,11 @@ static int try_fonts(const char *vol)
 {
     if (lcd_driver_font_init(vol) != RT_OK)
     {
-        printf("[FONT] no usable GBK fonts on %s\r\n", vol);
+        PRINT_LOG("[FONT] no usable GBK fonts on %s\r\n", vol);
         return 0;
     }
 
-    printf("[FONT] source=%s mask=0x%02X\r\n", vol,
+    PRINT_LOG("[FONT] source=%s mask=0x%02X\r\n", vol,
            (unsigned int)lcd_driver_font_status());
 
     /* The glyph cache is per-size and content-addressed by GBK code; drop it so
@@ -123,12 +124,12 @@ void ui_task(void *arg)
     (void)arg;
     usb_state_t last_usb = USB_DISCONNECTED;
 
-    printf("[UI  ] starting LCD + LVGL bring-up\r\n");
+    PRINT_LOG("[UI  ] starting LCD + LVGL bring-up\r\n");
 
     /* 1. Panel hardware.  Safe to do immediately; needs no storage. */
     if (lcd_driver_init() != RT_OK)
     {
-        printf("[UI  ] LCD driver init FAILED - parking task\r\n");
+        PRINT_LOG("[UI  ] LCD driver init FAILED - parking task\r\n");
         for (;;)
         {
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -145,14 +146,14 @@ void ui_task(void *arg)
      *     is not thread safe.  The driver itself only reads the coordinates
      *     that bsp_touch_scan() publishes from touch_task. */
     lv_port_indev_init();
-    printf("[UI  ] LVGL canvas %lux%lu, pointer indev registered\r\n",
+    PRINT_LOG("[UI  ] LVGL canvas %lux%lu, pointer indev registered\r\n",
            (unsigned long)lv_disp_get_hor_res(NULL),
            (unsigned long)lv_disp_get_ver_res(NULL));
 
     /* 3. Boot screen: ASCII only, no font file required. */
     app_ui_show_centered("wait for system start...");
     lv_timer_handler();                 /* push it out before any slow probe */
-    printf("[UI  ] boot screen: wait for system start...\r\n");
+    PRINT_LOG("[UI  ] boot screen: wait for system start...\r\n");
 
     s_deadline_at = xTaskGetTickCount();
 
@@ -205,13 +206,13 @@ void ui_task(void *arg)
             if ((s_sd_up != 0U) && (s_sd_tried == 0U))
             {
                 s_sd_tried = 1U;
-                printf("[FONT] trying microSD " FS_VOL_SD "/SYSTEM/FONT/\r\n");
+                PRINT_LOG("[FONT] trying microSD " FS_VOL_SD "/SYSTEM/FONT/\r\n");
                 if (try_fonts(FS_VOL_SD) != 0)
                 {
                     app_ui_create();
                     s_state   = LOAD_OK;
                     s_main_at = now;
-                    printf("[UI  ] main screen (fonts from " FS_VOL_SD ")\r\n");
+                    PRINT_LOG("[UI  ] main screen (fonts from " FS_VOL_SD ")\r\n");
                 }
                 else
                 {
@@ -228,13 +229,13 @@ void ui_task(void *arg)
                 (g_usb_state == USB_MOUNTED))
             {
                 s_usb_tried = 1U;
-                printf("[FONT] trying USB " FS_VOL_USB "/SYSTEM/FONT/\r\n");
+                PRINT_LOG("[FONT] trying USB " FS_VOL_USB "/SYSTEM/FONT/\r\n");
                 if (try_fonts(FS_VOL_USB) != 0)
                 {
                     app_ui_create();
                     s_state   = LOAD_OK;
                     s_main_at = now;
-                    printf("[UI  ] main screen (fonts from " FS_VOL_USB ")\r\n");
+                    PRINT_LOG("[UI  ] main screen (fonts from " FS_VOL_USB ")\r\n");
                 }
             }
 
@@ -249,7 +250,7 @@ void ui_task(void *arg)
                 s_state = LOAD_FAILED;
                 /* Slow the probe down now that the boot phase is over. */
                 s_sd_last_try = now;
-                printf("[UI  ] timeout: sdcard and usb loader failed!\r\n");
+                PRINT_LOG("[UI  ] timeout: sdcard and usb loader failed!\r\n");
             }
         }
 
@@ -266,7 +267,7 @@ void ui_task(void *arg)
 
             s_glyph_proof = 1U;
             lv_font_gbk_cache_stats(&hits, &miss);
-            printf("[UI  ] glyph cache: hits=%lu misses=%lu (non-zero misses => CJK rendered)\r\n",
+            PRINT_LOG("[UI  ] glyph cache: hits=%lu misses=%lu (non-zero misses => CJK rendered)\r\n",
                    (unsigned long)hits, (unsigned long)miss);
         }
 
