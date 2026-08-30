@@ -1,0 +1,98 @@
+[SER ] cmds: p=toggle n=next v=prev x=stop +=vol- -=vol- s=seek50 kNN=seek% tNN=track zNN=stress d=diag
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[CMD] next   -> 2/5
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[CMD] prev   -> 1/5
+[CMD] toggle -> state=3
+[DIAG] CFSR=0x00000000 HFSR=0x00000000 state=3 tracks=5 vol=70
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[CMD] toggle -> state=3
+[CMD] vol+ -> 75
+[CMD] vol- -> 70
+[CMD] seek 30%
+[CMD] seek 50%
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[CMD] track 1 -> 1/5
+[STR] stress start cycles=20
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=1/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=2/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=3/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=4/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=5/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=6/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=7/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=8/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=9/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=10/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=11/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=12/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=13/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=14/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=15/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=16/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=17/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=18/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=19/20 ok
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/这条街.mp3 (44100 Hz, 2 ch, 320 kbps)
+[DEC ] MP3 open 0:/music/大海-张雨生.mp3 (44100 Hz, 2 ch, 320 kbps)
+[STR] cycle=20/20 ok
+[STR] stress done
+[DIAG] CFSR=0x00000000 HFSR=0x00000000 state=0 tracks=5 vol=70

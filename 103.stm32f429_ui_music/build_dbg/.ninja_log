@@ -1,11 +1,11 @@
 # ninja log v7
 98	308	8097149936512990	CMakeFiles/stm32f429_ui_music.elf.dir/app/sdram_heap.c.obj	583767bc017abaa1
 47	1998	8097191883127496	CMakeFiles/stm32f429_ui_music.elf.dir/app/log.c.obj	37dcf884f0c44319
-33	2480	8097190438818575	CMakeFiles/stm32f429_ui_music.elf.dir/app/audio_decoder.c.obj	94da022f556be75
+20	232	8097702254953515	CMakeFiles/stm32f429_ui_music.elf.dir/app/audio_decoder.c.obj	94da022f556be75
 115	368	8097149936685107	CMakeFiles/stm32f429_ui_music.elf.dir/app/stm32f4xx_hal_timebase_tim.c.obj	e36d7813015d95ee
-53	1941	8097191883187498	CMakeFiles/stm32f429_ui_music.elf.dir/app/main.c.obj	e863342423d017a2
+33	205	8097680665466928	CMakeFiles/stm32f429_ui_music.elf.dir/app/main.c.obj	e863342423d017a2
 107	422	8097149936595061	CMakeFiles/stm32f429_ui_music.elf.dir/app/sensor_task.c.obj	79aa9f556e8585fa
-48	1202	8097190738969374	CMakeFiles/stm32f429_ui_music.elf.dir/app/audio_player.c.obj	7b9f21ebc6424d06
+35	238	8097709441529737	CMakeFiles/stm32f429_ui_music.elf.dir/app/audio_player.c.obj	7b9f21ebc6424d06
 49	2657	8097190438988503	CMakeFiles/stm32f429_ui_music.elf.dir/app/sd_card.c.obj	abb4a2c4b5ea19b3
 44	2804	8097190438938544	CMakeFiles/stm32f429_ui_music.elf.dir/app/fs_diskio.c.obj	91422cd1b0ed102e
 58	2052	8097191883237503	CMakeFiles/stm32f429_ui_music.elf.dir/app/syscalls.c.obj	ef792c58168ba4c2
@@ -15,10 +15,10 @@
 28	535	8097149935808927	CMakeFiles/stm32f429_ui_music.elf.dir/app/app_ui.c.obj	6df7e96713edd2fe
 68	2156	8097191883337503	CMakeFiles/stm32f429_ui_music.elf.dir/app/usb_host_app.c.obj	53b12adecf6ba653
 328	600	8097149938811133	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_eeprom_24c02.c.obj	b2f5e19f8ca3e4ef
-83	611	8097149936353264	CMakeFiles/stm32f429_ui_music.elf.dir/app/music_ui.c.obj	edd240cc826fc243
+29	291	8097680524401299	CMakeFiles/stm32f429_ui_music.elf.dir/app/music_ui.c.obj	edd240cc826fc243
 319	622	8097149938721159	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_delay.c.obj	a7057a1e67e4e807
 60	2860	8097190439098502	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_lcd_text.c.obj	fd899e01bb78b0e5
-64	2209	8097191883287498	CMakeFiles/stm32f429_ui_music.elf.dir/app/ui_task.c.obj	cf1c7eece0daa28d
+60	1511	8097509401717864	CMakeFiles/stm32f429_ui_music.elf.dir/app/ui_task.c.obj	cf1c7eece0daa28d
 368	728	8097149939211139	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_i2c.c.obj	e35bb74d6a4aa83e
 458	757	8097149940109066	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_pcf8574.c.obj	49c5f23153e9b04b
 340	791	8097149938931128	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_gt9147.c.obj	5f3e2bfaf30f2f7a
@@ -30,15 +30,15 @@
 446	865	8097149939987363	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_mpu9250.c.obj	62a7f02b1a2c8fb9
 393	876	8097149939461221	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_lcd.c.obj	3101456535317430
 511	886	8097149940634224	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_sdram.c.obj	536602669fd3f208
-488	896	8097149940409079	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_sai_audio.c.obj	9289255938da92fb
+44	223	8097709441624729	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_sai_audio.c.obj	9289255938da92fb
 538	906	8097149940904658	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_sw_i2c.c.obj	2905a376bdccda90
 185	916	8097149937385135	CMakeFiles/stm32f429_ui_music.elf.dir/app/ui/page_rtc.c.obj	d8ace99fd0ab6513
 478	927	8097149940309077	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_rtc.c.obj	cc9d483acc2289a7
 611	938	8097149941642755	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_usb_hw.c.obj	2eafccb89b22d70f
 500	951	8097149940529185	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_sdio.c.obj	448b05bb57e98268
-46	1260	8097193974046056	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_uart.c.obj	2db75a5114684dd1
+60	1210	8097196665495052	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_uart.c.obj	2db75a5114684dd1
 689	974	8097149942414455	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/lcd_ascii_font.c.obj	b88c7fcc49d525ad
-622	985	8097149941747102	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_wm8978.c.obj	87c31bcaa16ce3ce
+65	1491	8097488640410068	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_wm8978.c.obj	87c31bcaa16ce3ce
 585	996	8097149941384863	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_touch.c.obj	e2f9aea50233380a
 811	1008	8097149943637520	CMakeFiles/stm32f429_ui_music.elf.dir/sys_startup/gcc/startup_stm32f429xx.s.obj	b58d027958b79d40
 729	1018	8097149942817536	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/lv_gbk_map.c.obj	5487ad900ae4bd57
@@ -279,6 +279,5 @@
 4759	5018	8097149983113254	CMakeFiles/stm32f429_ui_music.elf.dir/third_party/lvgl/src/widgets/lv_line.c.obj	2e460c3b398cf83a
 4736	5058	8097149982893185	CMakeFiles/stm32f429_ui_music.elf.dir/third_party/lvgl/src/widgets/lv_img.c.obj	967ce8971ef02790
 4748	5099	8097149983013165	CMakeFiles/stm32f429_ui_music.elf.dir/third_party/lvgl/src/widgets/lv_label.c.obj	522b7118ae8eaa6d
-1261	4131	8097193986201416	stm32f429_ui_music.elf	d0fbec5b4f8e2e55
-60	1210	8097196665495052	CMakeFiles/stm32f429_ui_music.elf.dir/bsp/bsp_uart.c.obj	2db75a5114684dd1
-1213	4210	8097196677029551	stm32f429_ui_music.elf	d0fbec5b4f8e2e55
+238	868	8097709443564153	stm32f429_ui_music.elf	681e8babafb86583
+42	204	8097680665566923	CMakeFiles/stm32f429_ui_music.elf.dir/app/serial_cmd.c.obj	2d2fa4cbbd74162d

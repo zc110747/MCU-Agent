@@ -150,45 +150,10 @@ static void enter_player(const char *vol)
  * the click-to-freeze paths (next/prev/play) can be exercised remotely.  The
  * commands run in the UI task -- the exact same context as the on-screen
  * button callbacks -- so a hang here would have been a hang there too. */
-static void ui_handle_cmd(uint8_t c)
-{
-    if (s_state != LOAD_OK)
-    {
-        return; /* player not up yet */
-    }
-    switch (c)
-    {
-        case 'p': case 'P':
-            player_toggle();
-            PRINT_LOG("[CMD] toggle -> state=%d\r\n", (int)player_state());
-            break;
-        case 'n': case 'N':
-            player_next();
-            PRINT_LOG("[CMD] next   -> %d/%lu\r\n",
-                      player_current_index() + 1, (unsigned long)player_count());
-            break;
-        case 'v': case 'V':
-            player_prev();
-            PRINT_LOG("[CMD] prev   -> %d/%lu\r\n",
-                      player_current_index() + 1, (unsigned long)player_count());
-            break;
-        case '+':
-            player_set_volume((uint8_t)(player_get_volume() + 5U));
-            PRINT_LOG("[CMD] vol+    -> %u\r\n", (unsigned)player_get_volume());
-            break;
-        case '-':
-            player_set_volume((uint8_t)((player_get_volume() > 5U)
-                                         ? (player_get_volume() - 5U) : 0U));
-            PRINT_LOG("[CMD] vol-    -> %u\r\n", (unsigned)player_get_volume());
-            break;
-        case 's': case 'S':
-            player_seek_percent(50U);
-            PRINT_LOG("[CMD] seek 50%%\r\n");
-            break;
-        default:
-            break;
-    }
-}
+/* Serial command handling lives in serial_cmd_task() (app/serial_cmd.c): it
+ * mirrors every on-screen music button and adds a stress loop + CFSR
+ * self-diagnostic.  The LCD buttons in music_ui.c call the player_* API
+ * directly. */
 
 /* -------------------------------------------------------------------------- */
 /* Task body                                                                  */
@@ -344,15 +309,6 @@ void ui_task(void *arg)
         }
 
         lv_timer_handler();
-
-        /* Polled serial test console (does not block the render pump). */
-        {
-            uint8_t c;
-            if (uart_getchar_nowait(&c) != 0)
-            {
-                ui_handle_cmd(c);
-            }
-        }
 
         vTaskDelay(pdMS_TO_TICKS(LVGL_TASK_PERIOD_MS));
     }

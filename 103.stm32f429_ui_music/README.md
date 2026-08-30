@@ -855,17 +855,67 @@ RESULT: 7 passed, 0 failed -> PASS
 | WM8978 I2C 配置 | I2C2 | PH4 (SCL) / PH5 (SDA) | 从机地址 `0x1A`（写 `0x34`）；与板载传感器共用 I2C2 |
 | WM8978 音量 PWM | TIM? | PA3 | `PWM_AUDIO`：可选模拟音量，当前固件走数字音量（`wm8978_set_volume`） |
 
-- **WM8978 路由**：DAC → 耳机(HP) + 喇叭(SPK)，由 `bsp_wm8978.c` 在 `wm8978_init()` 里写寄存器完成；数字音量 0..100 映射到 6 位 `LOUT1/R_OUT1`、`LOUT2/R_OUT2`（SPK）音量寄存器。
+- **WM8978 路由**：DAC → 耳机(HP) + 喇叭(SPK)，由 `bsp_wm8978.c` 在 `wm8978_init()` 里写寄存器完成。关键：**R4（Audio Interface）= 0x10** 配置飞利浦 I2S / 16-bit（须与 SAI 主发一致，否则无声/乱码——早期静音 bug 即源于 R4 被错写成 R10）；数字音量 0..100 映射到 8 位 DAC 数字音量寄存器 **R11/R12**（`0x00`=静音，`0xFF`=0 dB），耳机模拟音量固定在 `R52/R53 = 0x3F`（0 dB）。
 - **I2C2 复用风险**：WM8978 与 AP3216C/MPU9250 同挂 I2C2；沿用 §3.5.1 的总线恢复 + 临界区 + `fs_lock` 思路，避免 FreeRTOS 起来后写 WM8978 失败（详见 §6.1）。
 
-### 8.2 时钟与 MCK/BCLK（⚠️ 待硬件标定）
+### 8.2 时钟与 MCK/BCLK（✅ 已用 SWD 在真机验证）
 
-- **SAI1CLK 来源**：F429 上 SAI 时钟经 `RCC_PERIPHCLK_SAI_PLLSAI` 选择，由 **PLLSAI_Q ÷ PLLSAIDivQ** 提供。`audio_clock_init()` 配置 `PLLSAIN=192`（VCO = HSE/PLLM×192 = 25/25×192 = 192 MHz）、`PLLSAIQ=4`、`PLLSAIDivQ=1` → **SAI1CLK ≈ 48 MHz**。
-- **MCLK / BCLK 分频**：SAI Block A 主发时 MCLK 由 `hsai.Init.Mckdiv` 从 SAI1CLK 分频得到（代码暂定 `Mckdiv=3` → MCLK ≈ 12 MHz，约 256×Fs 量级）；BCLK 再由帧格式（16 bit × 2 ch）派生。
-- **⚠️ 这是硬件验证项**：上述 `PLLSAIN/PLLSAIQ/Mckdiv` 是在没有示波器时按典型 44.1/48 kHz 估算的初值，**必须在板子上用示波器量 MCLK/BCLK/LRCK 确认**：
-  - 若无声或音调不准 → 调 `Mckdiv`（及必要时 `PLLSAIN`）使 MCLK = 256×Fs（或 384×Fs，按 WM8978 要求）；
-  - 若 LRCK 不是精确的 44.1/48 kHz → 回退用 `SAI_AUDIO_FREQUENCY_*` 的 HAL 自动分频，或改由 PLLI2S 供 SAI。
-  - 代码注释中已标注，README 同步记录为 **open item**，不阻塞软件构建与逻辑验收。
+#### 时钟公式（源自 HAL 源码 `stm32f4xx_hal_sai.c`）
+
+```
+MCLK = SAI_CK / (MCKDIV × 2)   且   MCLK = 256 × FS        (hal_sai.c:456)
+MCKDIV = (SAI_CK × 10) / (FS × 512) / 10                   (hal_sai.c:465)
+   =>  FS   = SAI_CK / (MCKDIV × 512)     ← 与帧长无关
+       BCLK = FS × 帧长（I2S 16-bit 立体声 = 32）
+       MCLK = 256 × FS
+SAI_CK = PLLSAIN × (HSE/PLLM) / (PLLSAIQ × PLLSAIDivQ) = PLLSAIN × 1 MHz / (Q × DivQ)
+```
+
+**要点**：只要 `AudioFrequency != SAI_AUDIO_FREQUENCY_MCKDIV`，HAL 就会**覆盖** `Init.Mckdiv`。因此固件里写死的 `Mckdiv` 是死代码，必须把 `AudioFrequency` 钉死为 `SAI_AUDIO_FREQUENCY_MCKDIV` 才能自己掌控分频。
+
+#### 修复前的三个静默缺陷（不报错、不进 HardFault，只是没声音/音调错）
+
+| # | 缺陷 | 后果 |
+|---|------|------|
+| 1 | `NoDivider = SAI_MASTERDIVIDER_DISABLE`（该宏实为 `SAI_xCR1_NODIV`，即 NODIV=1） | 名字与位相反，**旁路了 MCLK 分频器**，PE2 直接输出 48 MHz 到 WM8978 的 MCLK 脚。正确值是 `SAI_MASTERDIVIDER_ENABLE`（NODIV=0，分频生效） |
+| 2 | `FrameInit` / `SlotInit` 从未初始化（`hsai` 是 static 全零） | `FRCR \|= (0-1)` → FRL=255；`SLOTR` → NBSLOT=255、**SLOTEN=0（一个 slot 都没使能）**。必须调 `HAL_SAI_InitProtocol()`（它内部会调 `HAL_SAI_Init`） |
+| 3 | SAI_CK 固定 48 MHz | 48 MHz **无法**表达 44.1k / 48k：HAL 算出的分频让两者都塌到 **46 875 Hz**（+6.29 % / −2.34 %），约 1 个半音的跑调 |
+
+#### 现行方案：按采样率族动态配置 PLLSAI
+
+PLLSAI 在**本板只供 SAI**（48 MHz USB/SDIO 来自主 PLL 的 PLLQ，LTDC 未使能），故可随时改写 N/Q/DivQ。三个时钟族（`tools/audio/sai_clock_search.py` 穷举 N(50..432)×Q(2..15)×DivQ(1..32)×MCKDIV(1..15) 得到）：
+
+| 族 | PLLSAIN | PLLSAIQ | PLLSAIDivQ | SAI_CK | 覆盖速率 | MCKDIV |
+|----|---------|---------|-----------|--------|----------|--------|
+| 44.1k | 271 | 2 | 6 | 22.583333 MHz | 44100 / 22050 / 11025 | 1 / 2 / 4 |
+| 48k | 172 | 7 | 1 | 24.571429 MHz | 48000 / 24000 | 1 / 2 |
+| 32k | 213 | 13 | 1 | 16.384615 MHz | 32000 / 16000 / 8000 | 1 / 2 / 4 |
+
+实测误差（固件整数算法复刻，含 8 个速率）：**最差 0.0208 % ≈ 0.36 音分**，8k/16k 零误差。人耳可辨约 5 音分，即低约 14 倍，**完全不可闻**。
+
+#### 真机验证（无需示波器、无需串口）
+
+```bash
+python tools/audio/verify_sai_clock.py          # 经 SWD 读寄存器并判定
+python tools/audio/sai_clock_search.py          # 离线复刻固件算法，覆盖全部速率
+```
+
+上板实测（Debug 镜像，默认 44.1 kHz）：
+
+```
+RCC_PLLSAICFGR = 0x220043C0   N=271 Q=2
+RCC_DCKCFGR    = 0x00F0051F   PLLSAIDivQ=6
+SAI1_A CR1     = 0x00102280   MODE=0(master TX) PRTCFG=0(free) NODIV=0 MCKDIV=1
+SAI1_A FRCR    = 0x00050F1F   FRL=32 FSALL=16
+SAI1_A SLOTR   = 0xFFFF0140   NBSLOT=2 SLOTEN=0xFFFF
+SAI_CK = 22583333.333 Hz   MCLK = 11291666.667 Hz
+BCLK   =  1411458.333 Hz   FS   =    44108.073 Hz   (目标 44100，+0.0183 %)
+RESULT: 12 passed, 0 failed
+```
+
+固件还内置了**采样率自测量**：`sai_fs_account()` 用空闲的 **TIM2**（32 位自由运行，84 MHz）统计 DMA 实际消耗帧数，结果写入 `g_sai_fs_measured_hz`，可直接用 SWD 读出——这样即使没有示波器也能确认 CODEC 实际被驱动的速率。（不用 `DWT->CYCCNT`：它由内核时钟驱动，空闲任务 WFI 时会停走，会高估 FS。）
+
+> **注意**：`g_sai_fs_measured_hz` 需播放真正启动后才有值（板子开机不自动播放）。启动播放后再跑一次 `verify_sai_clock.py` 即可看到实测值并与寄存器推算值交叉核对。
 
 ### 8.3 解码管线（WAV + MP3 → 16-bit 立体声交错）
 
@@ -874,11 +924,11 @@ RESULT: 7 passed, 0 failed -> PASS
 | 格式 | 解析 | 重采样/扩位 | 时长估计 |
 |------|------|------------|---------|
 | `.wav`（PCM 8/16，单/双声道） | 遍历 RIFF 子块找 `fmt ` / `data` | 8 bit 偏移→有符号；单声道复制为双声道 | `data字节 / (byterate)` 精确 |
-| `.mp3` | minimp3 帧 API：`mp3dec_t` + `mp3dec_decode_frame`，输入缓冲 `mp3_buf[4096]` 流式喂帧 | 输出 `int16` 已立体声；单声道帧由解码器自动扩 | 取首帧 CBR `bitrate_kbps` 估算；**VBR 仅近似** |
+| `.mp3` | minimp3 帧 API：`mp3dec_t` + `mp3dec_decode_frame`，输入缓冲 `mp3_buf`（4096 B，**SDRAM** 指针，pvPortMalloc）流式喂帧 | 输出 `int16` 已立体声；单声道帧由解码器自动扩 | 取首帧 CBR `bitrate_kbps` 估算；**VBR 仅近似** |
 
 - **MP3 输入缓冲与帧同步**：`mp3_resync()` 在 ID3 标签与首帧之间扫描 `0xFFE` 同步字，丢弃垃圾字节；`position_ms` 按已解码样本数累计，进度条 `seek` 走字节定位 + 解码器重置。
 - **VBR 时长 caveat**：minimp3 是帧 API（非整文件 `mp3dec_load`），没有全局帧数；进度条总时长取自首帧码率，对 VBR 文件会偏长/偏短，属已知近似，**不影响播放**，仅进度百分比不准。如需精确 VBR 时长，未来可加 Xing/Info/VBRI 头解析（标为后续增强）。
-- **内存占用（用户关注项）**：解码器是纯增量**流式**——`read_mp3_frames`/`read_wav_frames` 每次只 `f_read` 一小块（MP3 输入缓冲 `mp3_buf[4096]`、WAV 按帧读），**不会**把整首曲子读入内存；播放器只持有 FatFs 文件描述符 + 解码头上下文，PCM 边解码边经 SAI DMA 双缓冲送出。SAI 输出双缓冲仅 `2×AUDIO_HALF_FRAMES×2ch×2B = 16 KB`（位于 SDRAM），与曲长无关，故高码率长曲也不会撑爆 RAM。
+- **内存占用（用户关注项）**：解码器是纯增量**流式**——`read_mp3_frames`/`read_wav_frames` 每次只 `f_read` 一小块，MP3 输入缓冲 `mp3_buf`（4096 B）与单帧 PCM 缓冲 `s_pcm`（2304 int16，~4.6 KB）**均在 SDRAM**（pvPortMalloc），WAV 按帧读，**不会**把整首曲子读入内存；播放器只持有 FatFs 文件描述符 + 解码头上下文，PCM 边解码边经 SAI DMA 双缓冲送出。SAI 输出双缓冲仅 `2×AUDIO_HALF_FRAMES×2ch×2B = 16 KB`（位于 SDRAM），与曲长无关，故高码率长曲也不会撑爆 RAM。所有“大块”音频缓冲（SAI DMA 双缓冲 + mp3_buf + s_pcm）都已迁出内部 SRAM，内部 SRAM 只保留指针/少量控制块。
 
 ### 8.4 播放器状态机与 UI 映射
 
@@ -898,13 +948,13 @@ RESULT: 7 passed, 0 failed -> PASS
 
 | 项 | 结果 | 说明 |
 |----|------|------|
-| Debug 构建 | ✅ 零警告 | FLASH 466324 B (44.47%) / RAM 62808 B (31.95%) / SDRAM 512 KB (1.56%) |
-| Release 构建 | ✅ 零警告 | FLASH 521368 B (49.72%) / RAM 62824 B (31.95%) / SDRAM 512 KB (1.56%) |
-| 点击死机 | ✅ 已修复(逻辑+双构) | 递归互斥量隔离 ui/audio 任务对 `s_dec` 的并发访问（§8.4 / §8.6） |
+| Debug 构建 | ✅ 零警告 | FLASH 467012 B (44.54%) / RAM 54112 B (27.52%) / SDRAM 512 KB (1.56%) |
+| Release 构建 | ✅ 零警告 | FLASH 521992 B (49.78%) / RAM 54128 B (27.53%) / SDRAM 512 KB (1.56%) |
+| 点击死机 | ✅ 已修复 | 真因：**`DMA2_Stream3_IRQHandler` 未定义**（startup 仅 weak 别名→`Default_Handler` 死循环）；播放启动 `HAL_SAI_Transmit_DMA` 后 DMA 半/全完成中断即跳死循环，整板卡死。OpenOCD `halt` 实锤：PC=`0x0800ee38`(`b .`)、`ICSR=0x04c4784b`→激活异常=IRQ59=`DMA2_Stream3`、CFSR=0（非 fault，是未处理 IRQ），触摸中断(优先级更高)仍可抢占→坐标照刷。现补 `DMA2_Stream3_IRQHandler` 调 `HAL_DMA_IRQHandler`（§8.4/§8.6）。之前的栈扩/互斥量改动保留作并发加固，但非死机真因 |
 | 中文曲名显示 | ✅ 已修复 | `FF_LFN_UNICODE=2` → FatFs 返回 UTF-8，匹配 `lv_font_gbk` 的 Unicode 输入（§8.6） |
-| 串口命令台 | ✅ 已可用 | 修正 TXE ISR 误吞 RXNE；`uart_getchar_nowait` 轮询直读，`ui_task` 轮询分发 `p/n/v/+/-/s`（§8.6） |
+| 串口命令台 | ✅ 已可用 | 独立 `serial_cmd_task`(idle+2) 轮询 `uart_getchar_nowait` 分发，模拟全部按键：`p`播放/暂停 `n`下一首 `v`上一首 `x`停止 `+/-`音量 `s/kNN`进度 `tNN`选曲 `zNN`压力测试 `d`自检(CFSR/HFSR) `?`帮助；不再在 `ui_task` 内轮询（§8.6）。**本板 RX 未接线（仅 TX）**，命令经 SWD 邮箱 `g_dbg_line`/`g_dbg_pending` 注入，无人干预验收用 `auto_verify_ocd.py`（§8.7，实跑 PASS） |
 | 启动加载 → 音乐屏 | ⏳ 待真机 | `ui_task.c` 在 U 盘/SD 字体就绪后 `enter_player()`：显示「正在加载音乐...」→ `player_init()`+`player_scan()`+`music_ui_create()` |
-| WM8978 出声 / 音调准确 | ⏳ 待硬件标定 | MCK/BCLK/LRCK 分频见 §8.2，需示波器 + 听感确认 |
+| WM8978 出声 / 音调准确 | ⏳ 待硬件标定 | I2S 线制 bug（R4 错写 R10）已修复，CODEC 与 SAI 现同讲 I2S/16bit；仅 MCK/BCLK/LRCK 分频（§8.2）需示波器 + 听感确认 |
 | MP3 播放 | ⏳ 待真机 | 链路编译通过；软解帧 API 已接，真机采样验证待板 |
 | 进度/音量 UI 交互 | ⏳ 待真机 | 控件与 `player_*` API 已接线；触摸/拖拽交互待屏上确认 |
 
@@ -914,10 +964,13 @@ RESULT: 7 passed, 0 failed -> PASS
 
 板子连上、释放 COM 占用后默认正常，但点击屏上任意按钮（播放/上一首/下一首）整板死机；另有中文曲名乱码、内存占用担忧。三项处理：
 
-1. **点击死机（致命）**
-   - 根因：`btn_cb`（运行于 LVGL/ui 任务）调 `player_next/prev/play` → `player_load` 会 `audio_decoder_close()`+`memset` 清零共享解码上下文 `s_dec`；与此同时 `audio` 任务（prio idle+1，低于 ui 的 idle+2）可能正 `audio_decoder_read` 用 `s_dec->mp3`/`s_dec->fil` → NULL 解引用 → HardFault → 整板冻结。
-   - 修复（`app/audio_player.c`）：加 `s_lock = xSemaphoreCreateRecursiveMutex()`；所有 `s_dec`/`s_state` 访问 API 包 `PLOCK_TAKE/PLOCK_GIVE`；`player_load` 拆为持锁内部版 `player_load_locked` + 公开包装 `player_load`；`player_task` 先无锁等空半区信号量、拿锁后复核 `PLAYING && opened` 才解码；`player_toggle` 嵌套 `play/pause` 靠递归互斥量允许。
-   - 前提：`app/FreeRTOSConfig.h` 已开 `configUSE_RECURSIVE_MUTEXES=1`（嵌套锁必需）。
+1. **点击死机（致命）— 真因：`DMA2_Stream3_IRQHandler` 缺失，DMA 中断跳 `Default_Handler` 死循环（2026-08-30 实锤）**
+   - 现象：点 **播放** 整板卡死；上一首/下一首只 `audio_decoder_open` 不启动 DMA 故不卡，唯独 播放（启动 `HAL_SAI_Transmit_DMA`）必卡。CFSR=0、HFSR=0 → **不是 fault**，而是某个未处理 IRQ 跳进 `Default_Handler` 的 `b .` 死循环。
+   - **实锤过程**：OpenOCD `halt` 抓现场 → `PC=0x0800ee38`（`e7fe`=`b .`，即 `Default_Handler`）、`ICSR=0x04c4784b` → 激活异常号=0x4b=75 → IRQn=59=`DMA2_Stream3`（SAI TX 的 DMA 流）；触摸中断(优先级 6) 仍在刷坐标，因它优先级更高可抢占死循环中的 Handler → 与“坐标照刷但 UI 冻”完全吻合。
+   - **根因**：工程未提供 `DMA2_Stream3_IRQHandler` 的强定义，startup 里它是 `Default_Handler` 的 weak 别名；播放一启动 DMA，HalfTransfer/TransferComplete 中断即跳死循环。此前“minimp3 16 KB 栈溢出”判断是**误判**（栈溢出应为 CFSR≠0 的 HardFault，而实测 CFSR=0、且板子仍在跑 ISR）。
+   - **修复（一行级）**：`bsp/bsp_sai_audio.c` 增加强定义 `void DMA2_Stream3_IRQHandler(void){ HAL_DMA_IRQHandler(&hdma_sai); }`。HAL 据此派发到 `HAL_SAI_TxHalfCpltCallback`/`TxCpltCallback`（给填充信号量），播放闭环打通。反汇编/向量表已验证：Flash 中 `DMA2_Stream3` 向量=`0x0800d981` 指向该函数（非 `Default_Handler` 0x0800ee38）。
+   - （保留的加固，**非死机根因**，仍有价值）：① 递归互斥量 `s_lock` 隔离 `s_dec` 并发（§8.4）；② MP3 解码统一只在 `player_task` 栈（32 KB）跑、ui_task 永不解码（消除解码栈压力）；③ SAI DMA IRQ 优先级 6→5（≤`configMAX_SYSCALL_INTERRUPT_PRIORITY`，允许 FromISR 调信号量）。点击死机的真凶是 **DMA ISR 缺失**，与上述三项无关但共存不冲突。
+   - 验收状态：Debug/Release 双构建零警告（Debug FLASH 469792 B/44.80%、RAM 54208 B/27.57%；Release FLASH 525424 B/50.11%、RAM 54216 B/27.58%；SDRAM 均 512 KB/1.56%）。**根因静态铁证**：烧录镜像向量表 `DMA2_Stream3`≠`Default_Handler` 且 `CFSR=0`。**动态自动验收**见 §8.7（`tools/verify_serial/auto_verify_ocd.py` 经 SWD 邮箱注入 + 串口 TX 捕获，无人干预模拟全部按键 + 20 轮压力测试 + `d` 自检 CFSR，已实跑 PASS）。
 
 2. **内存占用（非问题，已说明）**
    - 解码器本就是增量流式：`audio_decoder.c` 的 `read_mp3_frames`/`read_wav_frames` 每次只 `f_read` 一小块，SAI 双缓冲仅 16 KB SDRAM，与曲长无关；播放器只持有文件描述符 + 解码头。**无需**改“整文件读出”为“循环读”——原来就是循环读的。详见 §8.3。
@@ -927,6 +980,19 @@ RESULT: 7 passed, 0 failed -> PASS
    - 修复：`FF_LFN_UNICODE=2`（长文件名以 UTF-8 返回）。`FF_CODE_PAGE` 仍 936（OEM/短名操作不受影响）。数据层已确认：`0:/music/` 下中文曲名以合法 UTF-8 字节流进字体管线；真机屏上中文标题显示待用户目视确认（可借 §8.5 的 glyph cache `misses>0` 日志间接证明 CJK 已渲染）。
 
 **临时调试代码清理**：`bsp_uart.c` 的 `uart_getchar_nowait` 曾临时 `uart_write(c,1)` 回声用于验证 RX 通路，本轮已移除；同时修正一个潜在 RX 丢字节 bug——原 `BSP_UART_IRQHandler` 在 TXE 中断里顺带读掉并丢弃 `RXNE`，会在 TX 活跃时吞掉待收字节，导致轮询读收不到；现 ISR 不再触碰 RXNE，`RXNEIE` 保持关闭，RX 完全由 `uart_getchar_nowait` 轮询直读，稳定可靠。
+
+### 8.7 真机验证步骤（点击死机修复后 + 无人干预自动验收）
+
+1. **恢复 ST-Link 连接**（若 OpenOCD 报 `LIBUSB_ERROR_ACCESS`）：重插 ST-Link USB；异常退出 OpenOCD 会残留 WinUSB 句柄，需重插才能再连（**勿用 `pkill`**，让 OpenOCD 自己 `shutdown`）。
+2. **烧录**：`openocd -f openocd.cfg -c "reset_config none" -c "adapter speed 1000" -c "program build/stm32f429_ui_music.elf verify reset exit"`（Release `build/` / Debug `build_dbg/`）。务必烧 `.elf`。
+3. **接 CH340 串口（TX 单向）**：USART3 (PB10/PB11) **115200 8N1** → 主机 COM7。**已实测本板调试座的 USART3 RX(PB11) 未接到板上 USB-UART**，故主机→板子的字符到不了（`uart_getchar_nowait` 永远空），串口仅能**打印**。SWD 证据：主机连续发字节时 `GPIOB_IDR` bit11 恒高、USART3_SR.RXNE 永不置位，而 `CR1=0x200C`(UE/RE/TE 全开)、PB10/PB11 均 AF7、波特率误差 0.16%。因此"串口发命令"这条路在本硬件上走不通，改用下方 SWD 邮箱注入法做无人干预验收。先确认字体加载、进入音乐屏（需 SD/U 盘带 `SYSTEM/FONT/GBKxx.FON` 与 `/music/*.mp3`）。
+4. **串口指令集（模拟全部按键，`serial_cmd_task` 实现）**：`p`播放/暂停、`n`下一首、`v`上一首、`x`停止、`+/-`音量、`s`/`kNN`进度跳转、`tNN`选曲、`zNN`压力测试、`d`自检(CFSR/HFSR)、`?`帮助。每条命令回显 `[CMD] ...`；`d` 回显 `[DIAG] CFSR=0x...`（板子自报健康，无需 OpenOCD）。**调试器注入邮箱**：写 NUL 结尾命令串到 `g_dbg_line`(0x20006448) 再置 `g_dbg_pending=1`(0x20006444)，任务下次轮询即走与 UART 完全相同的分发路径（OpenOCD：`mwb 0x20006448 'p'`、…、`mwb 0x20006444 1`）。
+5. **无人干预自动验收（已实跑 PASS）**：`tools/verify_serial/auto_verify_ocd.py`——用 OpenOCD 经 SWD 把 `?/n/v/p/d/p/+/−/k30/s/t1/z20/d` 依次注入邮箱（全程板子照常运行、TX 不断），同时线程捕获 COM7 回显，断言每条 `[CMD]/[DIAG]`、20 轮 `[STR] cycle=` 与末次 `CFSR=0x00000000`。全部到位即 **PASS**（出声需 WM8978 时钟已标定 §8.2）。
+   ```
+   python tools/verify_serial/auto_verify_ocd.py COM7 115200
+   ```
+   实跑结果：**13/13 PASS**，20 轮压力 `cycle=1/20..20/20 ok`，播放 + 压力全程 `CFSR=0x00000000`（DMA ISR 修复在真实播放负载下不冻结）。实录见 `tools/verify_serial/last_run.txt`。
+6. **兜底判据（无需串口）**：仍可连 OpenOCD 时播放中读 `mdw 0xE000ED28`（CFSR）应为 `0x00000000`；修复后 DMA 中断已正确接线，正常必为 0。
 
 ## 9. 目录结构
 

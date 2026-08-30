@@ -20,7 +20,9 @@ typedef enum
 {
     PLAYER_STOPPED = 0,
     PLAYER_PLAYING,
-    PLAYER_PAUSED
+    PLAYER_PAUSED,
+    PLAYER_PRIMING   /* a prime (decode + DMA start) has been requested and is
+                       being performed by the refill task, NOT the UI task */
 } player_state_t;
 
 typedef struct
@@ -48,6 +50,7 @@ uint32_t       player_count(void);
 player_state_t player_state(void);
 
 int  player_play(void);   /* start or resume the current track       */
+int  player_load(uint32_t idx, uint8_t autoplay); /* load track idx; autoplay!=0 starts playing */
 int  player_pause(void);
 int  player_toggle(void);  /* play<->pause on the same track          */
 int  player_stop(void);

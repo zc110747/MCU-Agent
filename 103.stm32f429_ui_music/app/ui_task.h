@@ -21,9 +21,11 @@ extern "C" {
  * starving the other tasks. */
 #define LVGL_TASK_PERIOD_MS   5U
 
-/* Stack size for the UI task (words).  LVGL + the font layer + the SD/USB
- * loader (HAL_SD card info, FatFs FIL objects, printf) need headroom; 6 KB. */
-#define UI_TASK_STACK_WORDS   1536U
+/* Stack size for the UI task (words).  The UI task NO LONGER runs the MP3
+ * decoder -- all decode (mp3dec_scratch_t ~16 KB) was moved to the refill task
+ * (audio_player.c) so the click-to-freeze (CFSR=0x400) is structurally gone.
+ * This 32 KB is generous headroom for LVGL + font load + SD/USB I/O only. */
+#define UI_TASK_STACK_WORDS   8192U
 
 /* The UI task body.  Created by main() after vTaskStartScheduler(). */
 void ui_task(void *arg);

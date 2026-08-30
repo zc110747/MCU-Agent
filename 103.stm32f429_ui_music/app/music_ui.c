@@ -231,7 +231,7 @@ void music_ui_create(void)
 
     /* Progress track. */
     tw = m_w - (2 * UI_PAD);
-    track_y = (lv_coord_t)(m_h * 0.30f);
+    track_y = (lv_coord_t)(m_h * 0.37f);
     s_track = lv_obj_create(scr);
     lv_obj_remove_style_all(s_track);
     lv_obj_set_size(s_track, tw, 14);
@@ -281,9 +281,9 @@ void music_ui_create(void)
     (void)mk_btn(scr, (lv_coord_t)(start_x + 2 * (btn_w + gap)), row_y,
                  btn_w, btn_h, "下一首", 2);
 
-    /* Volume panel (right). */
+    /* Volume panel (right).  Shifted down a bit so it sits lower on screen. */
     vpx = (lv_coord_t)(m_w - UI_PAD - 96);
-    vpy = (lv_coord_t)(m_h * 0.28f);
+    vpy = (lv_coord_t)(m_h * 0.35f);
     vph = (lv_coord_t)(m_h * 0.52f);
     vbtn = 44;
     barw = 24;

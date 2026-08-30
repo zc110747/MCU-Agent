@@ -9,8 +9,8 @@
   *  ------------
   *  - WAV: the whole container is parsed up front; read() just walks the data
   *    chunk and widens/duplicates to stereo int16.  Seek is a plain byte lseek.
-  *  - MP3: streamed through minimp3's frame API.  mp3_buf[] is an input staging
-  *    buffer; read() appends file bytes until a full MPEG frame is available,
+  *  - MP3: streamed through minimp3's frame API.  mp3_buf (SDRAM pointer) is an
+  *    input staging buffer; read() appends file bytes until a full MPEG frame is available,
   *    then decodes and advances by info.frame_bytes.  Garbage between ID3 tags
   *    and the first frame is skipped by a sync-word rescan.  Duration is
   *    estimated from the (CBR) bitrate of the first frame -- VBR files get an
@@ -24,8 +24,26 @@
 
 #include <string.h>
 
-/* One decoded frame's worth of int16 (1152 * 2ch) -- single decoder, safe. */
-static int16_t s_pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
+/* One decoded frame's worth of int16 (1152 * 2ch).  Allocated in SDRAM on the
+ * first MP3 open and freed on close -- it must NOT live in internal SRAM. */
+static int16_t *s_pcm = NULL;
+
+/* Lightweight decode telemetry (read over SWD to localise a stuck prime):
+ *   g_dec_reads     - audio_decoder_read() invocations
+ *   g_dec_produced  - total stereo frames produced
+ *   g_dec_fread     - f_read() calls inside the MP3 refill path
+ *   g_dec_eof       - decode reached end-of-file (1 once set) */
+volatile uint32_t g_dec_reads    = 0U;
+volatile uint32_t g_dec_produced = 0U;
+volatile uint32_t g_dec_fread    = 0U;
+volatile uint32_t g_dec_eof      = 0U;
+/* Decode-loop liveness (read over SWD).  g_dec_loop is the iteration count of
+ * the LAST read_mp3_frames() call; g_dec_guard is non-zero if the watchdog
+ * tripped because the loop could not make progress (pathological MP3 region).
+ * A non-zero g_dec_guard means a single track contained a frame the decoder
+ * loop could not advance past -> it was skipped so playback is not frozen. */
+volatile uint32_t g_dec_loop     = 0U;
+volatile uint32_t g_dec_guard    = 0U;
 
 /* Case-insensitive extension match (newlib-nano has no strcasecmp). */
 static int ext_is(const char *path, const char *ext)
@@ -173,6 +191,53 @@ static int mp3_resync(dec_ctx_t *d)
     return 0;
 }
 
+/* Cheap MPEG-1/2/2.5 Layer III header parse: extract sample rate, channel
+ * count and bitrate WITHOUT running the full decoder (which would place a
+ * ~16 KB mp3dec_scratch_t on the caller's stack).  Returns 0 on success.
+ *
+ * This lets audio_decoder_open() learn the format cheaply so that OPENING an
+ * MP3 never triggers the first mp3dec_decode_frame() on the UI task's stack --
+ * the actual PCM decode is deferred to the refill task. */
+static int mp3_parse_header(const uint8_t *p, uint32_t *sr,
+                            uint8_t *ch, uint32_t *kbps)
+{
+    static const uint16_t s_sr[3][4] = {
+        {44100, 48000, 32000, 0},   /* MPEG1    */
+        {22050, 24000, 16000, 0},   /* MPEG2    */
+        {11025, 12000,  8000, 0}    /* MPEG2.5  */
+    };
+    static const uint16_t s_br[2][16] = {
+        {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0}, /* MPEG1     */
+        {0,  8, 16, 24, 32, 40, 48, 56, 64,  80,  96, 112, 128, 144, 160, 0}  /* MPEG2/2.5 */
+    };
+    uint8_t ver, layer, sr_idx, br_idx, ch_mode;
+    uint8_t sr_row, br_row;
+
+    if (p == NULL || sr == NULL || ch == NULL || kbps == NULL) return -1;
+    if (p[0] != 0xFFU || (p[1] & 0xE0U) != 0xE0U) return -1;
+
+    ver    = (p[1] >> 3) & 0x03U;   /* 11=MPEG1, 10=MPEG2, 00=MPEG2.5 */
+    layer  = (p[1] >> 1) & 0x03U;   /* 01=Layer III */
+    sr_idx = (p[2] >> 2) & 0x03U;
+    br_idx = (p[2] >> 4) & 0x0FU;
+    ch_mode = (p[3] >> 6) & 0x03U;
+
+    if (layer != 0x01U) return -1;  /* not Layer III */
+
+    if      (ver == 0x03U) { sr_row = 0U; br_row = 0U; }
+    else if (ver == 0x02U) { sr_row = 1U; br_row = 1U; }
+    else if (ver == 0x00U) { sr_row = 2U; br_row = 1U; }
+    else                   { return -1; }   /* reserved version */
+
+    if (s_sr[sr_row][sr_idx] == 0U) return -1;   /* reserved sample rate */
+    if (s_br[br_row][br_idx] == 0U) return -1;   /* reserved/forbidden bitrate */
+
+    *sr   = s_sr[sr_row][sr_idx];
+    *ch   = (ch_mode == 0x03U) ? 1U : 2U;
+    *kbps = s_br[br_row][br_idx];
+    return 0;
+}
+
 int audio_decoder_open(dec_ctx_t *d, const char *path)
 {
     FRESULT fr;
@@ -220,10 +285,21 @@ int audio_decoder_open(dec_ctx_t *d, const char *path)
     }
 
     /* ---- MP3: read the head, decode one frame to learn the format ----- */
+    /* Large buffers live in SDRAM (pvPortMalloc) per the project rule:
+     * mp3_buf (input staging) and s_pcm (one decoded frame) are both big
+     * enough that keeping them in internal SRAM would starve the heap. */
     d->mp3 = (mp3dec_t *)pvPortMalloc(sizeof(mp3dec_t));
-    if (d->mp3 == NULL)
+    d->mp3_buf = (uint8_t *)pvPortMalloc(MP3_IN_BUF);
+    s_pcm = (int16_t *)pvPortMalloc((size_t)MINIMP3_MAX_SAMPLES_PER_FRAME *
+                                    sizeof(int16_t));
+    if ((d->mp3 == NULL) || (d->mp3_buf == NULL) || (s_pcm == NULL))
     {
+        PRINT_LOG("[DEC ] MP3: SDRAM alloc failed (mp3=%p buf=%p pcm=%p)\r\n",
+                  (void *)d->mp3, (void *)d->mp3_buf, (void *)s_pcm);
         f_close(&d->fil);
+        vPortFree(d->mp3);     d->mp3 = NULL;
+        vPortFree(d->mp3_buf); d->mp3_buf = NULL;
+        vPortFree(s_pcm);      s_pcm = NULL;
         return -1;
     }
     (void)memset(d->mp3, 0, sizeof(mp3dec_t));
@@ -232,8 +308,9 @@ int audio_decoder_open(dec_ctx_t *d, const char *path)
     if (f_read(&d->fil, d->mp3_buf, MP3_IN_BUF, &br) != FR_OK)
     {
         f_close(&d->fil);
-        vPortFree(d->mp3);
-        d->mp3 = NULL;
+        vPortFree(d->mp3);     d->mp3 = NULL;
+        vPortFree(d->mp3_buf); d->mp3_buf = NULL;
+        vPortFree(s_pcm);      s_pcm = NULL;
         return -1;
     }
     d->mp3_valid = (uint32_t)br;
@@ -245,35 +322,48 @@ int audio_decoder_open(dec_ctx_t *d, const char *path)
     {
         PRINT_LOG("[DEC ] MP3: no frame sync found\r\n");
         f_close(&d->fil);
-        vPortFree(d->mp3);
-        d->mp3 = NULL;
+        vPortFree(d->mp3);     d->mp3 = NULL;
+        vPortFree(d->mp3_buf); d->mp3_buf = NULL;
+        vPortFree(s_pcm);      s_pcm = NULL;
         return -1;
     }
 
     {
-        mp3dec_frame_info_t info;
-        int samples = mp3dec_decode_frame(d->mp3,
-                                          d->mp3_buf + d->mp3_off,
-                                          (int)(d->mp3_valid - d->mp3_off),
-                                          s_pcm, &info);
-        if (samples <= 0 || info.channels == 0 || info.hz == 0)
+        /* Learn the format from the first frame header only -- NO full decode,
+         * so the ~16 KB mp3dec_scratch_t never lands on the caller (UI) stack.
+         * The first PCM frame is left at mp3_off for the first read(), run
+         * later from the refill task. */
+        uint32_t sr = 0U;
+        uint8_t  ch = 2U;
+        uint32_t kbps = 0U;
+
+        if ((d->mp3_valid - d->mp3_off) < 4U)
         {
-            PRINT_LOG("[DEC ] MP3: first-frame decode failed\r\n");
+            PRINT_LOG("[DEC ] MP3: first frame header truncated\r\n");
             f_close(&d->fil);
-            vPortFree(d->mp3);
-            d->mp3 = NULL;
+            vPortFree(d->mp3);     d->mp3 = NULL;
+            vPortFree(d->mp3_buf); d->mp3_buf = NULL;
+            vPortFree(s_pcm);      s_pcm = NULL;
             return -1;
         }
-        d->channels         = (uint8_t)info.channels;
-        d->sample_rate      = (uint32_t)info.hz;
-        d->bits             = 16U;
-        d->mp3_bitrate_kbps = (uint32_t)info.bitrate_kbps;
-        d->mp3_off         += (uint32_t)info.frame_bytes;
-        d->mp3_consumed     = d->mp3_off;
-
-        if (d->mp3_bitrate_kbps != 0U)
+        if (mp3_parse_header(d->mp3_buf + d->mp3_off, &sr, &ch, &kbps) != 0)
         {
-            d->duration_ms = (d->file_size * 8000U) / d->mp3_bitrate_kbps;
+            PRINT_LOG("[DEC ] MP3: bad first-frame header\r\n");
+            f_close(&d->fil);
+            vPortFree(d->mp3);     d->mp3 = NULL;
+            vPortFree(d->mp3_buf); d->mp3_buf = NULL;
+            vPortFree(s_pcm);      s_pcm = NULL;
+            return -1;
+        }
+        d->channels         = ch;
+        d->sample_rate      = sr;
+        d->bits             = 16U;
+        d->mp3_bitrate_kbps = kbps;
+        /* mp3_off stays at the frame start -> first read() decodes it. */
+
+        if (kbps != 0U)
+        {
+            d->duration_ms = (d->file_size * 8000U) / kbps;
         }
     }
 
@@ -295,6 +385,16 @@ void audio_decoder_close(dec_ctx_t *d)
     {
         vPortFree(d->mp3);
         d->mp3 = NULL;
+    }
+    if (d->mp3_buf != NULL)
+    {
+        vPortFree(d->mp3_buf);
+        d->mp3_buf = NULL;
+    }
+    if (s_pcm != NULL)
+    {
+        vPortFree(s_pcm);
+        s_pcm = NULL;
     }
     (void)memset(d, 0, sizeof(*d));
 }
@@ -371,9 +471,22 @@ static uint32_t read_wav_frames(dec_ctx_t *d, int16_t *out, uint32_t want)
 static uint32_t read_mp3_frames(dec_ctx_t *d, int16_t *out, uint32_t want)
 {
     uint32_t produced = 0U;
+    uint32_t guard    = 0U;
 
     while (produced < want)
     {
+        guard++;
+        g_dec_loop = guard;
+        /* Watchdog: a single read() must always terminate.  A legitimate
+         * half-buffer needs at most a few hundred loop iterations; if we ever
+         * spin past 500000 it means the decoder loop is stuck on a pathological
+         * frame/byte pattern.  Break out (the caller flags PLAYING via g0/g1)
+         * so the prime never freezes the whole board. */
+        if (guard > 500000U)
+        {
+            g_dec_guard = guard;
+            break;
+        }
         int avail;
         int samples;
         mp3dec_frame_info_t info;
@@ -399,6 +512,7 @@ static uint32_t read_mp3_frames(dec_ctx_t *d, int16_t *out, uint32_t want)
             {
                 break;
             }
+            g_dec_fread++;
             if (f_read(&d->fil, d->mp3_buf + d->mp3_valid,
                        MP3_IN_BUF - d->mp3_valid, &br) != FR_OK)
             {
@@ -499,6 +613,10 @@ int audio_decoder_read(dec_ctx_t *d, int16_t *out,
     {
         n = read_mp3_frames(d, out, want_frames);
     }
+
+    g_dec_reads++;
+    g_dec_produced += n;
+    if (d->eof != 0U) { g_dec_eof = 1U; }
 
     *got_frames = n;
     return 0;

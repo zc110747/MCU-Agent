@@ -38,6 +38,7 @@
 #include "usb_host_app.h"
 #include "fs_diskio.h"
 #include "ui_task.h"
+#include "serial_cmd.h"
 #include "touch_task.h"
 #include "sensor_task.h"
 #include "bsp_rtc.h"
@@ -159,6 +160,7 @@ int main(void)
   xTaskCreate(led_task,       "led",  256,  NULL, tskIDLE_PRIORITY + 1, NULL);
   xTaskCreate(ui_task,        "ui",   UI_TASK_STACK_WORDS, NULL,
              tskIDLE_PRIORITY + 2, NULL);
+  serial_cmd_init();   /* USART3 command console: mirrors all music buttons + stress */
 
   /* FreeRTOS V11 quirk: vPortEnterCritical (inside xTaskCreate before the
    * scheduler runs) leaves BASEPRI set; clear it so the TIM7 IRQ and

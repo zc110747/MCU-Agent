@@ -15,14 +15,23 @@
   *  (channel 0) circular double-buffer living in external SDRAM; the player
   *  task refills the half that just finished playing.
   *
-  *  CLOCKING NOTE (verify on hardware): SAI1CLK is sourced from PLLSAI
-  *  (configured here to 48 MHz).  The CODEC MCLK is driven by SAI1_MCK_A with
-  *  MCKDIV=2 -> ~12 MHz (256xFs-ish).  If the real board instead wires the
-  *  CODEC MCLK to PA3 (PWM_AUDIO), switch AUDIO_MCLK_USE_PA3 on and see
-  *  bsp_sai_audio.c; the SAI MCK pin then carries the same frequency.  Exact
-  *  MCLK/BCLK dividers may need a small tweak against a frequency counter.
-  ******************************************************************************
-  */
+ *  CLOCKING (verified against Drivers/.../stm32f4xx_hal_sai.c)
+ *    FS   = SAI_CK / (MCKDIV * 512)     -- hal_sai.c:456/465
+ *    MCLK = SAI_CK / (MCKDIV * 2) = 256 * FS
+ *    BCLK = FS * 32                     (I2S, 16-bit stereo)
+ *
+ *  SAI_CK comes from PLLSAI_N / (PLLSAI_Q * PLLSAIDivQ) with a fixed 1 MHz
+ *  VCO input (HSE 25 MHz / PLLM 25).  PLLSAI feeds ONLY the SAI here - the
+ *  48 MHz USB/SDIO clock comes from the main PLL's PLLQ and LTDC is not
+ *  enabled - so N/Q/DivQ may be reprogrammed per sample rate.  The driver
+ *  picks the combination with the smallest achievable error; see
+ *  tools/audio/sai_clock_search.py.  Result: <= 0.019 % error (about 0.3
+ *  cents) for 8/11.025/16/22.05/24/32/44.1/48 kHz.
+ *
+ *  NOTE: 48 MHz SAI_CK (the previous setting) cannot express 44.1 k or 48 k
+ *  at all - it collapses both to 46 875 Hz (+6.29 % / -2.34 %).
+ ******************************************************************************
+ */
 #ifndef __BSP_SAI_AUDIO_H
 #define __BSP_SAI_AUDIO_H
 
@@ -32,6 +41,18 @@
 #ifndef AUDIO_HALF_FRAMES
 #define AUDIO_HALF_FRAMES   2048U
 #endif
+
+/* Clock telemetry, updated by the driver and readable over SWD so the clock
+ * tree can be confirmed without a scope or a UART.  g_sai_fs_measured_hz is
+ * derived from the real DMA refill rate against free-running TIM2, i.e. it is
+ * the true sample rate the CODEC is being driven at. */
+extern volatile uint32_t g_sai_saick_hz;        /* SAI kernel clock, Hz     */
+extern volatile uint32_t g_sai_mclk_hz;         /* MCLK (PE2), Hz           */
+extern volatile uint32_t g_sai_bclk_hz;         /* BCLK (PE5), Hz           */
+extern volatile uint32_t g_sai_mckdiv;          /* SAI CR1 MCKDIV[3:0]      */
+extern volatile uint32_t g_sai_fs_target_hz;    /* requested sample rate    */
+extern volatile uint32_t g_sai_fs_measured_hz;  /* measured sample rate     */
+extern volatile uint32_t g_sai_tx_dma_ret;       /* last HAL_SAI_Transmit_DMA ret */
 
 /**
   * @brief  Initialise SAI1_A + DMA + SDRAM double-buffer (no transfer yet).

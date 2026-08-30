@@ -47,7 +47,7 @@ typedef struct
 
     /* MP3 specifics (minimp3 frame API) */
     mp3dec_t      *mp3;
-    uint8_t        mp3_buf[MP3_IN_BUF]; /* input staging buffer            */
+    uint8_t       *mp3_buf;      /* input staging buffer, pvPortMalloc'd in SDRAM */
     uint32_t       mp3_valid;    /* valid bytes currently in mp3_buf     */
     uint32_t       mp3_off;      /* consumed offset within mp3_buf      */
     uint32_t       mp3_consumed; /* raw bytes consumed from the file    */

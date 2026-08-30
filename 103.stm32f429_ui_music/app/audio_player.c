@@ -24,8 +24,29 @@ static uint32_t       s_count = 0U;
 static int            s_cur   = 0;
 static player_state_t s_state = PLAYER_STOPPED;
 static uint8_t        s_vol   = 70U;
+/* Set by the UI thread when a prime (decode + DMA start) is wanted; the refill
+ * task performs the actual decode.  This keeps the ~16 KB mp3dec_scratch_t off
+ * the UI task's stack -- decoding there was the click-to-freeze root cause. */
+static uint8_t        s_need_prime = 0U;
 static dec_ctx_t      s_dec;
 static uint8_t        s_inited = 0U;
+
+/* Lightweight playback telemetry (read over SWD, no UART needed):
+ *   g_ply_prime_ok   - prime decoded real data and set PLAYING
+ *   g_ply_refill     - refill iterations that produced >0 frames
+ *   g_ply_refill_eof - refill iterations that hit end-of-track (advance)
+ *   g_ply_advance    - player_advance_auto() invocations */
+volatile uint32_t g_ply_prime_ok   = 0U;
+volatile uint32_t g_ply_refill     = 0U;
+volatile uint32_t g_ply_refill_eof = 0U;
+volatile uint32_t g_ply_advance    = 0U;
+/* Diagnostics: g_ply_prime_enter is bumped at the very top of
+ * player_prime_and_start() so we can tell "prime never entered" from "prime
+ * entered but is stuck before setting PLAYING" (e.g. blocked in the decoder).
+ * g_player_task_handle lets a SWD probe find the audio task's TCB directly. */
+volatile uint32_t      g_ply_prime_enter   = 0U;
+volatile TaskHandle_t  g_player_task_handle = NULL;
+
 
 /* ---- Player lock ----------------------------------------------------------
  * Guards the shared decoder context (s_dec) and player state (s_state/s_cur)
@@ -53,6 +74,7 @@ static void silence_half(int16_t *base, uint32_t from, uint32_t half)
  * also reproduces exact continuity on resume. */
 static void player_prime_and_start(void)
 {
+    g_ply_prime_enter++;
     uint16_t *buf = sai_audio_buffer();
     uint32_t  hf  = sai_audio_half_frames();
     uint32_t  g0, g1;
@@ -65,6 +87,7 @@ static void player_prime_and_start(void)
 
     sai_audio_start();
     s_state = ((g0 == 0U) && (g1 == 0U)) ? PLAYER_STOPPED : PLAYER_PLAYING;
+    if (s_state == PLAYER_PLAYING) { g_ply_prime_ok++; }
 }
 
 /* Open track idx and (optionally) start playing it.  Caller must hold s_lock. */
@@ -84,6 +107,7 @@ static int player_load_locked(uint32_t idx, uint8_t autoplay)
         PRINT_LOG("[PLY ] open failed: %s\r\n", s_tracks[idx].path);
         s_cur = (int)idx;
         s_state = PLAYER_STOPPED;
+        s_need_prime = 0U;
         return -1;
     }
 
@@ -92,7 +116,12 @@ static int player_load_locked(uint32_t idx, uint8_t autoplay)
 
     if (autoplay != 0U)
     {
-        player_prime_and_start();
+        /* Defer the actual decode to the refill task (PLAYER_PRIMING).  The
+         * decode path (mp3dec_decode_frame) needs a ~16 KB scratch that must
+         * NOT live on the UI task's stack -- doing it here is what froze the
+         * board on "play". */
+        s_state = PLAYER_PRIMING;
+        s_need_prime = 1U;
     }
     else
     {
@@ -117,6 +146,7 @@ static int player_advance_auto(void)
 {
     uint32_t i;
 
+    g_ply_advance++;
     if (s_count == 0U)
     {
         s_state = PLAYER_STOPPED;
@@ -147,6 +177,22 @@ static void player_task(void *arg)
 
     for (;;)
     {
+        /* A prime (decode + DMA start) was requested by the UI thread.  Perform
+         * it here so the ~16 KB mp3dec_scratch_t lives on this task's stack,
+         * never the UI task's stack.  player_prime_and_start() sets the state
+         * to PLAYING (or STOPPED if the track is empty). */
+        if (s_need_prime != 0U)
+        {
+            PLOCK_TAKE();
+            if ((s_need_prime != 0U) && (s_state == PLAYER_PRIMING))
+            {
+                s_need_prime = 0U;
+                player_prime_and_start();
+            }
+            PLOCK_GIVE();
+            continue;
+        }
+
         if ((s_state == PLAYER_PLAYING) && (s_dec.opened != 0U))
         {
             /* Wait for a half-buffer to need filling WITHOUT holding the lock,
@@ -164,8 +210,13 @@ static void player_task(void *arg)
             if ((s_state == PLAYER_PLAYING) && (s_dec.opened != 0U))
             {
                 audio_decoder_read(&s_dec, p, hf, &got);
+                if (got > 0U)
+                {
+                    g_ply_refill++;
+                }
                 if (got < hf)
                 {
+                    g_ply_refill_eof++;
                     silence_half(p, got, hf);
                     (void)player_advance_auto();
                 }
@@ -211,8 +262,13 @@ int player_init(void)
     s_vol = 70U;
     wm8978_set_volume(s_vol);
 
-    if (xTaskCreate(player_task, "audio", 2048, NULL,
-                    tskIDLE_PRIORITY + 1, NULL) != pdPASS)
+    /* 8192 words (32 KB): this task is now the ONLY place that runs the MP3
+     * decoder.  mp3dec_decode_frame() puts a ~16 KB mp3dec_scratch_t on the
+     * stack; the prime decode (two frames back-to-back) plus the steady-state
+     * refill decode must both fit with headroom.  The old 8 KB stack overflowed
+     * and smashed the SDRAM heap -> imprecise HardFault (CFSR=0x400). */
+    if (xTaskCreate(player_task, "audio", 8192, NULL,
+                    tskIDLE_PRIORITY + 1, &g_player_task_handle) != pdPASS)
     {
         PRINT_LOG("[PLY ] task create failed\r\n");
         return -1;
@@ -319,7 +375,10 @@ int player_play(void)
     }
     else if ((s_state == PLAYER_PAUSED) && (s_dec.opened != 0U))
     {
-        player_prime_and_start();   /* re-prime: exact continuity */
+        /* Re-prime on the refill task (exact continuity).  Decoding must not
+         * run on the UI task stack -- see PLAYER_PRIMING. */
+        s_state = PLAYER_PRIMING;
+        s_need_prime = 1U;
         r = 0;
     }
     else
@@ -367,6 +426,7 @@ int player_stop(void)
     sai_audio_drain();
     audio_decoder_close(&s_dec);
     s_state = PLAYER_STOPPED;
+    s_need_prime = 0U;
     PLOCK_GIVE();
     return 0;
 }
