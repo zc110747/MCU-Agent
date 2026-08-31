@@ -1,5 +1,5 @@
 #include "app/app.h"
-#include "drivers/led.h"
+#include "bsp/led.h"
 
 /* Task_LED
  *   - Heartbeat: toggles the LED every LED_PERIOD_MS (strict period).

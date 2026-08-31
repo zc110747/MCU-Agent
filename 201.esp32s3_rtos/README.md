@@ -77,7 +77,7 @@ ESP32S3_FreeRTOS_Monitor/
 │   ├── task_monitor.{h,cpp}          # 1s 系统状态上报（受定时器信号量唤醒）
 │   └── task_uart.{h,cpp}             # 50ms 轮询 UART0，命令解释器
 │
-├── drivers/
+├── bsp/
 │   ├── led.{h,cpp}                   # LED 驱动（不依赖 Application 层）
 │   └── button.{h,cpp}                # 按键驱动（含去抖）
 │
@@ -87,7 +87,7 @@ ESP32S3_FreeRTOS_Monitor/
 └── README.md
 ```
 
-**分层原则**：驱动层 (`drivers/`) 只依赖 `config.h`，不依赖应用层；
+**分层原则**：驱动层 (`bsp/`) 只依赖 `config.h`，不依赖应用层；
 任务层 (`tasks/`) 调用驱动；应用层 (`app/`) 负责系统编排；`config.h` 统一管理硬件参数；
 不出现大量跨模块 `extern` 全局变量（仅通过 `app.h` 暴露必要的 FreeRTOS 句柄）。
 
@@ -111,7 +111,7 @@ arduino-cli compile -j 8 \
 ```
 
 > **关于子目录 `.cpp` 的说明**：Arduino 构建器只编译 `.ino` 与顶层文件，
-> **不会**自动编译 `app/`、`tasks/`、`drivers/`、`system/` 子目录里的 `.cpp`。
+> **不会**自动编译 `app/`、`tasks/`、`bsp/`、`system/` 子目录里的 `.cpp`。
 > 本工程在 `ESP32S3_FreeRTOS_Monitor.ino` 中显式 `#include` 了各模块的 `.cpp`
 > （`#include "app/app.cpp"` 等），从而把全部模块编译进同一个翻译单元。
 > 这种方式在 Arduino IDE 与 arduino-cli 下行为一致，子目录内的

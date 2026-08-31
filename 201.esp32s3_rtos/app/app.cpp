@@ -2,8 +2,8 @@
 
 #include <stdio.h>
 
-#include "drivers/led.h"
-#include "drivers/button.h"
+#include "bsp/led.h"
+#include "bsp/button.h"
 #include "system/system_info.h"
 
 #include "tasks/task_led.h"

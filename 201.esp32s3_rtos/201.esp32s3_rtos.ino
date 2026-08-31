@@ -2,12 +2,12 @@
 
 // Force compilation of module sources.
 // The Arduino builder only compiles the .ino and top-level files; it does NOT
-// auto-build .cpp files inside subfolders (app/, tasks/, drivers/, system/).
+// auto-build .cpp files inside subfolders (app/, tasks/, bsp/, system/).
 // Including them here compiles every module into the sketch translation unit,
 // which works identically in the Arduino IDE and arduino-cli.
 #include "config/config.h"
-#include "drivers/led.cpp"
-#include "drivers/button.cpp"
+#include "bsp/led.cpp"
+#include "bsp/button.cpp"
 #include "system/system_info.cpp"
 #include "app/app.cpp"
 #include "tasks/task_led.cpp"
