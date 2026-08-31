@@ -31,11 +31,6 @@
 volatile cam_status_t g_cam_status = CAM_ERR_SENSOR;
 volatile uint32_t     g_cam_id     = 0;
 
-/* Boot progress marker. If the firmware hangs, this says where.
- *   1 MPU/cache   2 HAL/clock   3 LED   4 camera
- *   5 USB GPIO    6 tusb_init   7 uvc_app_init   8 main loop entered        */
-volatile uint32_t g_boot_stage = 0;
-
 /* Incremented on every pass of the super-loop. If this stops moving while
  * g_fault_id is still 0, something is blocking inside a task, not crashing. */
 volatile uint32_t g_loop_count = 0;
@@ -91,16 +86,13 @@ int main(void)
   /* The MPU must be programmed before the caches are turned on. */
   bsp_mpu_config();
   bsp_cache_enable();
-  g_boot_stage = 1;
 
   HAL_Init();
   bsp_clock_config();
   SystemCoreClockUpdate();
-  g_boot_stage = 2;
 
   bsp_led_init();
   bsp_led_set(true);
-  g_boot_stage = 3;
 
   /* Bring up the camera. A failure is not fatal: we fall back to a synthetic
    * test pattern so the USB side can still be brought up and debugged. */
@@ -109,23 +101,18 @@ int main(void)
   if (g_cam_status == CAM_OK) {
     bsp_camera_link_dma_callbacks();
   }
-  g_boot_stage = 4;
 
   board_usb_init();
-  g_boot_stage = 5;
 
   const tusb_rhport_init_t usb_init = {
       .role  = TUSB_ROLE_DEVICE,
       .speed = TUSB_SPEED_FULL,
   };
   tusb_init(BOARD_TUD_RHPORT, &usb_init);
-  g_boot_stage = 6;
 
   uvc_app_init(g_cam_status == CAM_OK);
-  g_boot_stage = 7;
 
   bsp_led_set(false);
-  g_boot_stage = 8;
 
   while (1) {
     g_loop_count++;
