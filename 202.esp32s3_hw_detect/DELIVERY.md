@@ -9,39 +9,42 @@
 
 ```text
 202.esp32s3_hw_detect/
-├── platformio.ini
-├── DELIVERY.md                 # 本文档
-├── build.log                   # 编译日志（自动生成）
-└── src/
-    ├── main.cpp                # 入口，调用 gateway.begin()
-    ├── app/
-    │   ├── debug_gateway.h/.cpp   # 总编排：启动流程 + EventTask 分发 + 命令解析
-    │   ├── debug_module.h        # DebugEvent / DebugEventType / DebugModule 扩展接口
-    │   ├── event_bus.h/.cpp       # FreeRTOS Queue 事件总线（非阻塞 push）
-    │   ├── ring_buffer.h          # 单生产者单消费者字节环形缓冲（UART 抗突发）
-    │   └── pin_manager.h/.cpp      # 运行时 GPIO 资源强制管理（禁用 19/20/48 与重复占用）
-    ├── config/
-    │   ├── pin_config.h           # 全部引脚集中定义（唯一真相源）
-    │   ├── app_config.h            # 任务栈/优先级/核/MQTT/Web 等全局常量
-    │   └── mqtt_config.h          # MQTT Topic 布局与 Broker 默认值
-    ├── network/
-    │   ├── wifi_manager.h/.cpp     # STA + AP 回退 + 自动重连
-    │   ├── mqtt_manager.h/.cpp     # MQTT 发布/订阅 + 自动重连 + cmd 转发
-    │   ├── websocket_manager.h/.cpp# WebSocket 实时推送（队列解耦）
-    │   ├── web_server.h/.cpp       # Web 服务器：Dashboard + REST + OTA
-    │   └── web_pages.h             # 单页 Dashboard HTML（C 字符串，零构建）
-    ├── debug/
-    │   ├── uart_monitor.h/.cpp     # UART 监视（HardwareSerial + 任务 + 二进制/文本）
-    │   ├── adc_monitor.h/.cpp      # ExternalAdc 抽象 + ADS1115 实现 + 采样任务
-    │   └── gpio_monitor.h/.cpp     # GPIO 数字输入/输出
-    ├── storage/
-    │   ├── config_manager.h/.cpp   # Preferences(NVS) 持久化
-    │   └── log_manager.h/.cpp       # 分级日志 + 环形缓冲 + 可选 WS 转发
-    └── ota/
-        └── ota_manager.h/.cpp      # Web OTA（仅写 app 分区，保护 NVS）
+├── 202.esp32s3_hw_detect.ino  # 入口（文件名须与工程目录同名）；强制 #include 各模块 .cpp 形成单编译单元
+├── build_oneclick.bat         # 一键编译（检查 arduino-cli + 装库 + compile）
+├── flash-esp32.bat            # 一键下载/烧录（参考 201 项目，支持自动扫描 COM + monitor）
+├── DELIVERY.md                # 本文档
+├── .vscode/
+│   ├── settings.json          # Arduino CLI 关联设置
+│   ├── tasks.json             # "Build (arduino-cli)" 默认构建任务
+│   └── launch.json            # 3 个 Cortex-Debug 配置（内置 JTAG / ESP-Prog / FTDI）
+└── app/                       # 注意：下划线模块目录，Arduino 不会自动编译其中 .cpp，靠 .ino 强制 include
+    ├── debug_gateway.h/.cpp   # 总编排：启动流程 + EventTask 分发 + 命令解析
+    ├── debug_module.h         # DebugEvent / DebugEventType / DebugModule 扩展接口
+    ├── event_bus.h/.cpp        # FreeRTOS Queue 事件总线（非阻塞 push）
+    ├── ring_buffer.h           # 单生产者单消费者字节环形缓冲（UART 抗突发）
+    └── pin_manager.h/.cpp      # 运行时 GPIO 资源强制管理（禁用 19/20/48 与重复占用）
+├── config/
+│   ├── pin_config.h           # 全部引脚集中定义（唯一真相源）
+│   ├── app_config.h            # 任务栈/优先级/核/MQTT/Web 等全局常量
+│   └── mqtt_config.h          # MQTT Topic 布局与 Broker 默认值
+├── network/
+│   ├── wifi_manager.h/.cpp     # STA + AP 回退 + 自动重连
+│   ├── mqtt_manager.h/.cpp     # MQTT 发布/订阅 + 自动重连 + cmd 转发
+│   ├── websocket_manager.h/.cpp# WebSocket 实时推送（队列解耦）
+│   ├── web_server.h/.cpp       # Web 服务器：Dashboard + REST + OTA
+│   └── web_pages.h             # 单页 Dashboard HTML（C 字符串，零构建）
+├── debug/
+│   ├── uart_monitor.h/.cpp     # UART 监视（HardwareSerial + 任务 + 二进制/文本）
+│   ├── adc_monitor.h/.cpp      # ExternalAdc 抽象 + ADS1115 实现 + 采样任务
+│   └── gpio_monitor.h/.cpp     # GPIO 数字输入/输出
+├── storage/
+│   ├── config_manager.h/.cpp   # Preferences(NVS) 持久化
+│   └── log_manager.h/.cpp       # 分级日志 + 环形缓冲 + 可选 WS 转发
+└── ota/
+    └── ota_manager.h/.cpp      # Web OTA（仅写 app 分区，保护 NVS）
 ```
 
-> 说明：`main.cpp` 仅 9 行，所有逻辑按功能拆分到 `app/network/debug/storage/ota/config`，未违反“禁止把所有代码写进 main.cpp”。
+> 说明：Arduino 构建模型下，**根目录 `.ino` 须与工程目录同名**（否则 arduino-cli 报 `main file missing`）。子目录的 `.cpp` 不会被自动编译，工程通过 `.ino` 中统一 `#include "xxx.cpp"` 把所有模块拼成**单一编译单元**（与 201 项目一致的范式）。所有头文件使用传统 `#ifndef`/`#define`/`#endif` 守卫（arduino-cli 会把工程复制到 `.build/sketch/` 用不同路径解析，`#pragma once` 会失效导致重定义）。
 
 ---
 
@@ -56,24 +59,22 @@
 
 ---
 
-## 3. platformio.ini
+## 3. 构建环境（Arduino CLI + VS Code）
 
-```ini
-[env:esp32-s3-devkitc-1]
-platform          = espressif32
-board             = esp32-s3-devkitc-1
-framework         = arduino
-monitor_speed     = 115200
-upload_speed      = 921600
-board_build.flash_size = 16MB
-build_flags = -D MQTT_MAX_PACKET_SIZE=512 -D CORE_DEBUG_LEVEL=3
-lib_deps =
-    arduino-libraries/ArduinoJson@^7.2.0
-    knolleary/PubSubClient@^2.8.0
-    links2004/WebSockets@^2.4.0
-```
+本工程已**从 PlatformIO 迁移到 Arduino CLI + VS Code**。核心要点：
 
-已验证可迁移 Arduino CLI：上述 `lib_deps` 等价于 `arduino-cli lib install` 的三个库；`board/framework` 与 Arduino IDE 的板卡/核心选择一一对应。
+- **板卡（FQBN）**：`esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,UploadSpeed=921600`
+  （N16R8，QSPI PSRAM 16MB，Flash 16MB，默认分区含 `ota_0/ota_1`）
+- **ESP32 Arduino Core**：`3.3.11`（已装于 `D:\software\arduino-cli\data\packages\esp32`）
+- **arduino-cli**：`1.5.2-rc.1`（或 PATH 上的任意 `arduino-cli`）
+- **构建命令**（与 `build_oneclick.bat` 一致）：
+  ```bat
+  arduino-cli compile -j 8 ^
+    -b "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,UploadSpeed=921600" ^
+    --build-path ".build" .
+  ```
+
+> 经验：PlatformIO 在本机被 `genie-trash` 守护锁定 `.platformio` 目录，导致 `packages.lock` 权限失败与框架解包死循环；Arduino CLI 使用独立未受保护的 `D:\software\arduino-cli\data`，编译干净通过，故迁移。
 
 ---
 
@@ -102,10 +103,12 @@ lib_deps =
 
 | 库 | 版本 | 用途 | 是否核心自带 |
 |----|------|------|--------------|
-| ArduinoJson | ^7.2.0 | 所有 JSON（MQTT/WS/REST） | 否（已列入 lib_deps） |
-| PubSubClient | ^2.8.0 | MQTT 客户端 | 否（已列入） |
-| WebSockets | ^2.4.0 | WebSocket Server | 否（已列入） |
-| WiFi / WebServer / Preferences / HardwareSerial / Wire / Update | — | 网络/存储/串口/I2C/OTA | **Arduino Core 自带** |
+| ArduinoJson | 7.4.3 | 所有 JSON（MQTT/WS/REST） | 否（`arduino-cli lib install`） |
+| PubSubClient | 2.8.0 | MQTT 客户端 | 否（已装） |
+| WebSockets | 2.7.2 | WebSocket Server | 否（已装） |
+| WiFi / WebServer / Preferences / HardwareSerial / Wire / Update / freertos | — | 网络/存储/串口/I2C/OTA/RTOS | **Arduino Core 自带** |
+
+> 三个外部库通过 `arduino-cli lib install ArduinoJson PubSubClient WebSockets` 装入 `D:\software\arduino-cli\sketchbook\libraries`（`build_oneclick.bat` 首跑自动执行，幂等）。
 
 > 刻意不引入 ESPAsyncWebServer、ADS1X15 等库：Web 用核心 `WebServer` + `WebSocketsServer`；ADC 自写 I2C 驱动（仅 ~40 行），降低依赖与 Flash 占用。
 
@@ -113,27 +116,37 @@ lib_deps =
 
 ## 6. 编译方法
 
-```bat
-:: 用本机任意 Python 建隔离 venv（绕过全局 pip target 陷阱）
-"D:\Software\Python3\python.exe" -m venv C:\pio-venv
-C:\pio-venv\Scripts\activate.bat
-pip install platformio
+**方式 A — 一键脚本（推荐）**：双击 `build_oneclick.bat`，脚本会自动检查 `arduino-cli`、幂等安装三个外部库、执行 `arduino-cli compile`，失败时暂停并输出英文日志。
 
+**方式 B — VS Code 任务**：`Ctrl+Shift+B` → 选 `Build (arduino-cli)`（来自 `.vscode/tasks.json`），等价于方式 A 的编译命令，产物输出到 `.build/`。
+
+**方式 C — 手动命令**：
+```bat
 cd D:\user_project\git\MCU-Agent\202.esp32s3_hw_detect
-pio run                 :: 编译
-pio run -t upload       :: 烧录（需先插板，自动选串口）
-pio device monitor      :: 串口监视（115200）
+arduino-cli lib install ArduinoJson PubSubClient WebSockets   :: 仅首次/缺库
+arduino-cli compile -j 8 ^
+  -b "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,UploadSpeed=921600" ^
+  --build-path ".build" .
 ```
 
-首跑会自动下载 ESP32 工具链 + Arduino 框架（约数百 MB，视网速数分钟）。
+编译产物位于 `.build/`：`202.esp32s3_hw_detect.ino.bin` / `.elf` / `.merged.bin`（16MB）/ `partitions.bin` / `bootloader.bin`。
+
+> 首跑若 arduino-cli 未装对应核心，会自动下载 ESP32 工具链 + Arduino 框架（约数百 MB，视网速数分钟）；本机核心 3.3.11 已就绪，无需重复下载。
 
 ---
 
 ## 7. 烧录方法
 
-- 自动：`pio run -t upload`（PlatformIO 自动识别 ESP32-S3 的 ROM USB 串口）。
-- 手动：用 `esptool` 或 IDE 选 `esp32-s3-devkitc-1`，Flash 16MB，按默认分区（含 ota_0/ota_1）。
-- 烧录后设备以 **USB CDC（GPIO19/20）** 输出日志，波特 115200。
+- **一键脚本（推荐）**：双击 `flash-esp32.bat`，脚本会查找 `arduino-cli`（PATH → 本地 → `D:\data\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit`），若未传端口则通过 pyserial 自动扫描可用 `COMx`，然后 `arduino-cli upload`。
+  ```bat
+  flash-esp32.bat                 :: 自动扫描 COM 并烧录
+  flash-esp32.bat COM7            :: 指定端口烧录
+  flash-esp32.bat COM7 monitor    :: 烧录后自动打开串口监视（115200）
+  flash-esp32.bat --no-pause      :: 非交互模式，结束不暂停（适合 CI）
+  ```
+  烧录后脚本额外给出一次 DTR/RTS 复位脉冲以确保设备进入用户程序。
+- 手动命令：`arduino-cli upload -p COM7 -b "<FQBN>" --build-path ".build" .`
+- 烧录后设备以 **USB CDC（GPIO19/20）** 输出日志，波特 115200；也可用 VS Code Cortex-Debug（`.vscode/launch.json`）通过内置 JTAG / ESP-Prog / FTDI 进行硬件调试（elf 路径指向 `.build/202.esp32s3_hw_detect.ino.elf`）。
 
 ---
 
@@ -273,15 +286,31 @@ A0..A3  ◄────────  被测电压（超过量程需外部分压�
 
 ---
 
-## 16. 内存占用
+## 16. 内存占用（arduino-cli 实测）
 
-（见下方“编译结果”，由 `build.log` 与运行时 Heap 打印填写。）
+```text
+Sketch uses 1017991 bytes (77%) of program storage space. Maximum is 1310720 bytes.
+Global variables use 80436 bytes (24%) of dynamic memory, leaving 247244 bytes for local variables. Maximum is 327680 bytes.
+```
+
+| 项 | 占用 | 上限 | 占比 |
+|----|------|------|------|
+| Flash（程序） | 1,017,991 B | 1,310,720 B | 77% |
+| DRAM（全局变量） | 80,436 B | 327,680 B | 24% |
+
+> PSRAM 16MB 由 `PSRAM=opi` 启用，供大缓冲（如 WS 帧、日志环形缓冲）分配；上述 DRAM 24% 已为学校内变量，余量充足。运行时 `free_heap` 由 SYS 状态 JSON / WebSocket `system` 推送（见 §10/§11）。
 
 ---
 
 ## 17. 已完成测试
 
-（编译/零警告/任务创建/GPIO 校验见编译结果；真机功能测试需烧录后在本机串口与浏览器验证。）
+- **编译**：`arduino-cli compile` 退出码 0，零错误零警告（见 §16 内存实测）。
+- **构建范式验证**：Arduino 单编译单元（`*.ino` 强制 `#include` 各子目录 `.cpp`）+ 全部 19 个头文件 `#ifndef` 守卫，成功规避 arduino-cli 复制工程后的头文件重定义。
+- **静态校验**：所有 `#include` 缺失已补（ArduinoJson / WiFi / esp_mac / pin_config 等）；`constexpr IPAddress`、`Update.write` const 转换、回调静态成员可见性等编译错误已修复。
+- **脚本就绪**：`build_oneclick.bat`、`flash-esp32.bat` 已生成并验证可调用（参考 201 项目范式）。
+- **待真机验证**（需烧录后在本机串口 + 浏览器执行）：UART/ADC/GPIO 端到端数据流、WiFi STA+AP、MQTT 发布订阅、WebSocket 实时推送、Web OTA 升级。架构与协议已就绪，功能验证不阻塞交付。
+
+> 回归验收可扩展 `verify_*.py`（串口/网络自测）给出 pass/fail 计数，沿用 201 项目节奏。
 
 ---
 
