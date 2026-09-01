@@ -1,0 +1,82 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ESP32-S3 Debug (builtin USB-Serial-JTAG)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}\\.build\\202.esp32s3_hw_detect.ino.elf",
+            "toolchainPrefix": "xtensa-esp32-elf",
+            "armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\esp-x32\\2601\\bin",
+            "gdbPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp32-elf-gdb.exe",
+            "serverpath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+            "configFiles": [
+                "board/esp32s3-builtin.cfg"
+            ],
+            "searchDir": [
+                "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"
+            ],
+            "preLaunchTask": "",
+            "svdFile": "",
+            "overrideLaunchCommands": [],
+            "runToEntryPoint": "app_init",
+            "showDevDebugOutput": "none",
+            "serverArgs": [
+                "-d2"
+            ]
+        },
+        {
+            "name": "ESP32-S3 Debug (builtin USB-Serial-JTAG - safe manual)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}\\.build\\202.esp32s3_hw_detect.ino.elf",
+            "toolchainPrefix": "xtensa-esp32-elf",
+            "armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\esp-x32\\2601\\bin",
+            "gdbPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp32-elf-gdb.exe",
+            "serverpath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+            "configFiles": [
+                "board/esp32s3-builtin.cfg"
+            ],
+            "searchDir": [
+                "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"
+            ],
+            "preLaunchTask": "",
+            "svdFile": "",
+            "overrideLaunchCommands": [],
+            "showDevDebugOutput": "none",
+            "serverArgs": [
+                "-d2"
+            ]
+        },
+        {
+            "name": "ESP32-S3 Debug (ESP-Prog/FTDI)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}\\.build\\202.esp32s3_hw_detect.ino.elf",
+            "toolchainPrefix": "xtensa-esp32-elf",
+            "armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\esp-x32\\2601\\bin",
+            "gdbPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp32-elf-gdb.exe",
+            "serverpath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+            "configFiles": [
+                "board/esp32s3-ftdi.cfg"
+            ],
+            "searchDir": [
+                "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"
+            ],
+            "preLaunchTask": "",
+            "svdFile": "",
+            "overrideLaunchCommands": [],
+            "runToEntryPoint": "app_init",
+            "showDevDebugOutput": "none",
+            "serverArgs": [
+                "-d2"
+            ]
+        }
+    ]
+}
