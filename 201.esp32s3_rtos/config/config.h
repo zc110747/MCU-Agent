@@ -5,27 +5,48 @@
 
 /* =========================================================================
  *  Board / GPIO configuration
- *  ESP32-S3 N16R8 (e.g. ESP32-S3-DevKitC-1 or generic N16R8 module)
- *  Change the values below to match YOUR board's schematic.
+ *  ESP32-S3-COREBOARD V1.4 (verified against ESP32-S3-SCH-V1.4.pdf)
+ *
+ *  User LED: a WS2812B RGB LED wired to GPIO48 (single-wire 800 kHz protocol,
+ *  GRB order). This is NOT a plain digital pin -> it is driven by the WS2812
+ *  driver in bsp/led.cpp (Adafruit_NeoPixel, installed via
+ *  `arduino-cli lib install "Adafruit NeoPixel"`).
+ *
+ *  Board status LEDs (hardware-driven, not software-controllable):
+ *    - PWRLED-RED : power indicator (+5V -> R6 1k -> LED -> GND, always on)
+ *    - TXLED2     : UART TX activity (U0TXD/GPIO43 -> R4 1k -> LED -> GND)
+ *    - RXLED2     : UART RX activity (U0RXD/GPIO44 -> R1 1k -> LED -> GND)
  * ======================================================================= */
 
-/* LED_PIN: GPIO connected to the user LED.
- *   Different boards wire the user LED to different GPIOs:
- *     - 2   : many generic ESP32-S3 modules expose a user LED on GPIO2
- *     - 48  : ESP32-S3-DevKitC-1 uses a WS2812 *RGB* LED on GPIO48.
- *             That is NOT a plain digital pin -> do NOT use 48 here.
- *     - any free GPIO wired to an external LED + series resistor
- *   -> Edit to match your hardware. A logic-high turns the LED ON below.
+/* LED configuration.
+ *   LED_PIN      : GPIO the WS2812B data line is connected to (48 on this board)
+ *   LED_IS_WS2812: 1 = WS2812B single-wire RGB (use WS2812 driver)
+ *                  0 = plain digital GPIO LED (use digitalWrite driver)
+ *   LED_WS2812_BRIGHTNESS : 0..255 global dimming (kept low to avoid glare)
+ *   LED_ON_*:    GRB color applied when the LED is logically "on"
  */
 #ifndef LED_PIN
-#define LED_PIN             2
+#define LED_PIN             48      /* WS2812B data line (COREBOARD V1.4) */
 #endif
-#define LED_ACTIVE_HIGH     true    // false if your LED is active-low
+#define HAS_USER_LED        (LED_PIN >= 0)
+#define LED_IS_WS2812       1
+
+#if LED_IS_WS2812
+#define LED_WS2812_BRIGHTNESS  40   /* 0..255, dimmed to avoid glare */
+/* Color shown when the LED is "on" (GRB order for WS2812B). */
+#define LED_ON_R              0
+#define LED_ON_G              64
+#define LED_ON_B              32
+#else
+/* Plain digital LED polarity (unused when LED_IS_WS2812 == 1). */
+#define LED_ACTIVE_HIGH       true    /* false if your LED is active-low */
+#endif
 
 /* BUTTON_PIN: GPIO connected to a user button.
- *   - Many ESP32-S3 boards expose the BOOT button on GPIO0 (active-low).
- *   - If your board has no user button, wire a tactile switch between this
- *     GPIO and GND (the driver enables the internal pull-up below).
+ *   COREBOARD V1.4: BOOT button on GPIO0 (active-low, R5 10k pull-up).
+ *   Verified against schematic: BOOT -> GPIO0, R5(10k) to VDD33.
+ *   If your board has no user button, wire a tactile switch between this
+ *   GPIO and GND (the driver enables the internal pull-up below).
  */
 #ifndef BUTTON_PIN
 #define BUTTON_PIN          0

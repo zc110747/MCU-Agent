@@ -1,6 +1,7 @@
 # ESP32-S3 FreeRTOS Monitor
 
 > 一个结构规范、任务职责清晰、体现 RTOS 思维的 ESP32-S3 (N16R8) 多任务设备监控器示例工程。
+> 目标板：**ESP32-S3-COREBOARD V1.4**（原理图 `ESP32-S3-SCH-V1.4.pdf` 已核对）。
 
 基于 **Arduino IDE + ESP32 Arduino Core + 内置 FreeRTOS** 实现，重点不是 LED 闪烁，
 而是建立一个可复用的 FreeRTOS 基础工程骨架：任务 / 队列 / 信号量 / 互斥量 / 软件定时器 /
@@ -26,25 +27,31 @@
 
 ## 2. 硬件
 
+**目标板：ESP32-S3-COREBOARD V1.4**（已对照原理图 `ESP32-S3-SCH-V1.4.pdf` 核对）
+
 | 项目 | 说明 |
 | --- | --- |
 | MCU | ESP32-S3 (双核 Xtensa LX7, 240 MHz) |
-| Flash | 16 MB |
+| Flash | 16 MB (N16R8) |
 | PSRAM | 8 MB (Octal, OPI) |
-| 调试/下载 | CH343 USB 转串口 |
-| 串口 | UART0 (TXD0 / RXD0)，由板载 CH343 连接 PC |
-| LED | 用户 LED（GPIO 由 `config.h` 的 `LED_PIN` 决定，见下方说明） |
-| 按键 | 用户按键（GPIO 由 `config.h` 的 `BUTTON_PIN` 决定，见下方说明） |
+| 板型 | ESP32-S3-COREBOARD V1.4 |
+| 调试/下载 | 内置 USB-Serial-JTAG (VID 0x303a PID 0x1001) + CH343 串口 |
+| 串口 | UART0 (TXD0 / RXD0)，由板载 CH343 / USB-Serial-JTAG 连接 PC |
+| **用户 LED** | **WS2812B RGB，GPIO48**（单线 800 kHz，GRB 顺序，由 `bsp/led.cpp` 驱动） |
+| **板载指示灯** | PWRLED-RED（电源常亮）、TXLED2/RXLED2（UART 活动灯，硬件驱动不可控） |
+| 按键 | BOOT 按钮（GPIO0，active-low，R5 10k 上拉） |
 
-> **GPIO 说明（重要）**：ESP32-S3 不同开发板的用户 LED / 按键所接 GPIO 并不统一。
-> 本项目**不猜测**具体引脚，而是在 `config/config.h` 中以宏形式暴露：
-> - `LED_PIN`：默认 `2`（许多通用模块把用户 LED 接在 GPIO2）。若你的板子是
->   ESP32-S3-DevKitC-1，其板载的是 GPIO48 的 **WS2812 RGB** 灯（不是普通数字引脚），
->   **不要**用 48，应改接外部 LED 或改 `LED_PIN`。
-> - `BUTTON_PIN`：默认 `0`（多数 ESP32-S3 板子的 BOOT 按键在 GPIO0，低电平有效）。
->   若板子没有用户按键，可外接一个按键到任意 GPIO 并修改此宏。
+> **GPIO 说明（已按原理图核对）**：
 >
-> 请根据你的板子原理图修改这两个宏后再编译烧录。
+> - **`LED_PIN = 48`（WS2812B）**：用户 LED 是一颗 **WS2812B 全彩灯**，数据线接 **GPIO48**，
+>   单线 800 kHz 协议（GRB 顺序）。它**不是**普通数字引脚，不能用 `digitalWrite` 驱动，
+>   而是用 `Adafruit_NeoPixel` 库（内部走 ESP32 RMT 外设保证时序）驱动。
+>   安装依赖：`arduino-cli lib install "Adafruit NeoPixel"`。
+>   `led_set(true)` → 显示 `LED_ON_*` 配置的 GRB 颜色，`led_set(false)` → 熄灭。
+>   亮度由 `LED_WS2812_BRIGHTNESS` 控制（默认 40，避免过亮刺眼）。
+>
+> - **`BUTTON_PIN = 0`**：BOOT 按钮，接 GPIO0，低电平有效。原理图确认：
+>   BOOT → GPIO0，R5(10kΩ) 上拉至 VDD33。自动下载电路 DTR/RTS 经 SS8050 分别控制 EN/IO0。
 
 ---
 
@@ -53,6 +60,7 @@
 - Arduino IDE（或 arduino-cli）
 - ESP32 Arduino Core（`esp32:esp32`，**本工程实测版本：3.3.11**）
 - FreeRTOS（ESP32 Arduino Core 内置，无需单独安装）
+- **Adafruit_NeoPixel**（WS2812B 驱动，**v1.15.5**，`arduino-cli lib install "Adafruit NeoPixel"`）
 - 开发语言：C / C++
 
 ---
@@ -176,7 +184,7 @@ build.bat all COM21    编译 + 烧录 + 打开监视器
 ## 8. 功能说明
 
 - 上电后打印启动横幅（芯片 / 内存 / FreeRTOS / 任务列表）。
-- LED 每 500 ms 翻转一次（心跳）。
+- Task_LED 每 500 ms 翻转一次 WS2812B RGB 灯（心跳），颜色由 `config.h` 的 `LED_ON_*` 决定。
 - 按键按下（去抖后）产生 `[BTN] pressed` 日志，并通过 Queue 触发一次 LED 翻转作为反馈。
 - 每 1 秒由软件定时器唤醒 Monitor 任务，输出：
   - `[SYS]` uptime / free_heap / min_free_heap / free_psram / min_free_psram / CPU0 / CPU1
@@ -218,7 +226,7 @@ build.bat all COM21    编译 + 烧录 + 打开监视器
 
 | 任务 | 周期 | 优先级 | 内核亲和 | 职责 |
 | --- | --- | --- | --- | --- |
-| Task_LED | 500 ms | 2 | Core 1 | LED 心跳翻转 + 消费 LED 事件 |
+| Task_LED | 500 ms | 2 | Core 1 | WS2812B RGB 心跳翻转 + 消费 LED 事件 |
 | Task_Button | 20 ms | 3 | Core 1 | 按键轮询、去抖、发事件 |
 | Task_Monitor | 1000 ms | 1 | Core 1 | 系统/内存/任务状态上报 |
 | Task_UART | 50 ms | 3 | Core 1 | UART0 命令解释器 |
@@ -315,9 +323,10 @@ A：不同 Core 版本菜单项名称不同。用 `arduino-cli board details esp
 **Q2：运行时打印 `PSRAM: not available`？**
 A：开发板菜单里没有启用 PSRAM。请设置 `PSRAM = OPI`（N16R8 为 Octal PSRAM）。
 
-**Q3：LED 不闪 / 按键无反应？**
-A：检查 `config.h` 的 `LED_PIN` / `BUTTON_PIN` 是否与你板子一致；DevKitC-1 的板载灯是
-GPIO48 的 RGB，不能当普通数字脚用，请改接外部 LED 或换引脚。
+**Q3：LED 不亮 / 按键无反应？**
+A：用户 LED 是 WS2812B（GPIO48），由 `Adafruit_NeoPixel` 驱动，需先安装库
+（`arduino-cli lib install "Adafruit NeoPixel"`），否则编译报找不到 `Adafruit_NeoPixel.h`。
+确认 `config.h` 中 `LED_PIN=48` 且 `LED_IS_WS2812=1`。按键请确认 `BUTTON_PIN=0`（BOOT 按钮）与板子一致。
 
 **Q4：`[TASK]` 表没有 `xCoreID` / 编译报错？**
 A：老版本 Core 的 `TaskStatus_t` 可能不含 `xCoreID` 字段。本工程按当前安装版本编译，

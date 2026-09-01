@@ -1,0 +1,15 @@
+{
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+    "files.associations": {
+        "*.ino": "cpp"
+    },
+    "cortex-debug.armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin",
+    "cortex-debug.openocdPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+    "files.exclude": {
+        ".build": true
+    },
+    "search.exclude": {
+        ".build": true
+    }
+}
