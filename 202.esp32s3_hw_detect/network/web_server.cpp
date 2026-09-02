@@ -127,6 +127,16 @@ void WebServerManager::handleStatus() {
     d["uart_stop"] = uc.stopBits; d["uart_par"] = uc.parity;
     d["adc_fsr"]   = g_config.adcFsrVolts();
     d["ws_port"]   = AppConfig::WEBSOCKET_PORT;
+    d["chip"]      = ESP.getChipModel();
+    d["cpu_mhz"]   = ESP.getCpuFreqMHz();
+    d["uart_ready"]= getGateway().uart()->isReady();
+    d["adc_ready"] = getGateway().adc()->isReady();
+    d["gpio_ready"]= getGateway().gpio()->isReady();
+    d["led_ready"] = getGateway().led()->isReady();
+    d["pwm_active"]= getGateway().pwm()->isActive();
+    d["pwm_pin"]   = getGateway().pwm()->pin();
+    d["pwm_period"]= getGateway().pwm()->periodUs();
+    d["pwm_duty"]  = getGateway().pwm()->dutyPct();
     sendJson(d);
 }
 
@@ -201,6 +211,13 @@ void WebServerManager::handleGpio() {
             o["state"] = st[i];
             o["dir"] = dir[i];
         }
+        d["led_mode"] = getGateway().led()->modeStr();
+        d["led_pin"]  = DebugPins::RUN_LED;
+        JsonObject pwm = d.createNestedObject("pwm");
+        pwm["active"] = getGateway().pwm()->isActive();
+        pwm["pin"]    = getGateway().pwm()->pin();
+        pwm["period"] = getGateway().pwm()->periodUs();
+        pwm["duty"]   = getGateway().pwm()->dutyPct();
         sendJson(d);
         return;
     }

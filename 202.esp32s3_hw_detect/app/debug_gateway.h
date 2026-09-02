@@ -11,6 +11,8 @@ namespace RHD {
 class UartMonitor;
 class AdcMonitor;
 class GpioMonitor;
+class Ws2812Controller;
+class PwmController;
 class WiFiManager;
 class MqttManager;
 class WebSocketManager;
@@ -34,6 +36,8 @@ public:
     UartMonitor*      uart()  { return _uart; }
     AdcMonitor*       adc()   { return _adc; }
     GpioMonitor*      gpio()  { return _gpio; }
+    Ws2812Controller* led()   { return _led; }
+    PwmController*    pwm()   { return _pwm; }
     WiFiManager*      wifi()  { return _wifi; }
     MqttManager*      mqtt()  { return _mqtt; }
     WebSocketManager* ws()    { return _ws; }
@@ -52,6 +56,8 @@ private:
     UartMonitor*      _uart   = nullptr;
     AdcMonitor*       _adc    = nullptr;
     GpioMonitor*      _gpio   = nullptr;
+    Ws2812Controller* _led    = nullptr;
+    PwmController*    _pwm    = nullptr;
     WiFiManager*      _wifi   = nullptr;
     MqttManager*      _mqtt   = nullptr;
     WebSocketManager* _ws     = nullptr;

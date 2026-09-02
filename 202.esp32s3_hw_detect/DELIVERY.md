@@ -331,3 +331,61 @@ Global variables use 80436 bytes (24%) of dynamic memory, leaving 247244 bytes f
 3. **AI Agent**：以 MQTT 为总线，Agent 订阅 `.../uart/rx`、`.../adc/#`、`.../gpio`、`.../system`，并下发 `uart_tx`/`gpio_set`/`adc_read`/`device_reset`。
 4. **性能**：UART 接收可改用 IDF UART 驱动的 DMA 双缓冲；WS 广播可批处理以降低小包开销。
 5. **持久化增强**：配置版本号 + 工厂复位端点；日志可落 SPIFFS（`log_manager` 已留接口）。
+
+---
+
+## 20. 连接与接线指南（真机上手）
+
+### 20.1 软件接入（PC ↔ 设备）
+
+首次上电（NVS 未存 WiFi 账号）设备**默认进入 AP 热点模式**：
+
+| 项 | 值 |
+|---|---|
+| 热点名 | `ESP32S3-Debugger-XXXX`（XXXX = MAC 末 4 位十六进制大写） |
+| 热点密码 | `debugger123` |
+| 设备 IP | `192.168.4.1`（Web:80 / WebSocket:81） |
+| 运行指示 | GPIO48 板载 RUN LED 闪烁 = 正常 |
+| Web 鉴权 | Basic，用户名 `admin` / 密码 `admin`（默认，可在 Dashboard 改） |
+
+**方式一 · 连设备自带热点（最快）**：USB 线保持供电 → 等 3–5 s 启动 → PC 连热点 → 浏览器开 `http://192.168.4.1`（仪表盘自动连 `ws://192.168.4.1:81` 实时推送）。串口助手开烧录口（如 COM22）@115200 可见启动日志与 AP 名。
+
+**方式二 · 接入局域网（STA）**：在仪表盘 WiFi 配置区填路由器 SSID/密码 → Save → 设备重启切 STA。成功后**自带热点消失**，从串口日志或路由器 DHCP 列表取 STA IP，浏览器开 `<STA_IP>:80`。STA 连不上会自动回退 AP。
+
+### 20.2 接目标 MCU（硬件调试接线）
+
+| 功能 | ESP32-S3 引脚 | 接目标 | 备注 |
+|---|---|---|---|
+| UART 监视 | GPIO17 (RX) | 目标 MCU **TX** | 默认 115200/8N1，Dashboard 可改 |
+| | GPIO18 (TX) | 目标 MCU **RX** | |
+| 外部 ADC | GPIO8 (SDA) / GPIO9 (SCL) | ADS1115 | I²C 地址 `0x48`（ADDR→GND），400 kHz |
+| GPIO 监视 | GPIO4 / 5 / 6 / 7 | 被测数字信号 | 默认输入上拉，可切输出 |
+| 禁止占用 | 19 / 20 / 48 | — | USB D-/D+ 与 RUN LED，PinManager 锁死 |
+
+### 20.3 MQTT 接入（可选，接消息总线 / AI Agent）
+
+- 默认 broker `192.168.10.1:1883`，Dashboard MQTT 区可改。
+- Topic 前缀 `remote-debugger/<device_id>/...`，`device_id = esp32s3-AABBCCDD`（板载 MAC）。
+- 例：UART 接收流 `remote-debugger/esp32s3-AABBCCDD/uart/rx`；命令下发 `.../cmd`。
+
+---
+
+## 21. 真机验收（tools/verify/*.py）
+
+纯 stdlib、英文输出（GBK 安全）、pass/fail 计数；设备 IP 用参数或环境变量 `RHD_IP` 指定（默认 `192.168.4.1`）。
+
+| 脚本 | 验证点 |
+|---|---|
+| `verify_web.py` | Dashboard 200、`/api/status` JSON 字段、无凭证 401 鉴权、`/api/wifi`、`/api/logs` |
+| `verify_gpio.py` | 4 路监视脚 [4,5,6,7]、GPIO4 写 1/写 0 回读、非监视脚 13 与保留脚 48 被 400 拒绝 |
+| `verify_adc.py` | `/api/adc/read` 4 通道 raw+voltage、`/api/adc/config` fsr；ADS1115 未接时 WARN 不 FAIL |
+| `verify_ws.py` | WS `:81` 握手 101、持续接收带 type 的 JSON（adc/system/log）、心跳观测 |
+| `run_all.py` | 汇总执行以上 4 项，输出 `TOTAL: n/4 scripts passed`，退出码 0/1 |
+
+```bat
+cd tools\verify
+python run_all.py                :: AP 模式（连上设备热点后跑）
+python run_all.py 192.168.1.50   :: STA 模式（设备已入局域网）
+```
+
+注意：`verify_gpio.py` 会把 GPIO4 切为输出并写入 NVS 方向掩码（测完保持输出低电平，属预期）。UART 双向流（`uart_tx` 下发）与 MQTT 发布订阅需接目标板/broker 后按 §10/§11 协议手工或脚本扩展验证。

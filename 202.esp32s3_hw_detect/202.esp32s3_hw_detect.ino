@@ -19,6 +19,8 @@
 #include "debug/uart_monitor.cpp"
 #include "debug/adc_monitor.cpp"
 #include "debug/gpio_monitor.cpp"
+#include "debug/ws2812_led.cpp"
+#include "debug/pwm_output.cpp"
 
 #include "network/wifi_manager.cpp"
 #include "network/mqtt_manager.cpp"

@@ -9,8 +9,8 @@
  * @brief Single-page dashboard HTML (served by WebServerManager at "/").
  *
  * Vanilla HTML/CSS/JS + WebSocket. No build step, minimal flash footprint.
- * Connects to ws://<host>:81 and renders UART / ADC / GPIO / System / Config /
- * OTA / Logs. Dark, low-contrast UI per project convention.
+ * Connects to ws://<host>:81 and renders UART / Interface(GPIO+PWM+ADC) /
+ * Hardware / Config / OTA / Logs. Dark, low-contrast UI per project convention.
  */
 namespace RHD {
 const char* DASHBOARD_HTML = R"(
@@ -52,17 +52,15 @@ const char* DASHBOARD_HTML = R"(
 <body>
 <header><h1>ESP32-S3 Remote Hardware Debugger</h1><span id="conn">connecting...</span></header>
 <nav>
-  <button data-p="dash" class="active">Dashboard</button>
+  <button data-p="dash" class="active">Hardware</button>
   <button data-p="uart">UART</button>
-  <button data-p="adc">ADC</button>
-  <button data-p="gpio">GPIO</button>
-  <button data-p="sys">System</button>
+  <button data-p="gpio">Interface</button>
   <button data-p="cfg">Config</button>
   <button data-p="ota">OTA</button>
   <button data-p="logs">Logs</button>
 </nav>
 <main>
-  <section id="dash" class="pane active"><div class="card" id="dashCard"></div></section>
+  <section id="dash" class="pane active"><div class="card" id="hwCard"></div></section>
 
   <section id="uart" class="pane">
     <div class="card">
@@ -82,16 +80,14 @@ const char* DASHBOARD_HTML = R"(
     </div>
   </section>
 
-  <section id="adc" class="pane">
+  <section id="gpio" class="pane">
+    <div class="card" id="gpioCard"></div>
     <div class="card">
+      <h3>ADC Read</h3>
       <table id="adcTable"><tr><th>CH</th><th>Voltage</th><th>Raw</th></tr></table>
       <canvas id="adcChart" width="600" height="160"></canvas>
     </div>
   </section>
-
-  <section id="gpio" class="pane"><div class="card" id="gpioCard"></div></section>
-
-  <section id="sys" class="pane"><div class="card" id="sysCard"></div></section>
 
   <section id="cfg" class="pane">
     <div class="card">
@@ -157,10 +153,14 @@ ws.onmessage = e => {
     updateAdc(m.channel, m.voltage, m.raw);
   } else if (m.type === 'gpio') {
     updateGpio(m.gpio, m.state);
+  } else if (m.type === 'led') {
+    updateLed(['off','r','g','b','cycle'][m.mode] || 'off');
   } else if (m.type === 'log') {
     $('logs').value += m.line + '\n'; $('logs').scrollTop = $('logs').scrollHeight;
   } else if (m.type === 'system') {
-    renderSystem(m);
+    renderHardware(m);
+  } else if (m.type === 'pwm') {
+    updatePwm(m);
   }
 };
 
@@ -200,22 +200,38 @@ function drawChart(ch, v){
 function updateGpio(pin, st){
   const el = $('g'+pin); if (el) el.textContent = st ? 'HIGH' : 'LOW';
 }
-function renderSystem(m){
-  $('dashCard').innerHTML = sysHtml(m);
-  $('sysCard').innerHTML = sysHtml(m);
+function updateLed(mode){
+  const names = {off:'关闭',r:'R闪烁',g:'G闪烁',b:'B闪烁',cycle:'RGB循环'};
+  ['off','r','g','b','cycle'].forEach(k=>{
+    const b = $('led_'+k); if (b) b.style.background = (k===mode) ? '#2a7' : '';
+  });
+  const cur = $('ledCur'); if (cur) cur.textContent = names[mode] || mode;
 }
-function sysHtml(m){
-  return '<div class="kv">Device</div><div class="pill">'+m.device+'</div>'+
-    '<div class="kv">Firmware</div><div class="pill">'+m.firmware+'</div>'+
-    '<div class="kv">Uptime</div><div class="pill">'+m.uptime+' s</div>'+
-    '<div class="kv">Free Heap</div><div class="pill">'+m.free_heap+'</div>'+
-    '<div class="kv">Min Free</div><div class="pill">'+m.min_heap+'</div>'+
-    '<div class="kv">WiFi</div><div class="pill">'+m.wifi+'</div>'+
-    '<div class="kv">RSSI</div><div class="pill">'+m.wifi_rssi+' dBm</div>'+
-    '<div class="kv">IP</div><div class="pill">'+m.ip+'</div>'+
-    '<div class="kv">MQTT</div><div class="pill">'+m.mqtt+'</div>'+
-    '<div class="kv">UART drops</div><div class="pill">'+m.uart_drops+'</div>'+
-    '<div class="kv">ADC drops</div><div class="pill">'+m.adc_drops+'</div>';
+function kv(k,v){ return '<div class="kv">'+k+'</div><div class="pill">'+v+'</div>'; }
+function stat(b){ return b ? 'ready' : 'down'; }
+function renderHardware(m){
+  $('hwCard').innerHTML = hwHtml(m);
+}
+function hwHtml(m){
+  const parts = [];
+  parts.push(kv('Chip', m.chip || '-'));
+  parts.push(kv('Clock', (m.cpu_mhz||0) + ' MHz'));
+  parts.push(kv('Web', 'http://' + (m.ip||'-') + ':' + (m.ws_port||80)));
+  parts.push(kv('MQTT', (m.mqtt_broker||'-') + ':' + (m.mqtt_port||1883) + ' (' + (m.mqtt||'-') + ')'));
+  parts.push(kv('UART', stat(m.uart_ready) + ' (GPIO17/18)'));
+  parts.push(kv('ADC', stat(m.adc_ready) + ' [' + (m.adc_src||'-') + ']'));
+  parts.push(kv('GPIO', stat(m.gpio_ready) + ' (GPIO4..7)'));
+  parts.push(kv('LED', stat(m.led_ready) + ' (GPIO48)'));
+  parts.push(kv('PWM', m.pwm_active ? ('GPIO'+m.pwm_pin+' '+m.pwm_period+'us '+m.pwm_duty+'%') : 'off'));
+  parts.push(kv('Device', m.device||'-'));
+  parts.push(kv('Firmware', m.firmware||'-'));
+  parts.push(kv('Uptime', (m.uptime||0) + ' s'));
+  parts.push(kv('Free Heap', m.free_heap||'-'));
+  parts.push(kv('Min Free', m.min_heap||'-'));
+  return parts.join('');
+}
+function updatePwm(p){
+  const cur = $('pwmCur'); if (cur) cur.textContent = p.active ? ('GPIO'+p.pin+' '+p.period+'us '+p.duty+'%') : 'off';
 }
 
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
@@ -240,6 +256,51 @@ fetch('/api/gpio').then(r=>r.json()).then(j=>{
     clr.onclick=()=>ws.send(JSON.stringify({cmd:'gpio_set',gpio:g.pin,value:0}));
     row.appendChild(set); row.appendChild(clr); c.appendChild(row);
   }
+  // ---- WS2812 status LED (on-board, GPIO48) ----
+  const ledRow = document.createElement('div'); ledRow.className='row';
+  ledRow.innerHTML = '<label>WS2812 (GPIO'+j.led_pin+')</label>';
+  const ledWrap = document.createElement('div');
+  const modes = [['off','关闭'],['r','R闪烁'],['g','G闪烁'],['b','B闪烁'],['cycle','RGB循环']];
+  modes.forEach(([key,label])=>{
+    const b=document.createElement('button'); b.className='act'; b.textContent=label;
+    b.id='led_'+key; b.onclick=()=>ws.send(JSON.stringify({cmd:'ws2812_set',mode:key}));
+    ledWrap.appendChild(b);
+  });
+  ledRow.appendChild(ledWrap);
+  const cur = document.createElement('span'); cur.id='ledCur'; cur.className='pill'; cur.textContent='-';
+  ledRow.appendChild(cur);
+  c.appendChild(ledRow);
+  if (typeof j.led_mode === 'string') updateLed(j.led_mode);
+
+  // ---- PWM output (select pin, set period + duty) ----
+  const pwmRow = document.createElement('div'); pwmRow.className='row';
+  pwmRow.innerHTML = '<label>PWM</label>';
+  const pwmWrap = document.createElement('div');
+  const pwmSel = document.createElement('select'); pwmSel.id='pwmPin';
+  [3,10,11,12,13,14,15,16,21,33,34,35,36,37,38,39,40,41,42,43,44,47].forEach(p=>{
+    const o=document.createElement('option'); o.value=p; o.textContent='GPIO'+p; pwmSel.appendChild(o);
+  });
+  const pwmPer = document.createElement('input'); pwmPer.type='number'; pwmPer.id='pwmPeriod';
+  pwmPer.value=1000; pwmPer.min=25; pwmPer.placeholder='period us'; pwmPer.style.minWidth='110px';
+  const pwmDut = document.createElement('input'); pwmDut.type='number'; pwmDut.id='pwmDuty';
+  pwmDut.value=50; pwmDut.min=0; pwmDut.max=100; pwmDut.style.minWidth='80px';
+  const pwmApply = document.createElement('button'); pwmApply.className='act'; pwmApply.textContent='Apply';
+  pwmApply.onclick=()=>ws.send(JSON.stringify({cmd:'pwm_set',pin:+$('pwmPin').value,period:+$('pwmPeriod').value,duty:+$('pwmDuty').value}));
+  const pwmStop = document.createElement('button'); pwmStop.className='act'; pwmStop.textContent='Stop';
+  pwmStop.onclick=()=>ws.send(JSON.stringify({cmd:'pwm_set',active:false}));
+  pwmWrap.appendChild(pwmSel); pwmWrap.appendChild(pwmPer); pwmWrap.appendChild(pwmDut);
+  pwmWrap.appendChild(pwmApply); pwmWrap.appendChild(pwmStop);
+  pwmRow.appendChild(pwmWrap);
+  const pwmCur = document.createElement('span'); pwmCur.id='pwmCur'; pwmCur.className='pill'; pwmCur.textContent='off';
+  pwmRow.appendChild(pwmCur);
+  c.appendChild(pwmRow);
+
+  if (j.pwm && j.pwm.active) {
+    $('pwmPin').value = j.pwm.pin;
+    $('pwmPeriod').value = j.pwm.period;
+    $('pwmDuty').value = j.pwm.duty;
+    updatePwm(j.pwm);
+  }
 });
 
 // config load
@@ -252,6 +313,7 @@ function loadCfg(){
     $('uBaud').value=m.uart_baud||115200; $('uData').value=m.uart_data||8;
     $('uStop').value=m.uart_stop||1; $('uPar').value=m.uart_par||0;
     $('aFsr').value=m.adc_fsr||6.144;
+    renderHardware(m);
   });
   fetch('/api/adc/config').then(r=>r.json()).then(m=>{
     $('aD0').value=m.divider0; $('aD1').value=m.divider1; $('aD2').value=m.divider2; $('aD3').value=m.divider3;

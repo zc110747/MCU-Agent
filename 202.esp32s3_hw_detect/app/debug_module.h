@@ -24,6 +24,8 @@ enum class DebugEventType : uint8_t {
     UART_TX,
     ADC_SAMPLE,
     GPIO_STATE,
+    LED_STATE,
+    PWM_STATE,
     SYSTEM,
     ERROR
 };

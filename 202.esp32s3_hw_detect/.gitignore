@@ -1,0 +1,11 @@
+# Build artifacts (arduino-cli caches compiled core/libs automatically; .build is
+# the per-run sketch build output and is preserved between builds for fast rebuilds)
+.build/
+
+# Local tool logs
+flash-esp32.log
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

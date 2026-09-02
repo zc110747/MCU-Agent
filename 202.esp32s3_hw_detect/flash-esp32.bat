@@ -1,27 +1,14 @@
 @echo off
 setlocal EnableDelayedExpansion
 REM ============================================================
-REM  flash-esp32.bat - flash + reset for ESP32-S3 (Arduino-CLI)
-REM
-REM  This script does NOT compile. Build the firmware first
-REM  (build_oneclick.bat / arduino-cli compile) so that .build exists.
-REM
-REM  Usage (run from the project folder):
-REM    flash-esp32.bat                flash, scan all COM ports and let you pick
-REM    flash-esp32.bat COM7            flash on COM7 directly
-REM    flash-esp32.bat COM7 monitor   flash on COM7 then open serial monitor
-REM    flash-esp32.bat --no-pause ...  same, but never pause (for automated runs)
-REM
-REM  Notes:
-REM    - arduino-cli lookup order: PATH -> local dir -> D:\data\agent-tools
-REM    - board fixed to N16R8 (OPI PSRAM + 16MB Flash, 921600 upload)
-REM    - esptool hard-resets after upload; an extra DTR/RTS pulse forces a
-REM      clean power-on reset of the new firmware.
-REM    - On ANY failure the script prints the real error and PAUSEs.
-REM      Full output is saved to flash-esp32.log.
-REM    - English output only.
+REM  flash-esp32.bat - one-click flash for ESP32-S3 (Arduino CLI)
+REM  - auto-detects ESP32 port (USB VID 303A) when no COM given
+REM  - or: flash-esp32.bat COM7          flash on COM7 directly
+REM  - or: flash-esp32.bat COM7 monitor  flash then open monitor
+REM  - or: flash-esp32.bat --no-pause     CI mode (no pause)
+REM  Build the firmware first (build_oneclick.bat) so .build exists.
+REM  English output only; every failure prints and PAUSEs.
 REM ============================================================
-
 set "FQBN=esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,UploadSpeed=921600"
 set "BAUD=115200"
 set "SKETCH=."
@@ -29,137 +16,133 @@ set "BUILD=.build"
 set "LOG=flash-esp32.log"
 set "PORT="
 set "TARGET=flash"
+set "NOPAUSE=0"
 
-cd /d "%~dp0." || (
-    echo [ERR] Cannot change to script directory: %~dp0.
-    pause
-    exit /b 1
-)
+echo [flash-esp32] starting...
+cd /d "%~dp0" || ( echo [ERR] cannot cd to %~dp0 & pause & exit /b 1 )
 
 REM --- parse args (order-independent) ---
-set "NOPAUSE=0"
-if /i "%~1"=="--no-pause" set "NOPAUSE=1"
-if /i "%~2"=="--no-pause" set "NOPAUSE=1"
-if /i "%~3"=="--no-pause" set "NOPAUSE=1"
-if %NOPAUSE%==1 (set "PAUSECMD=echo [INFO] --no-pause: skipping pause") else (set "PAUSECMD=pause")
-
-if /i "%~1"=="monitor"  set "TARGET=monitor"
-if /i "%~2"=="monitor"  set "TARGET=monitor"
-if /i "%~3"=="monitor"  set "TARGET=monitor"
-if not "%~1"=="" if /i not "%~1"=="monitor" if /i not "%~1"=="--no-pause" set "PORT=%~1"
-if not "%~2"=="" if /i not "%~2"=="monitor" if /i not "%~2"=="--no-pause" set "PORT=%~2"
-if not "%~3"=="" if /i not "%~3"=="monitor" if /i not "%~3"=="--no-pause" set "PORT=%~3"
+for %%A in (%*) do (
+  if /i "%%A"=="--no-pause" set "NOPAUSE=1"
+  if /i "%%A"=="monitor" set "TARGET=monitor"
+  echo %%A | findstr /r /i "COM[0-9][0-9]*" >nul && set "PORT=%%A"
+)
+if %NOPAUSE%==1 (set "PAUSECMD=echo [INFO] --no-pause: skip pause") else (set "PAUSECMD=pause")
 
 REM --- locate arduino-cli ---
 set "CLI="
-where arduino-cli >nul 2>&1
-if %errorlevel%==0 set "CLI=arduino-cli"
+where arduino-cli >nul 2>&1 && set "CLI=arduino-cli"
 if not defined CLI if exist "%~dp0arduino-cli.exe" set "CLI=%~dp0arduino-cli.exe"
 if not defined CLI if exist "D:\data\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit\arduino-cli.exe" set "CLI=D:\data\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit\arduino-cli.exe"
-if not defined CLI (
-    echo [ERR] arduino-cli not found. Add it to PATH or edit the CLI lookup block.
-    %PAUSECMD%
-    exit /b 1
-)
+if not defined CLI ( echo [ERR] arduino-cli not found ^(add to PATH or edit CLI block^) & %PAUSECMD% & exit /b 1 )
 echo [INFO] CLI = %CLI%
 
 REM --- ensure firmware was built externally ---
-if not exist "%BUILD%" (
-    echo [ERR] Build directory "%BUILD%" not found.
-    echo       Compile the firmware first (build_oneclick.bat), then re-run this script.
-    %PAUSECMD%
-    exit /b 1
-)
+if not exist "%BUILD%" ( echo [ERR] .build missing - run build_oneclick.bat first & %PAUSECMD% & exit /b 1 )
 
-REM --- resolve serial port: use arg directly, else scan & let user pick ---
+REM --- resolve serial port ---
 if defined PORT (
-    echo [INFO] Using supplied port: %PORT%
+  echo [INFO] Using supplied port: %PORT%
 ) else (
-    call :scan_ports
+  call :scan_ports
 )
-if not defined PORT (
-    %PAUSECMD%
-    exit /b 1
-)
+if not defined PORT ( %PAUSECMD% & exit /b 1 )
 echo [INFO] Port = %PORT%
 
 REM --- flash (firmware already built externally) ---
-echo [FLASH] Uploading to %PORT% @ 921600...
+echo [FLASH] Uploading to %PORT% @ 921600 (may take 10-30s)...
+echo [FLASH] full esptool output -> %LOG%
 "%CLI%" upload -p %PORT% -b "%FQBN%" --build-path "%BUILD%" "%SKETCH%" > "%LOG%" 2>&1
-if %errorlevel% neq 0 (
-    echo.
-    echo ============================================================
-    echo [ERR] UPLOAD FAILED - last output from esptool:
-    echo ============================================================
-    type "%LOG%"
-    echo.
-    echo [ERR] Upload failed (exit %errorlevel%). Full log: %LOG%
-    echo       Common causes: board not connected, wrong COM port, or port busy.
-    %PAUSECMD%
-    exit /b 1
+set "RC=%errorlevel%"
+type "%LOG%"
+if %RC% neq 0 (
+  echo.
+  echo [ERR] UPLOAD FAILED (exit %RC%). Common: board not connected / wrong COM / port busy.
+  %PAUSECMD%
+  exit /b 1
 )
 echo [FLASH] PASS
 
-REM --- reset: extra DTR/RTS pulse for a clean power-on reset ---
-echo [RESET] Resetting %PORT%...
-powershell -NoProfile -Command "$p=New-Object System.IO.Ports.SerialPort '%PORT%',115200; $p.Open(); $p.DtrEnable=$false; $p.RtsEnable=$false; Start-Sleep -Milliseconds 120; $p.RtsEnable=$true; Start-Sleep -Milliseconds 120; $p.DtrEnable=$true; $p.Close()" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [WARN] Manual reset pulse failed; the chip was already reset by esptool.
-) else (
-    echo [RESET] PASS - device restarted.
-)
+REM --- reset pulse (harmless if not applicable) ---
+echo [RESET] Reset pulse on %PORT%...
+powershell -NoProfile -Command "$p=New-Object System.IO.Ports.SerialPort '%PORT%',115200; try { $p.Open(); $p.DtrEnable=$false; $p.RtsEnable=$false; Start-Sleep -Milliseconds 100; $p.RtsEnable=$true; Start-Sleep -Milliseconds 100; $p.DtrEnable=$true } catch {} finally { if($p.IsOpen){$p.Close()} }" >nul 2>&1
+echo [RESET] done.
 
 if /i "%TARGET%"=="monitor" (
-    echo [MONITOR] Opening %PORT% @ %BAUD%, Ctrl+C to quit...
-    "%CLI%" monitor -p %PORT% -b %BAUD% --quiet
-    echo [MONITOR] Serial monitor closed.
+  echo [MONITOR] %PORT% @ %BAUD% (Ctrl+C to quit)
+  "%CLI%" monitor -p %PORT% -b %BAUD% --quiet
 )
-
-echo [DONE] Flashed and restarted on %PORT%.
+echo [DONE] Flashed on %PORT%.
 %PAUSECMD%
 exit /b 0
 
 REM ============================================================
-REM  :scan_ports - enumerate all serial ports, show a numbered
-REM  list, and let the user pick one. Sets PORT on success.
+REM  :scan_ports - detect ESP32-S3 port without manual args.
+REM  Primary: "arduino-cli board list" (no extra dependency).
+REM  Fallback: python + pyserial (USB VID 303A match).
+REM  NOTE: port lines are shown via delayed expansion OUTSIDE
+REM  for-blocks, and row parsing goes through :scan_line/:py_line
+REM  subroutines -- a ')' inside descriptions like "Serial Port
+REM  (USB)" would otherwise close the for-block early.
+REM  Sets PORT on success.
 REM ============================================================
 :scan_ports
-echo [INFO] No COM port supplied. Scanning all serial ports...
-echo.
 set "CNT=0"
+set "ESPCNT=0"
+set "ESPPORT="
+echo [INFO] Scanning serial ports...
+"%CLI%" board list > _ports.tmp 2>nul
+if exist _ports.tmp for /f "skip=1 tokens=1,*" %%P in (_ports.tmp) do call :scan_line "%%P" "%%Q"
+if !CNT! gtr 0 goto scan_decide
+echo [INFO] arduino-cli found no usable port, trying python/pyserial...
 set "PY="
-where python >nul 2>&1
-if %errorlevel%==0 set "PY=python"
-if not defined PY where python3 >nul 2>&1
-if %errorlevel%==0 set "PY=python3"
-if not defined PY (
-    echo [ERR] Python not found. Pass the COM port explicitly: flash-esp32.bat COMx
-    goto :eof
+where python >nul 2>&1 && set "PY=python"
+if not defined PY where python3 >nul 2>&1 && set "PY=python3"
+set "PYOK=0"
+if defined PY ( "%PY%" -c "import serial" >nul 2>&1 && set "PYOK=1" )
+if not "%PYOK%"=="1" ( echo [ERR] no scan backend - pass COMx manually: flash-esp32.bat COMx & goto :eof )
+"%PY%" -c "import serial.tools.list_ports as lp;[print('%s|%s|%s' % (p.device,p.description,p.hwid)) for p in lp.comports()]" > _ports.tmp 2>nul
+if exist _ports.tmp for /f "usebackq tokens=1-3 delims=|" %%A in ("_ports.tmp") do call :py_line "%%A" "%%B" "%%C"
+
+:scan_decide
+if exist _ports.tmp del /f _ports.tmp >nul 2>&1
+if !CNT!==0 ( echo [ERR] no serial port found - connect the board and retry & goto :eof )
+if !ESPCNT!==1 (
+  echo [AUTO] ESP32 detected at !ESPPORT! ^(USB VID 303A^)
+  set "PORT=!ESPPORT!"
+  goto :eof
 )
-"%PY%" -c "import serial.tools.list_ports as lp;[print(p.device+'|'+p.description) for p in lp.comports()]" > _ports.tmp 2>nul
-if not exist _ports.tmp (
-    echo [ERR] Serial port scan failed.
-    goto :eof
+if !ESPCNT! gtr 1 ( echo [INFO] multiple ESP32 ports found, pick one: ) else ( echo [WARN] no ESP32 auto-match, pick a port: )
+for /l %%N in (1,1,!CNT!) do echo   [%%N] !PORT_%%N!  !REST_%%N!
+set "CHOICE="
+set /p "CHOICE=Select number [1-!CNT!]: "
+if not defined CHOICE ( echo [ERR] no selection & goto :eof )
+call set "PORT=%%PORT_!CHOICE!%%"
+if not defined PORT ( echo [ERR] invalid selection: !CHOICE! & goto :eof )
+goto :eof
+
+REM --- row handler for "arduino-cli board list" ---
+REM  %~1 = first token (must be COMx, skips indented multi-FQBN rows)
+REM  %~2 = rest of row (contains Board Name / FQBN / Core)
+:scan_line
+echo %~1| findstr /r /i "^COM[0-9][0-9]*" >nul || goto :eof
+set /a CNT+=1
+set "PORT_%CNT%=%~1"
+set "REST_%CNT%=%~2"
+echo "%~2"| findstr /i "esp32:esp32" >nul && (
+  set /a ESPCNT+=1
+  set "ESPPORT=%~1"
 )
-for /f "tokens=1* delims=|" %%A in (_ports.tmp) do (
-    set /a CNT+=1
-    set "PORT_!CNT!=%%A"
-    echo   [!CNT!] %%A  %%B
-)
-del /f _ports.tmp >nul 2>&1
-if !CNT!==0 (
-    echo [ERR] No serial port detected. Connect the board and retry.
-    goto :eof
-)
-echo.
-set /p "CHOICE=Select port number [1-!CNT!]: "
-if not defined CHOICE (
-    echo [ERR] No selection entered.
-    goto :eof
-)
-set "PORT=!PORT_%CHOICE%!"
-if not defined PORT (
-    echo [ERR] Invalid selection: !CHOICE!
-    goto :eof
+goto :eof
+
+REM --- row handler for pyserial scan ---
+REM  %~1 = COMx, %~2 = description, %~3 = hwid (e.g. USB\VID_303A&PID_1001)
+:py_line
+set /a CNT+=1
+set "PORT_%CNT%=%~1"
+set "REST_%CNT%=%~2"
+echo "%~3"| findstr /i "303A" >nul && (
+  set /a ESPCNT+=1
+  set "ESPPORT=%~1"
 )
 goto :eof

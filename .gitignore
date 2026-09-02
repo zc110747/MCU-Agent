@@ -18,6 +18,7 @@
 
 # Debugger Files
 *.pdb
+*.pyc
 
 # Compiled Dynamic libraries
 *.so

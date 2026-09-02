@@ -113,6 +113,16 @@ void WebSocketManager::broadcastEvent(const DebugEvent& ev) {
             d["state"] = ev.state;
             d["timestamp"] = ev.timestamp;
             break;
+        case DebugEventType::LED_STATE:
+            d["type"] = "led";
+            d["gpio"] = ev.gpio;
+            d["mode"] = (int)ev.state;   // 0=off,1=r,2=g,3=b,4=cycle
+            d["timestamp"] = ev.timestamp;
+            break;
+        case DebugEventType::PWM_STATE:
+            // Full state already serialized as JSON in ev.data.
+            srv->broadcastTXT((const char*)ev.data);
+            return;
         case DebugEventType::SYSTEM:
         case DebugEventType::ERROR:
             // data already contains a serialized JSON object

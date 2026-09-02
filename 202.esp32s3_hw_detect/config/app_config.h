@@ -39,6 +39,10 @@ constexpr uint16_t GPIO_TASK_STACK = 2048;
 constexpr uint8_t  GPIO_TASK_PRIO  = 2;
 constexpr BaseType_t GPIO_TASK_CORE = 1;
 
+constexpr uint16_t LED_TASK_STACK  = 2048;
+constexpr uint8_t  LED_TASK_PRIO   = 2;
+constexpr BaseType_t LED_TASK_CORE  = 1;
+
 constexpr uint16_t EVENT_TASK_STACK = 4096;
 constexpr uint8_t  EVENT_TASK_PRIO  = 4;   // higher: keep up with producers
 constexpr BaseType_t EVENT_TASK_CORE = 0;

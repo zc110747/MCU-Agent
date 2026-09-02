@@ -10,6 +10,8 @@
 #include "debug/uart_monitor.h"
 #include "debug/adc_monitor.h"
 #include "debug/gpio_monitor.h"
+#include "debug/ws2812_led.h"
+#include "debug/pwm_output.h"
 #include "ota/ota_manager.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -50,9 +52,13 @@ bool DebugGateway::begin() {
     _uart = new UartMonitor();
     _adc  = new AdcMonitor();
     _gpio = new GpioMonitor();
+    _led  = new Ws2812Controller();
+    _pwm  = new PwmController();
     if (!_uart->begin()) LOG_ERROR("SYS", "UART module failed");
     if (!_adc->begin())  LOG_ERROR("SYS", "ADC module failed");
     if (!_gpio->begin()) LOG_ERROR("SYS", "GPIO module failed");
+    if (!_led->begin())  LOG_ERROR("SYS", "LED module failed");
+    if (!_pwm->begin())  LOG_ERROR("SYS", "PWM module failed");
 
     // 7. GPIO allocation report (after all claims)
     DebugPins::g_pinManager.printAllocation();
@@ -90,6 +96,9 @@ bool DebugGateway::begin() {
     LOG_INFO("SYS", "UART     : %s", _uart->isReady() ? "ready" : "down");
     LOG_INFO("SYS", "ADC      : %s", _adc->isReady() ? "ready" : "down");
     LOG_INFO("SYS", "GPIO     : %s", _gpio->isReady() ? "ready" : "down");
+    LOG_INFO("SYS", "LED      : %s (%s)", _led->isReady() ? "ready" : "down",
+             _led->modeStr());
+    LOG_INFO("SYS", "PWM      : %s", _pwm->isReady() ? "ready" : "down");
     LOG_INFO("SYS", "Web      : ready :%u", AppConfig::HTTP_PORT);
     LOG_INFO("SYS", "WebSocket: ready :%u", AppConfig::WEBSOCKET_PORT);
     LOG_INFO("SYS", "OTA      : ready");
@@ -126,20 +135,40 @@ void DebugGateway::eventTaskLoop() {
 }
 
 void DebugGateway::publishSystemStatus() {
-    char buf[300];
+    char buf[600];
     int n = snprintf(buf, sizeof(buf),
-        "{\"type\":\"system\",\"device\":\"%s\",\"uptime\":%u,\"free_heap\":%u,"
-        "\"min_heap\":%u,\"wifi\":\"%s\",\"wifi_rssi\":%d,\"ip\":\"%s\","
-        "\"mqtt\":\"%s\",\"firmware\":\"%s\",\"uart_drops\":%u,\"adc_drops\":%u}",
+        "{\"type\":\"system\",\"device\":\"%s\",\"firmware\":\"%s\",\"uptime\":%u,"
+        "\"chip\":\"%s\",\"cpu_mhz\":%u,"
+        "\"free_heap\":%u,\"min_heap\":%u,"
+        "\"wifi\":\"%s\",\"wifi_rssi\":%d,\"ip\":\"%s\","
+        "\"mqtt\":\"%s\",\"mqtt_broker\":\"%s\",\"mqtt_port\":%u,"
+        "\"uart_ready\":%d,\"adc_ready\":%d,\"adc_src\":\"%s\",\"gpio_ready\":%d,"
+        "\"led_ready\":%d,\"led_mode\":\"%s\","
+        "\"pwm_active\":%d,\"pwm_pin\":%d,\"pwm_period\":%u,\"pwm_duty\":%u,"
+        "\"uart_drops\":%u,\"adc_drops\":%u}",
         g_config.deviceId().c_str(),
+        AppConfig::FIRMWARE_VERSION,
         millis() / 1000,
+        ESP.getChipModel(),
+        ESP.getCpuFreqMHz(),
         ESP.getFreeHeap(),
         ESP.getMinFreeHeap(),
         _wifi ? _wifi->modeStr().c_str() : "none",
         _wifi ? _wifi->rssi() : 0,
         _wifi ? _wifi->ip().c_str() : "",
         _mqtt ? (_mqtt->connected() ? "connected" : "down") : "down",
-        AppConfig::FIRMWARE_VERSION,
+        g_config.mqttBroker().c_str(),
+        g_config.mqttPort(),
+        _uart ? (_uart->isReady() ? 1 : 0) : 0,
+        _adc ? (_adc->isReady() ? 1 : 0) : 0,
+        _adc ? _adc->adcSource() : "none",
+        _gpio ? (_gpio->isReady() ? 1 : 0) : 0,
+        _led ? (_led->isReady() ? 1 : 0) : 0,
+        _led ? _led->modeStr() : "off",
+        _pwm ? (_pwm->isActive() ? 1 : 0) : 0,
+        _pwm ? _pwm->pin() : -1,
+        _pwm ? _pwm->periodUs() : 0,
+        _pwm ? _pwm->dutyPct() : 0,
         _uart ? _uart->dropCount() : 0,
         _adc ? _adc->dropCount() : 0);
 
@@ -185,6 +214,29 @@ void DebugGateway::handleJsonCommand(const JsonObjectConst& req) {
         uint8_t pin = req["gpio"] | 0;
         uint8_t val = req["value"] | 0;
         if (!_gpio->setPin(pin, val)) publishError("gpio_set rejected");
+    } else if (strcmp(cmd, "ws2812_set") == 0) {
+        const char* mode = req["mode"] | "off";
+        Ws2812Mode m = Ws2812Mode::OFF;
+        if (!strcmp(mode, "r"))      m = Ws2812Mode::BLINK_R;
+        else if (!strcmp(mode, "g")) m = Ws2812Mode::BLINK_G;
+        else if (!strcmp(mode, "b")) m = Ws2812Mode::BLINK_B;
+        else if (!strcmp(mode, "cycle")) m = Ws2812Mode::CYCLE_RGB;
+        _led->setMode(m);
+        LOG_INFO("CMD", "ws2812_set mode=%s", _led->modeStr());
+    } else if (strcmp(cmd, "pwm_set") == 0) {
+        bool active = req["active"] | true;
+        uint8_t duty = (uint8_t)(req["duty"] | 0);
+        if (!active || duty == 0) {
+            _pwm->stop();
+            LOG_INFO("CMD", "pwm_set stop");
+        } else {
+            uint8_t pin = (uint8_t)(req["pin"] | 0);
+            uint32_t period = (uint32_t)(req["period"] | 1000);
+            if (!_pwm->configure(pin, period, duty))
+                publishError("pwm_set rejected: pin in use");
+            else
+                LOG_INFO("CMD", "pwm_set pin=%u period=%uus duty=%u%%", pin, period, duty);
+        }
     } else if (strcmp(cmd, "adc_read") == 0) {
         for (uint8_t ch = 0; ch < 4; ++ch) {
             uint32_t raw = 0; float pre = 0;
