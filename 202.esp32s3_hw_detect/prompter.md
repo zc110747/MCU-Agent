@@ -207,7 +207,7 @@ src/
 │   ├── websocket_manager.cpp
 │   └── websocket_manager.h
 │
-├── debug/
+├── bsp/
 │   ├── uart_monitor.cpp
 │   ├── uart_monitor.h
 │   ├── adc_monitor.cpp

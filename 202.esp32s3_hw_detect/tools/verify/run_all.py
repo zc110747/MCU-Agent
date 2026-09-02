@@ -17,6 +17,7 @@ SCRIPTS = [
     "verify_gpio.py",
     "verify_adc.py",
     "verify_ws.py",
+    "verify_interface.py",
 ]
 
 

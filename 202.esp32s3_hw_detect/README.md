@@ -28,7 +28,7 @@ WiFi STA+AP、MQTT、Web+WebSocket、OTA、配置持久化、GPIO 资源管理�
 | PWM 输出 | LEDC 单路输出，Web 可选引脚/周期/占空比（core 3.3.11 新 API `ledcAttach/ledcWrite/ledcDetach`），`pwm_set` 命令 + `pwm` 事件 |
 | WiFi | STA + AP 回退，自动重连 |
 | MQTT | PubSubClient 发布订阅 + 自动重连 + 命令转发 |
-| Web/WS | 单页界面：**Interface**（GPIO + ADC 读值 + PWM + WS2812）与 **Hardware**（芯片/时钟/启用硬件/Web/MQTT 地址端口，原 Dashboard+System 合并）+ REST API + WebSocket 实时推送（端口 80 / 81） |
+| Web/WS | 单页界面：**Interface**（GPIO + ADC 读值 + PWM + WS2812）与 **Hardware**（芯片/时钟/启用硬件/Web/MQTT 地址端口，原 Dashboard+System 合并）+ REST API + WebSocket 实时推送（端口 80 / 81）。**界面零轮询**：设备每 400 ms 主动推 `state` 快照驱动 Interface 全部读数 |
 | OTA | Web OTA（仅写 app 分区，保护 NVS） |
 | 配置持久化 | Preferences(NVS)：WiFi / MQTT / UART / ADC / GPIO 方向 / 设备 ID |
 | GPIO 资源管理 | PinManager 运行时强制拒绝 19/20（USB D-/D+）；GPIO48 由 LED 控制器 `claim(48,"LED")` 独占 |
@@ -45,7 +45,7 @@ SYSTEM 状态。`push()` 用 `xQueueSend(...,0)` **永不阻塞**，队列满则
 只需实现 `DebugModule`，核心零改动。
 
 ### 1.2 模块化目录布局
-`app/ config/ network/ debug/ storage/ ota/`，每个功能一个子模块，
+`app/ config/ network/ bsp/ storage/ ota/`，每个功能一个子模块，
 头文件集中声明、`.cpp` 落地实现，符合「禁止把所有代码塞进 main」的约束。
 
 ### 1.3 Arduino 构建范式（关键）
@@ -73,7 +73,7 @@ esp32 core 3.3.11 已就绪，编译干净通过——故从 PlatformIO 迁移�
 
 ### Phase 3 — 工程重构
 - 删除 `src/main.cpp`、`src/`、`platformio.ini`、`.pio` 等；
-- 原 `src/*` 拍平为 `app/ config/ network/ debug/ storage/ ota/`；
+- 原 `src/*` 拍平为 `app/ config/ network/ bsp/ storage/ ota/`；
 - 新建 `202.esp32s3_hw_detect.ino` 作为强制 `#include` 入口。
 
 ### Phase 4 — 编译错误攻坚（全部修复，零警告）
@@ -115,7 +115,7 @@ esp32 core 3.3.11 已就绪，编译干净通过——故从 PlatformIO 迁移�
   FreeRTOS 任务 250ms 半周期翻转，支持 OFF/BLINK_R/BLINK_G/BLINK_B/CYCLE_RGB；
   全链路：`ws2812_set` 命令 → `LED_STATE` 事件 → WS `led` 推送 → 网页按钮高亮。
   完整构建通过：Flash 1,032,767 B（78%）/ DRAM 80,716 B（24%），零错误。
-- **PWM 输出模块**（`debug/pwm_output.h/.cpp`）：LEDC 单路，Web 选引脚/周期(µs)/占空比(%)，
+- **PWM 输出模块**（`bsp/pwm_output.h/.cpp`）：LEDC 单路，Web 选引脚/周期(µs)/占空比(%)，
   apply/stop；PinManager claim 引脚，换脚自动 detach+release 旧脚。
   **坑：core 3.3.11 移除旧 LEDC API**（`ledcSetup/ledcAttachPin/ledcDetachPin`），
   必须用新引脚式 API `ledcAttach/ledcWrite/ledcDetach`。
@@ -134,22 +134,133 @@ esp32 core 3.3.11 已就绪，编译干净通过——故从 PlatformIO 迁移�
   按 `esp32:esp32` 匹配 ESP 端口）；pyserial 降为兜底且先 `python -c "import serial"` 预检；
   行解析与端口列表展示抽成 `:scan_line`/`:py_line` 子例程（块外延迟展开打印，规避括号坑）。
 
+### Phase 9 — `bsp/` 模块重建 + WebSocket 状态推送（界面实时化）
+
+**9.1 阻断性事故：硬件模块目录整体丢失**
+开工时发现硬件模块目录（当时叫 `debug/`，见 Phase 10 改名）下 5 个模块（uart_monitor / adc_monitor /
+gpio_monitor / ws2812_led / pwm_output，共 10 个文件）在磁盘上**完全不存在**，而 `.ino` 里
+`#include "debug/*.cpp"` 全部指向它们——工程处于"根本无法编译"状态。排查：`git ls-files` 显示该目录下
+文件**从未被跟踪**，全盘搜索 Temp / Downloads / D: / E:\cnb / .workbuddy 无任何副本。
+> **教训**：代码"能跑"不等于"已提交"。模块化工程里新目录极易漏 `git add`，一旦本地丢失无法还原。
+> 本次只能依据 `app/debug_gateway.cpp` 的调用点 + `DELIVERY.md`/`README.md`/`user_document.md`
+> 的 API 与协议契约**逆向重建全部 10 个文件**，并保证每个被 gateway / web_server 调用的访问器签名一致。
+> 注：当时误判为"漏 git add"，实际**真正根因是根目录 `.gitignore` 的 `**/Debug/*` 规则**——
+> Windows 文件系统大小写不敏感，`debug/` 被当成 `Debug/` 屏蔽，连 `git add` 都会静默跳过。
+
+重建要点（与原先设计保持一致，另补本次需求所需的访问器）：
+
+| 模块 | 关键实现 |
+|------|----------|
+| `uart_monitor` | `HardwareSerial(1)`（RX=17/TX=18）+ 4096 B 环形缓冲；`buildConfig()` 把 5N1..8O2 映射为 `SERIAL_5N1..SERIAL_8O2`（宏在 `cores/esp32/HardwareSerial.h` 第 61-79 行）；文本模式按行成帧 + 30 ms idle flush，HEX 模式 16 字节成块 |
+| `adc_monitor` | `ExternalAdc` 抽象基类 + `Ads1115Adc`（I2C 0x48，860 SPS，**轮询 OS 位而非盲延时**）+ `EspAdc`（内部 ADC1 GPIO1/2）；新增 `sampleOnce()` 与 `latest(raw[],volts[])` 缓存供状态快照读取（不额外占用 I2C） |
+| `gpio_monitor` | 4 路 GPIO4..7，默认 `INPUT_PULLUP`，NVS 持久化方向；**写后必回读**再发布；新增 `states()/level()/isOutput()/outputMask()` |
+| `ws2812_led` | Adafruit_NeoPixel(RMT) 驱动 GPIO48，250 ms 半周期状态机；除 `mode` 外维护实时输出 `_on/_r/_g/_b` 并序列化；新增静态 `modeName()/modeFromName()` |
+| `pwm_output` | LEDC 单路，新 API `ledcAttach/ledcWrite/ledcDetach/ledcChangeFrequency`；`pickResolution(freq)` 按 `80MHz / 2^res >= freq` 从 12 bit 降到 8 bit；`configure/setDuty/stop` 后均 `publishState()` 报告**量化后的实际参数** |
+
+**9.2 需求实现：WebSocket 服务器主动推送 `state` 快照**
+用户四项需求（GPIO 电平真实反馈 / WS2812 去掉彩色改为显示实际工作状态 / PWM apply 后实时状态 /
+ADC 实时更新）归结为同一个根因——**界面显示的是"命令回显"而不是"硬件状态"**。
+解法不是给每个控件打补丁，而是建立统一的状态推送通道：
+
+- `AppConfig::STATE_PUSH_INTERVAL_MS = 400`：ws_task 每 400 ms 广播一次完整 Interface 快照。
+- `WebsocketManager` 增加 `onConnect/onDisconnect/hasClients/clientCount` 与私有 `broadcastState()`；
+  新客户端连上时置 `_lastState = 0`，**立即**收到首帧；无客户端时零开销。
+- **快照不进 EventBus**：放进 `DebugEvent` 会使其 `sizeof` 从 ~220 B 涨到 800 B+，深度 64 的队列多占约
+  37 KB DRAM；改为 ws_task 内直接读模块缓存 + `broadcastTXT()`，DRAM 仅增约 276 B。
+- `broadcastEvent()` 中 `LED_STATE` / `PWM_STATE` 合并为"data 已是完整 JSON，直接广播"。
+- 前端 `web_pages.h` **全量重写**：Interface 页拆成 4 张卡片（GPIO Monitor / WS2812 Status LED /
+  PWM Output / ADC Read），删除全部 `setInterval` 轮询与断线 `location.reload()`（改 3 s 自动重连）。
+  所有控件由 `state` 驱动；WS2812 用中性描边（删掉原来的绿色高亮 `background:'#2a7'`）并显示
+  `模式 | ON rgb(r,g,b)`；PWM 显示实际参数并回填输入框（聚焦中不覆盖）；ADC 曲线按峰值自适应缩放。
+- `/api/gpio` GET 同步扩展 `led_state` / `pwm.freq` / 内联 `adc[]` + `adc_src`，保证首屏不空白。
+
+**9.3 无硬件验证（Node 沙箱 + stdlib Python）**
+无法连板时，用两个 Node 脚本把前端逻辑跑起来做行为断言：
+- `tools/chk_pages.js`：抽出 `DASHBOARD_HTML` raw string，`new Function(code)` 校验 JS 语法，
+  核对 52 个 DOM id 与 6 个 pane 均存在，并检查无内联彩色样式 → `ALL_IDS_OK(52) / ALL_PANES_OK /
+  NO_INLINE_COLOR_OK(monochrome)`。
+- `tools/chk_ui_logic.js`：`vm` 沙箱 + 最小 DOM 桩（含 `classList`、`insertRow/insertCell`、
+  `canvas getContext` stub、`fetch`/`WebSocket` 桩），注入真实 `state` 消息后断言 22 项 UI 行为
+  → **22/22 通过**。
+- `tools/verify/verify_interface.py`（新增）：真机端到端，WS 下发命令 → 回读 `state` 断言四项需求。
+- `tools/verify/rhd_common.py` 新增纯 stdlib 的 RFC 6455 客户端 `WSClient`（含 masking/ping-pong），
+  `verify_ws.py` 改写为复用它并新增"快照含 gpio/led/pwm/adc 四段"断言。
+
+**9.4 踩坑**
+- 三个第三方库（ArduinoJson / PubSubClient / WebSockets）实际未安装，只剩 Adafruit NeoPixel；
+  首次批量 `lib install` 报 `HEAD request: EOF`（网络抖动），**逐个重试**后全部装上
+  （ArduinoJson 7.4.3 / PubSubClient 2.8.0 / WebSockets 2.7.2）。
+- `arduino-cli` 实际在 `E:\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit`，与记忆里的
+  `D:\data\agent-tools` 不符 → 给 `build_oneclick.bat` 增加 `E:\agent-tools` 兜底分支。
+- `ledcWrite(pin, 0)` / `setPixelColor(0, 0)` 的字面量 `0` 在多重载下歧义 → 显式 `(uint32_t)0`。
+- `chk_ui_logic.js` 报 `doc.getElementById('led_g').onclick is not a function`：DOM 桩里 `id` 是普通属性，
+  动态 `createElement` 后赋 `b.id='led_g'` 不会注册进 `getElementById` 的索引 →
+  把 `id` 改成 getter/setter，setter 中 `doc._byId[v] = this`，模拟真实 DOM 注册行为。
+- Git Bash 下 node 读不到 `/tmp/chk.js`（`/tmp` 映射到 `E:\tmp` 但 node 按 Windows 路径解析失败）
+  → 脚本一律落到工程内 `tools/` 并用相对路径运行。
+
+### Phase 10 — `debug/` → `bsp/`：绕开 STM32 工程的 gitignore 屏蔽
+
+**10.1 为什么必须改名（Phase 9 事故的真正根因）**
+仓库根 `E:\cnb\git\MCU-Agent\.gitignore` 是给一批 **STM32 工程**写的，里面有几条与本工程冲突的规则：
+
+```gitignore
+**/Drivers        # 冲突：本工程想要的分层名
+**/third_party    # 冲突：本工程想要的分层名
+**/zephyr
+**/Debug/*        # ← 真凶：Windows 大小写不敏感，debug/ 被当成 Debug/ 屏蔽
+**/obj/*
+**/.build         # 构建目录，本工程已在用，属预期
+```
+
+用 `git check-ignore -v` 验证：
+```
+$ git check-ignore -v 202.esp32s3_hw_detect/debug/adc_monitor.cpp
+.gitignore:80:**/Debug/*	202.esp32s3_hw_detect/debug/adc_monitor.cpp
+```
+即 **`debug/` 下的文件根本进不了版本库**（`git add` 也会静默跳过），Phase 9 的"目录丢失无法还原"
+正源于此——不是漏提交，是被忽略了。
+
+**10.2 改名范围**
+`debug/` → **`bsp/`**（板级支持包，语义也更贴切：这些模块就是硬件驱动）。
+用户明确要求避开 `build` / `Drivers` / `debug` / `third_party` 四个名字。
+
+| 类型 | 改动 |
+|------|------|
+| 目录 | `mv debug bsp` |
+| `.ino` | 5 处 `#include "bsp/xxx.cpp"` + 顶部目录注释 |
+| `app/debug_gateway.cpp` | 5 处 `#include "bsp/xxx.h"` |
+| `network/websocket_manager.cpp` | 3 处 `#include "bsp/xxx.h"` |
+| `bsp/*.cpp` | 4 处自包含头文件路径 |
+| 文档 | `README.md` / `DELIVERY.md` / `user_document.md` / `prompter.md` 全部路径同步 |
+
+`app/debug_gateway.*` 与 `DebugEvent` 等**标识符保持不变**——它们不是目录，不受 gitignore 影响，
+改名只会徒增 diff。
+
+> **跨项目铁律**：在这个多工程仓库里新建目录前，先跑
+> `git check-ignore -v <工程>/<新目录>/probe.txt` 确认不被屏蔽。
+> 已知黑名单：`Drivers` / `third_party` / `zephyr` / `Debug`(含小写 `debug`) / `Release` / `obj` / `.build`。
+
 ---
 
 ## 3. 当前状态（实测）
 
-- **最近一次完整构建（WS2812 + ADC 内部回退版）**：退出码 0，零错误零警告。
+- **最近一次完整构建（bsp/ 重建 + WS state 推送版）**：退出码 0，零错误零警告（耗时 6m54s）。
   | 项 | 占用 | 上限 | 占比 |
   |----|------|------|------|
-  | Flash | 1,032,767 B | 1,310,720 B | 78% |
-  | DRAM  | 80,716 B   | 327,680 B   | 24% |
-- **已实现待编译验证**（用户自行编译，`.build/` 缓存保留可增量）：PWM 输出、
-  Interface/Hardware 页面重构、`build_oneclick.bat` 缓存修正。
+  | Flash | 1,053,526 B | 1,310,720 B | 80% |
+  | DRAM  | 80,876 B   | 327,680 B   | 24% |
+  （上一版 WS2812 + ADC 内部回退版为 Flash 1,032,767 B / 78%、DRAM 80,716 B / 24%；
+  本版 +20,759 B 主要来自重建的 `bsp/` 模块与 `broadcastState()`。）
+- **静态验收（无硬件）全部通过**：
+  - `tools/chk_pages.js` → `JS_SYNTAX_OK`、`ALL_IDS_OK (52)`、`ALL_PANES_OK`、`NO_INLINE_COLOR_OK`
+  - `tools/chk_ui_logic.js` → **22/22 passed, 0 failed**（四项需求的 UI 行为全覆盖）
+  - `tools/verify/*.py` → `py_compile` 全部通过
 - **flash-esp32.bat 端口扫描**：已修复三处根因（括号坑 / FQBN 匹配 / python 存根），
   解析逻辑经 `arduino-cli board list` 真实输出校验（COM22 → `esp32:esp32:esp32_family` 命中），
   端到端待双击验证。
-- **待真机验证**：WS2812 五模式、PWM 波形、Interface/Hardware 页面、UART/ADC/GPIO 端到端、
-  MQTT、WS 推送、OTA——由 `tools/verify` 提供回归基线。
+- **待真机验证**（需烧录后跑 `tools/verify/run_all.py`）：WS2812 五模式实时输出、PWM 波形与量化参数、
+  GPIO 回读电平、ADC 四通道、UART 端到端、MQTT、OTA。
 
 ---
 
@@ -158,8 +269,10 @@ esp32 core 3.3.11 已就绪，编译干净通过——故从 PlatformIO 迁移�
 - MQTT TLS 字段已预留但 v1 仍明文 TCP；OTA 仅 Web；AI Agent 仅协议层就绪未实现逻辑。
 - ADS1115 单拍 4 通道上限约 125 Hz；921600 超高速下 WS/MQTT 长期掉线会触发设计内 drop 保护。
 - PWM 为单路输出（新配置自动释放旧引脚）；WS2812 亮度固定 40（防眩光）。
-- 下一步：编译 + 烧录 PWM/Interface/Hardware 版本 → 双击验证端口扫描 → WS2812/PWM 真机验收
-  （可扩展 `tools/verify` 脚本）→ 按需恢复新需求。
+- **下一步**：烧录本版 → 跑 `cd tools\verify && python run_all.py`（AP 模式）做端到端回归 →
+  按需恢复新需求。
+- **`state` 快照周期**：目前固定 400 ms（`AppConfig::STATE_PUSH_INTERVAL_MS`）。若多客户端 + 高 UART
+  吞吐下发现 ws_task 栈/带宽吃紧，可放宽到 500~1000 ms；界面观感 400 ms 已接近"即时"。
 - 更远：安全层（TLS/HTTPS/JWT）、AI Agent 总线联动、UART DMA 双缓冲、配置版本号 + 工厂复位。
 
 ---

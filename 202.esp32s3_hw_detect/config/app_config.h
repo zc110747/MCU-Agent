@@ -59,6 +59,11 @@ constexpr int      ADC_CHANNEL_COUNT       = 4;
 constexpr uint32_t SYSTEM_STATUS_INTERVAL_MS = 5000;  // publish status to WS/MQTT
 constexpr uint32_t HEAP_PRINT_INTERVAL_MS    = 30000;
 
+// Interface state snapshot pushed over WebSocket (GPIO / LED / PWM / ADC).
+// Built inside the WS task (never queued on the event bus) so it does not
+// inflate DebugEvent and therefore the event queue's RAM footprint.
+constexpr uint32_t STATE_PUSH_INTERVAL_MS    = 400;
+
 // --- Logging ---
 constexpr int LOG_RING_LINES = 200;   // web "Logs" history
 

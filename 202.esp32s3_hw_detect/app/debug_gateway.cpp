@@ -7,11 +7,11 @@
 #include "network/mqtt_manager.h"
 #include "network/websocket_manager.h"
 #include "network/web_server.h"
-#include "debug/uart_monitor.h"
-#include "debug/adc_monitor.h"
-#include "debug/gpio_monitor.h"
-#include "debug/ws2812_led.h"
-#include "debug/pwm_output.h"
+#include "bsp/uart_monitor.h"
+#include "bsp/adc_monitor.h"
+#include "bsp/gpio_monitor.h"
+#include "bsp/ws2812_led.h"
+#include "bsp/pwm_output.h"
 #include "ota/ota_manager.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -216,12 +216,7 @@ void DebugGateway::handleJsonCommand(const JsonObjectConst& req) {
         if (!_gpio->setPin(pin, val)) publishError("gpio_set rejected");
     } else if (strcmp(cmd, "ws2812_set") == 0) {
         const char* mode = req["mode"] | "off";
-        Ws2812Mode m = Ws2812Mode::OFF;
-        if (!strcmp(mode, "r"))      m = Ws2812Mode::BLINK_R;
-        else if (!strcmp(mode, "g")) m = Ws2812Mode::BLINK_G;
-        else if (!strcmp(mode, "b")) m = Ws2812Mode::BLINK_B;
-        else if (!strcmp(mode, "cycle")) m = Ws2812Mode::CYCLE_RGB;
-        _led->setMode(m);
+        _led->setMode(Ws2812Controller::modeFromName(mode));
         LOG_INFO("CMD", "ws2812_set mode=%s", _led->modeStr());
     } else if (strcmp(cmd, "pwm_set") == 0) {
         bool active = req["active"] | true;
@@ -238,17 +233,9 @@ void DebugGateway::handleJsonCommand(const JsonObjectConst& req) {
                 LOG_INFO("CMD", "pwm_set pin=%u period=%uus duty=%u%%", pin, period, duty);
         }
     } else if (strcmp(cmd, "adc_read") == 0) {
-        for (uint8_t ch = 0; ch < 4; ++ch) {
-            uint32_t raw = 0; float pre = 0;
-            if (_adc->adc()->readChannel(ch, raw, pre)) {
-                float v = pre * g_config.adcDivider(ch) + g_config.adcOffset(ch);
-                DebugEvent ev;
-                ev.type = DebugEventType::ADC_SAMPLE;
-                ev.timestamp = millis();
-                ev.channel = ch; ev.raw = (uint16_t)raw; ev.voltage = v;
-                g_eventBus.push(ev);
-            }
-        }
+        // One-shot conversion of every channel; refreshes the cached sample and
+        // pushes ADC_SAMPLE events so the browser updates immediately.
+        _adc->sampleOnce();
         LOG_INFO("CMD", "adc_read");
     } else if (strcmp(cmd, "adc_config") == 0) {
         float fsr = req["fsr"] | 6.144f;

@@ -213,11 +213,29 @@ void WebServerManager::handleGpio() {
         }
         d["led_mode"] = getGateway().led()->modeStr();
         d["led_pin"]  = DebugPins::RUN_LED;
+        JsonObject led = d.createNestedObject("led_state");
+        led["mode"]     = (int)getGateway().led()->mode();
+        led["mode_str"] = getGateway().led()->modeStr();
+        led["on"]       = getGateway().led()->isOn() ? 1 : 0;
+        led["r"]        = getGateway().led()->red();
+        led["g"]        = getGateway().led()->green();
+        led["b"]        = getGateway().led()->blue();
         JsonObject pwm = d.createNestedObject("pwm");
         pwm["active"] = getGateway().pwm()->isActive();
         pwm["pin"]    = getGateway().pwm()->pin();
         pwm["period"] = getGateway().pwm()->periodUs();
         pwm["duty"]   = getGateway().pwm()->dutyPct();
+        pwm["freq"]   = getGateway().pwm()->freqHz();
+        {
+            uint16_t raw[4]; float volt[4];
+            getGateway().adc()->latest(raw, volt);
+            JsonArray adc = d.createNestedArray("adc");
+            for (int i = 0; i < AppConfig::ADC_CHANNEL_COUNT; ++i) {
+                JsonObject o = adc.createNestedObject();
+                o["ch"] = i; o["raw"] = raw[i]; o["voltage"] = volt[i];
+            }
+            d["adc_src"] = getGateway().adc()->adcSource();
+        }
         sendJson(d);
         return;
     }

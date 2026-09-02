@@ -18,10 +18,15 @@ REM --- Step 1: locate arduino-cli (PATH first, then known local install) ---
 set "ARDUINO_CLI=arduino-cli"
 where arduino-cli >nul 2>&1
 if errorlevel 1 (
+    set "ARDUINO_CLI="
+    if exist "E:\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit\arduino-cli.exe" (
+        set "ARDUINO_CLI=E:\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit\arduino-cli.exe"
+    )
     if exist "D:\data\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit\arduino-cli.exe" (
         set "ARDUINO_CLI=D:\data\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit\arduino-cli.exe"
-    ) else (
-        echo [ERROR] arduino-cli not found in PATH or "D:\data\agent-tools\arduino-cli_1.5.2-rc.1_Windows_64bit"
+    )
+    if not defined ARDUINO_CLI (
+        echo [ERROR] arduino-cli not found in PATH, "E:\agent-tools" or "D:\data\agent-tools"
         echo         Install arduino-cli and add it to PATH: https://arduino.github.io/arduino-cli/
         set "ERR=1"
         goto END

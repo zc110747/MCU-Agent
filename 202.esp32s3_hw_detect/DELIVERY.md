@@ -33,7 +33,7 @@
 │   ├── websocket_manager.h/.cpp# WebSocket 实时推送（队列解耦）
 │   ├── web_server.h/.cpp       # Web 服务器：Dashboard + REST + OTA
 │   └── web_pages.h             # 单页 Dashboard HTML（C 字符串，零构建）
-├── debug/
+├── bsp/
 │   ├── uart_monitor.h/.cpp     # UART 监视（HardwareSerial + 任务 + 二进制/文本）
 │   ├── adc_monitor.h/.cpp      # ExternalAdc 抽象 + ADS1115 实现 + 采样任务
 │   └── gpio_monitor.h/.cpp     # GPIO 数字输入/输出
@@ -51,9 +51,9 @@
 ## 2. 关键源码说明（按需查阅，见各 .cpp）
 
 - **EventBus**（`app/event_bus.*`）：生产者 `push()` 用 `xQueueSend(...,0)` **永不阻塞**；队列满则丢弃并 `overflow++`，保证慢网络客户端不会拖垮 UART 接收。
-- **UART Monitor**（`debug/uart_monitor.*`）：`HardwareSerial(1)` 默认 115200/8N1；RX→环形缓冲→按行（文本）或按块（HEX）成帧→`DebugEvent` 入总线；`baud/data/stop/parity` 可运行时改。
-- **ADC Monitor**（`debug/adc_monitor.*`）：抽象层 `ExternalAdc`，首版实现 `Ads1115Adc`（I2C，单拍 860 SPS）。核心只依赖接口，换芯片只写新子类。
-- **GPIO Monitor**（`debug/gpio_monitor.*`）：4 路监控，输入变化即推事件；输出经 PinManager 校验。
+- **UART Monitor**（`bsp/uart_monitor.*`）：`HardwareSerial(1)` 默认 115200/8N1；RX→环形缓冲→按行（文本）或按块（HEX）成帧→`DebugEvent` 入总线；`baud/data/stop/parity` 可运行时改。
+- **ADC Monitor**（`bsp/adc_monitor.*`）：抽象层 `ExternalAdc`，首版实现 `Ads1115Adc`（I2C，单拍 860 SPS）。核心只依赖接口，换芯片只写新子类。
+- **GPIO Monitor**（`bsp/gpio_monitor.*`）：4 路监控，输入变化即推事件；输出经 PinManager 校验。
 - **网关**（`app/debug_gateway.*`）：`begin()` 按 34 节顺序启动；`EventTask` 单消费者把事件扇出到 WS/MQTT，并每 5s 广播 SYSTEM 状态。
 - **命令分发**：MQTT `cmd` 主题与 WebSocket 入站 JSON 都汇聚到 `getGateway().handleJsonCommand()`，单点校验。
 
@@ -224,10 +224,71 @@ arduino-cli compile -j 8 ^
 { "type":"uart_tx",   "timestamp":..., "encoding":"text", "data":"AT+RST" }
 { "type":"adc",       "channel":0, "raw":1234, "voltage":3.301, "timestamp":... }
 { "type":"gpio",      "gpio":4, "state":1, "timestamp":... }
+{ "type":"led",       "gpio":48, "mode":4, "mode_str":"cycle", "on":1, "r":0, "g":255, "b":0,
+  "brightness":40, "timestamp":... }
+{ "type":"pwm",       "active":1, "pin":21, "period":1000, "duty":25, "freq":1000,
+  "resolution":12, "timestamp":... }
 { "type":"log",       "line":"[123][INFO][UART] ..." }
 { "type":"system",    "device":..., "uptime":..., "free_heap":..., ... }
+{ "type":"state",     "ts":..., "gpio":[...], "led":{...}, "pwm":{...}, "adc":[...], "adc_src":"..." }
 ```
 > 禁止浏览器高频 HTTP polling 拉 UART；全部走 WebSocket 实时推送。
+
+### 11.1 `state` 状态快照（服务器主动推送，400 ms/帧）
+
+Interface 页的四项实时读数（GPIO / WS2812 / PWM / ADC）统一由 `state` 快照驱动。
+ws_task 每 `AppConfig::STATE_PUSH_INTERVAL_MS = 400` ms 检查一次，**仅当存在已连接客户端时**
+（`_clients > 0`）构造并广播；无浏览器在线时完全零开销。
+
+该帧**刻意不进 EventBus 队列**：若把 `state` 做成 `DebugEvent`，其 `sizeof` 将从约 220 B 膨胀到
+800 B+，深度 64 的事件队列会多占约 37 KB DRAM。改为在 ws_task 内直接读模块缓存并 `broadcastTXT()`，
+DRAM 仅增约 276 B。
+
+```json
+{
+  "type": "state",
+  "ts": 12345678,
+  "gpio": [
+    { "pin": 4, "state": 1, "dir": 1 },
+    { "pin": 5, "state": 0, "dir": 0 },
+    { "pin": 6, "state": 1, "dir": 0 },
+    { "pin": 7, "state": 1, "dir": 0 }
+  ],
+  "led": { "pin": 48, "mode": 4, "mode_str": "cycle", "on": 1, "r": 0, "g": 255, "b": 0,
+           "brightness": 40, "ready": 1 },
+  "pwm": { "active": 1, "pin": 21, "period": 1000, "duty": 25, "freq": 1000, "resolution": 12 },
+  "adc": [
+    { "ch": 0, "raw": 2048, "voltage": 3.300 },
+    { "ch": 1, "raw": 0,    "voltage": 0.000 },
+    { "ch": 2, "raw": 0,    "voltage": 0.000 },
+    { "ch": 3, "raw": 0,    "voltage": 0.000 }
+  ],
+  "adc_src": "internal-adc1",
+  "adc_ready": 1
+}
+```
+
+| 字段 | 语义 / 保证 |
+|------|-------------|
+| `gpio[].state` | `digitalRead()` 的真实回读电平（0/1）。`gpio_monitor.setPin()` 写后必回读再发布，界面不会"下发即回显" |
+| `gpio[].dir`   | 1 = 输出，0 = 输入上拉（NVS 持久化） |
+| `led.on/r/g/b` | 灯珠**此刻**实际输出的颜色；闪烁/循环模式下会随半周期（250 ms）跳变，`on=0` 为灭半周期或已关闭 |
+| `pwm.freq`     | LEDC 换算后的实际频率（Hz），非用户输入回显 |
+| `pwm.resolution` | 实际分辨率 8..12 bit（按 `80MHz / 2^res >= freq` 自动降档） |
+| `adc[].voltage` | 已代入量程 / 分压比 / 偏移换算后的电压（V），取 `AdcMonitor::latest()` 缓存，**不额外占用 I2C** |
+| `adc_src`      | `ads1115` 或 `internal-adc1`（ADS1115 探测失败自动回退） |
+
+**连接语义**：`onConnect()` 中 `_clients++` 并把 `_lastState = 0`，使新页面连上后**立即**收到首帧快照
+（不必等到下一个 400 ms 周期）；`onDisconnect()` 递减计数，计数归零后停止构造快照。
+
+**首屏兼容**：`/api/gpio` GET 同步返回 `led_state`（mode/mode_str/on/r/g/b）、`pwm.freq` 与内联 `adc[]`
++ `adc_src`，使 WebSocket 尚未连上时首屏也能显示真实状态。
+
+**前端渲染**：单页 JS 收到 `state` 后 `applyState(m)` 分发到 `updateGpio/updateLed/updatePwm/updateAdc`。
+页面已移除全部 `setInterval` 轮询与断线 `location.reload()`，改为 3 s 自动重连 WebSocket。
+WS2812 卡片同时显示模式与实时输出（如 `RGB CYCLE | ON rgb(0,0,255)`），选中态仅用中性描边
+（全站单色，无彩色高亮）。PWM 卡片把设备回传参数回填输入框，但**聚焦中的输入框不覆盖**。
+ADC 曲线按峰值自适应缩放（`scale = peak × 1.15`）并标注 `peak x.xx V`。
 
 ---
 
@@ -379,8 +440,9 @@ Global variables use 80436 bytes (24%) of dynamic memory, leaving 247244 bytes f
 | `verify_web.py` | Dashboard 200、`/api/status` JSON 字段、无凭证 401 鉴权、`/api/wifi`、`/api/logs` |
 | `verify_gpio.py` | 4 路监视脚 [4,5,6,7]、GPIO4 写 1/写 0 回读、非监视脚 13 与保留脚 48 被 400 拒绝 |
 | `verify_adc.py` | `/api/adc/read` 4 通道 raw+voltage、`/api/adc/config` fsr；ADS1115 未接时 WARN 不 FAIL |
-| `verify_ws.py` | WS `:81` 握手 101、持续接收带 type 的 JSON（adc/system/log）、心跳观测 |
-| `run_all.py` | 汇总执行以上 4 项，输出 `TOTAL: n/4 scripts passed`，退出码 0/1 |
+| `verify_ws.py` | WS `:81` 握手 101、持续接收带 type 的 JSON（adc/system/log）、**`state` 快照可观测且必须同时含 gpio/led/pwm/adc 四段**、心跳观测 |
+| `verify_interface.py` | **Interface 四项实时性端到端**：经 WS 下发命令后回读 `state` 断言——GPIO SET→`state=1` 且 `dir=1` / CLEAR→`state=0`；`ws2812_set cycle` 后 2 s 内 `led` 的 `(on,r,g,b)` 出现 ≥2 种组合（证明是实时输出而非模式回显）、`off` 后 `on=0`；`pwm_set` 的 `period/duty` 被镜像且 stop 后 `active=0`；`adc[]` 为 4 通道且 `voltage` 为数值。测试结束恢复原 LED 模式 |
+| `run_all.py` | 汇总执行以上 5 项，输出 `TOTAL: n/5 scripts passed`，退出码 0/1 |
 
 ```bat
 cd tools\verify
