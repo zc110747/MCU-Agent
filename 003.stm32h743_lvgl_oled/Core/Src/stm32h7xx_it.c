@@ -6,6 +6,7 @@
   */
 #include "main.h"
 #include "stm32h7xx_it.h"
+#include "log.h"
 
 /******************************************************************************/
 /*           Cortex-M7 Processor Interruption and Exception Handlers          */
@@ -82,4 +83,12 @@ void SysTick_Handler(void)
 void SDMMC1_IRQHandler(void)
 {
     HAL_SD_IRQHandler(&hsd1);
+}
+
+/**
+  * @brief  USART1 global interrupt - drains the PRINT_LOG TX ring.
+  */
+void USART1_IRQHandler(void)
+{
+    log_uart_tx_irq();
 }

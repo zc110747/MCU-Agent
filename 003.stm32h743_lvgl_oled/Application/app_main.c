@@ -18,6 +18,7 @@
  *  the HarmonyOS engine feeds the code point straight to the .ttf rasteriser.
  ******************************************************************************
  */
+#include "log.h"
 #include "app_main.h"
 #include "app_ui.h"
 #include "drv_spi_oled.h"
@@ -45,11 +46,11 @@ static uint32_t s_last_lvgl_tick = 0U;
   */
 static void log_font_status(uint32_t mask)
 {
-    printf("[FONT] UNIGBK.BIN : %s\r\n", (mask & FONT_MASK_UNIGBK) ? "OK" : "--");
-    printf("[FONT] GBK12.FON  : %s\r\n", (mask & FONT_MASK_GBK12)  ? "OK" : "--");
-    printf("[FONT] GBK16.FON  : %s\r\n", (mask & FONT_MASK_GBK16)  ? "OK" : "--");
-    printf("[FONT] GBK24.FON  : %s\r\n", (mask & FONT_MASK_GBK24)  ? "OK" : "--");
-    printf("[FONT] GBK32.FON  : %s\r\n", (mask & FONT_MASK_GBK32)  ? "OK" : "--");
+    PRINT_LOG("[FONT] UNIGBK.BIN : %s\r\n", (mask & FONT_MASK_UNIGBK) ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK12.FON  : %s\r\n", (mask & FONT_MASK_GBK12)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK16.FON  : %s\r\n", (mask & FONT_MASK_GBK16)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK24.FON  : %s\r\n", (mask & FONT_MASK_GBK24)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK32.FON  : %s\r\n", (mask & FONT_MASK_GBK32)  ? "OK" : "--");
 }
 
 /**
@@ -61,23 +62,23 @@ static void init_rtc(void)
 
     if (drv_rtc_init() != RT_OK)
     {
-        printf("[RTC ] no low-speed clock - calendar unavailable\r\n");
+        PRINT_LOG("[RTC ] no low-speed clock - calendar unavailable\r\n");
         return;
     }
 
-    printf("[RTC ] clocked by %s%s\r\n",
+    PRINT_LOG("[RTC ] clocked by %s%s\r\n",
            (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE 32.768 kHz crystal"
                                                    : "LSI internal RC",
            (drv_rtc_clock_source() == RTC_CLK_LSI) ? " (+/-5%, will drift)" : "");
 
     if (drv_rtc_was_reset())
     {
-        printf("[RTC ] backup domain was empty, seeded from build time\r\n");
+        PRINT_LOG("[RTC ] backup domain was empty, seeded from build time\r\n");
     }
 
     if (drv_rtc_get(&dt) == RT_OK)
     {
-        printf("[RTC ] %04u-%02u-%02u %s %02u:%02u:%02u\r\n",
+        PRINT_LOG("[RTC ] %04u-%02u-%02u %s %02u:%02u:%02u\r\n",
                (unsigned)dt.year, (unsigned)dt.month, (unsigned)dt.day,
                drv_rtc_weekday_en(dt.weekday),
                (unsigned)dt.hour, (unsigned)dt.minute, (unsigned)dt.second);
@@ -97,7 +98,7 @@ static void log_sd_info(void)
 
     if (drv_sd_query_info(&info) != RT_OK)
     {
-        printf("[SD  ] capacity query failed\r\n");
+        PRINT_LOG("[SD  ] capacity query failed\r\n");
         return;
     }
 
@@ -105,7 +106,7 @@ static void log_sd_info(void)
     drv_sd_format_size(info.fs_total_bytes, total,  sizeof(total));
     drv_sd_format_size(info.fs_free_bytes,  freesz, sizeof(freesz));
 
-    printf("[SD  ] %s %s, card %s, fs %s, free %s (%lu ms)\r\n",
+    PRINT_LOG("[SD  ] %s %s, card %s, fs %s, free %s (%lu ms)\r\n",
            drv_sd_card_name(info.card_type),
            drv_sd_fs_name(info.fs_type),
            card, total, freesz,
@@ -121,20 +122,20 @@ static void log_ctf_stats(const char *tag)
 
     lvgl_font_get_stats(&st);
 
-    printf("[CTF ] %s: lookup %lu, not-found %lu, io-err %lu\r\n",
+    PRINT_LOG("[CTF ] %s: lookup %lu, not-found %lu, io-err %lu\r\n",
            tag, (unsigned long)st.ctf_lookups,
            (unsigned long)st.ctf_not_found,
            (unsigned long)st.ctf_io_errors);
-    printf("[CTF ] %s: ttf hit %lu, miss %lu, f_read %lu, %lu B\r\n",
+    PRINT_LOG("[CTF ] %s: ttf hit %lu, miss %lu, f_read %lu, %lu B\r\n",
            tag, (unsigned long)st.ttf_hits, (unsigned long)st.ttf_misses,
            (unsigned long)st.ttf_fills, (unsigned long)st.ttf_bytes);
-    printf("[CTF ] %s: sd wait %lu us (lseek %lu + read %lu)\r\n",
+    PRINT_LOG("[CTF ] %s: sd wait %lu us (lseek %lu + read %lu)\r\n",
            tag, (unsigned long)(st.ttf_seek_us + st.ttf_read_us),
            (unsigned long)st.ttf_seek_us, (unsigned long)st.ttf_read_us);
-    printf("[CTF ] %s: bitmap hit %lu, miss %lu, flush %lu, %lu B held\r\n",
+    PRINT_LOG("[CTF ] %s: bitmap hit %lu, miss %lu, flush %lu, %lu B held\r\n",
            tag, (unsigned long)st.bmp_hits, (unsigned long)st.bmp_misses,
            (unsigned long)st.bmp_flushes, (unsigned long)st.bmp_bytes);
-    printf("[CTF ] %s: stb arena peak %lu B, overflow %lu\r\n",
+    PRINT_LOG("[CTF ] %s: stb arena peak %lu B, overflow %lu\r\n",
            tag, (unsigned long)st.arena_peak, (unsigned long)st.arena_fails);
 }
 
@@ -159,8 +160,8 @@ static void log_ctf_probe(void)
 
     n = lvgl_font_selftest(p, (uint32_t)(sizeof(p) / sizeof(p[0])));
 
-    printf("\r\n[CTF ] on-target probe, %u code points\r\n", (unsigned)n);
-    printf("[CTF ]  U+xxxxx  px  src adv  box     ofs      cold us  sd us raster   ink   SD\r\n");
+    PRINT_LOG("\r\n[CTF ] on-target probe, %u code points\r\n", (unsigned)n);
+    PRINT_LOG("[CTF ]  U+xxxxx  px  src adv  box     ofs      cold us  sd us raster   ink   SD\r\n");
 
     for (i = 0u; i < n; i++)
     {
@@ -168,7 +169,7 @@ static void log_ctf_probe(void)
         uint32_t                 raster = (e->cold_us > e->sd_us)
                                         ? (e->cold_us - e->sd_us) : 0u;
 
-        printf("[CTF ]  U+%05lX %4lu  %s %4lu %3lux%-3lu %+4d,%-4d %7lu %6lu %6lu %6lu %4lu\r\n",
+        PRINT_LOG("[CTF ]  U+%05lX %4lu  %s %4lu %3lux%-3lu %+4d,%-4d %7lu %6lu %6lu %6lu %4lu\r\n",
                (unsigned long)e->cp, (unsigned long)e->px,
                (e->found != 0u) ? ((e->empty != 0u) ? "EMP" : "CTF")
                                 : ((e->fb_adv_w != 0u) ? "FAL" : " -- "),
@@ -200,13 +201,13 @@ static void log_ctf_probe(void)
         }
     }
 
-    printf("[CTF ] found %lu, NOT_FOUND %lu (of which Latin fallback %lu)\r\n",
+    PRINT_LOG("[CTF ] found %lu, NOT_FOUND %lu (of which Latin fallback %lu)\r\n",
            (unsigned long)(n - nf), (unsigned long)nf, (unsigned long)nf_latin);
-    printf("[CTF ] cold raster: avg %lu us, worst %lu us (sd %lu us, cpu %lu us)\r\n",
+    PRINT_LOG("[CTF ] cold raster: avg %lu us, worst %lu us (sd %lu us, cpu %lu us)\r\n",
            (unsigned long)((cold_n != 0u) ? (cold_tot / cold_n) : 0u),
            (unsigned long)cold_max, (unsigned long)sd_tot,
            (unsigned long)((cold_tot > sd_tot) ? (cold_tot - sd_tot) : 0u));
-    printf("[CTF ] NOT_FOUND cost %lu SD reads (must be 0): %s\r\n",
+    PRINT_LOG("[CTF ] NOT_FOUND cost %lu SD reads (must be 0): %s\r\n",
            (unsigned long)nf_reads, (nf_reads == 0u) ? "PASS" : "FAIL");
 }
 
@@ -218,7 +219,7 @@ static void log_lvgl_heap(void)
     lv_mem_monitor_t mon;
 
     lv_mem_monitor(&mon);
-    printf("[LVGL] heap: %u B free of %u B, max block %u B, used %u%%, frag %u%%\r\n",
+    PRINT_LOG("[LVGL] heap: %u B free of %u B, max block %u B, used %u%%, frag %u%%\r\n",
            (unsigned)mon.free_size,
            (unsigned)mon.total_size,
            (unsigned)mon.free_biggest_size,
@@ -232,28 +233,28 @@ void application_init(void)
     uint8_t  font_ready;
     uint32_t t0;
 
-    printf("\r\n");
-    printf("========================================\r\n");
-    printf(" STM32H743ZIT6 - LVGL Chinese UI\r\n");
-    printf(" SYSCLK : %lu Hz\r\n", (unsigned long)HAL_RCC_GetSysClockFreq());
-    printf(" HCLK   : %lu Hz\r\n", (unsigned long)HAL_RCC_GetHCLKFreq());
+    PRINT_LOG("\r\n");
+    PRINT_LOG("========================================\r\n");
+    PRINT_LOG(" STM32H743ZIT6 - LVGL Chinese UI\r\n");
+    PRINT_LOG(" SYSCLK : %lu Hz\r\n", (unsigned long)HAL_RCC_GetSysClockFreq());
+    PRINT_LOG(" HCLK   : %lu Hz\r\n", (unsigned long)HAL_RCC_GetHCLKFreq());
 
     if (g_clock_source == CLOCK_SRC_HSE_XTAL)
     {
-        printf(" HSE    : 25 MHz crystal OK (CSS armed)\r\n");
+        PRINT_LOG(" HSE    : 25 MHz crystal OK (CSS armed)\r\n");
     }
     else
     {
-        printf(" HSE    : *** CRYSTAL FAILED -> running on HSI ***\r\n");
-        printf("          check X1 / load caps on PH0-PH1\r\n");
+        PRINT_LOG(" HSE    : *** CRYSTAL FAILED -> running on HSI ***\r\n");
+        PRINT_LOG("          check X1 / load caps on PH0-PH1\r\n");
     }
-    printf("========================================\r\n");
+    PRINT_LOG("========================================\r\n");
 
     /* 1. Panel ------------------------------------------------------------*/
     driver_spi_oled_init();
     LCD_SetBackColor(LCD_BLACK);
     LCD_Clear();
-    printf("[LCD ] ST7789 240x240 on SPI6 ready\r\n");
+    PRINT_LOG("[LCD ] ST7789 240x240 on SPI6 ready\r\n");
 
     /* 2. RTC --------------------------------------------------------------*/
     init_rtc();
@@ -263,7 +264,7 @@ void application_init(void)
     {
         font_ready = 1U;
         mask = lcd_driver_font_status();
-        printf("[SD  ] mounted, fonts loaded\r\n");
+        PRINT_LOG("[SD  ] mounted, fonts loaded\r\n");
         log_font_status(mask);
         log_sd_info();
     }
@@ -271,14 +272,14 @@ void application_init(void)
     {
         font_ready = 0U;
         mask = 0U;
-        printf("[SD  ] mount or font open FAILED\r\n");
-        printf("[SD  ] expected 1:/SYSTEM/FONT/GBKxx.FON\r\n");
+        PRINT_LOG("[SD  ] mount or font open FAILED\r\n");
+        PRINT_LOG("[SD  ] expected 1:/SYSTEM/FONT/GBKxx.FON\r\n");
     }
 
     /* 4. LVGL -------------------------------------------------------------*/
     lv_init();
     lv_port_disp_init();
-    printf("[LVGL] v%d.%d.%d, %u KB heap\r\n",
+    PRINT_LOG("[LVGL] v%d.%d.%d, %u KB heap\r\n",
            LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
            (unsigned)(LV_MEM_SIZE / 1024U));
 
@@ -307,7 +308,7 @@ void application_init(void)
     {
         t0 = HAL_GetTick();
         app_ui_create();
-        printf("[UI  ] built in %lu ms\r\n",
+        PRINT_LOG("[UI  ] built in %lu ms\r\n",
                (unsigned long)(HAL_GetTick() - t0));
     }
     else
@@ -323,7 +324,7 @@ void application_init(void)
      * glyph cache this is where every character is rasterised once. */
     t0 = HAL_GetTick();
     (void)lv_timer_handler();
-    printf("[UI  ] first frame in %lu ms\r\n",
+    PRINT_LOG("[UI  ] first frame in %lu ms\r\n",
            (unsigned long)(HAL_GetTick() - t0));
 
     log_lvgl_heap();
@@ -351,8 +352,8 @@ void application_run(void)
     if (g_hse_css_fault)
     {
         g_hse_css_fault = 0U;
-        printf("\r\n[CLK ] *** HSE CSS FAULT: 25 MHz crystal stopped ***\r\n");
-        printf("[CLK ] hardware fell back to HSI, SYSCLK now %lu Hz\r\n",
+        PRINT_LOG("\r\n[CLK ] *** HSE CSS FAULT: 25 MHz crystal stopped ***\r\n");
+        PRINT_LOG("[CLK ] hardware fell back to HSI, SYSCLK now %lu Hz\r\n",
                (unsigned long)HAL_RCC_GetSysClockFreq());
     }
 
@@ -363,10 +364,29 @@ void application_run(void)
         LED_TOGGLE();
     }
 
-    /* LVGL housekeeping: timers, redraw, flush */
+    /* LVGL housekeeping: timers, redraw, flush.
+     * A pending page switch is serviced here so we can time the redraw
+     * that actually rasterises the new page's Chinese glyphs. */
     if ((now - s_last_lvgl_tick) >= LVGL_TASK_PERIOD_MS)
     {
         s_last_lvgl_tick = now;
-        (void)lv_timer_handler();
+
+        lv_obj_t *sw = NULL;
+        int       sw_idx = -1;
+        if (app_ui_take_switch(&sw, &sw_idx))
+        {
+            uint32_t c0 = DWT->CYCCNT;
+            lv_scr_load(sw);
+            (void)lv_timer_handler();
+            uint32_t c1 = DWT->CYCCNT;
+            uint32_t mhz = (SystemCoreClock != 0U) ? (SystemCoreClock / 1000000U) : 1U;
+            if (mhz == 0U) { mhz = 1U; }
+            PRINT_LOG("[PAGE] switch -> %d, render %lu us\r\n",
+                      sw_idx, (unsigned long)((c1 - c0) / mhz));
+        }
+        else
+        {
+            (void)lv_timer_handler();
+        }
     }
 }

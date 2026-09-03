@@ -98,6 +98,13 @@ static uint32_t     s_sd_countdown = 0U;   /* 0 -> query on the next tick */
 static uint32_t     s_uptime_sec   = 0U;
 static uint8_t      s_built        = 0U;
 
+/* ---- Page auto-rotation (5 s) + font-latency probe ---------------------- */
+#define PAGE_SWITCH_MS    5000U
+#define PAGE_COUNT        2U
+static lv_obj_t   *s_pages[PAGE_COUNT];
+static uint8_t     s_cur_page       = 0U;
+static uint8_t     s_switch_pending = 0U;
+
 /*----------------------------------------------------------------------------
  *  Small helpers
  *--------------------------------------------------------------------------*/
@@ -284,6 +291,71 @@ static void ui_tick_cb(lv_timer_t *timer)
  *  Public API
  *--------------------------------------------------------------------------*/
 
+/*----------------------------------------------------------------------------
+ *  Page 2: font-engine status (Chinese) - used to eyeball glyph latency
+ *--------------------------------------------------------------------------*/
+
+static void dwt_ensure_enabled(void)
+{
+    if ((DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) == 0u)
+    {
+        CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+        DWT->CYCCNT = 0u;
+        DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+    }
+}
+
+static void build_page_font(void)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);   /* top-level screen */
+    lv_obj_t *hdr;
+
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
+
+    hdr = lv_obj_create(scr);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, UI_W, HDR_H);
+    lv_obj_set_pos(hdr, 0, 0);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x0A5C3D), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
+    (void)mk_label_center(hdr, 6, UI_FONT(16), COL_HDR_TXT, "鸿蒙字体引擎");
+
+    (void)mk_label(scr, UI_PAD, 44,  UI_FONT(16), COL_LABEL, "渲染链路  CTF 索引 + TTF");
+    (void)mk_label(scr, UI_PAD, 70,  UI_FONT(16), COL_LABEL, "默认字体  HarmonyOS SC");
+    (void)mk_label(scr, UI_PAD, 96,  UI_FONT(16), COL_LABEL, "支持字号  12/16/24/32");
+    (void)mk_label(scr, UI_PAD, 122, UI_FONT(16), COL_LABEL, "缺字处理  回退 Montserrat");
+    (void)mk_label(scr, UI_PAD, 148, UI_FONT(16), COL_VALUE, "本页用途  评估栅格化时延");
+    (void)mk_label(scr, UI_PAD, 174, UI_FONT(16), COL_VALUE, "切换节奏  每 5 秒自动翻页");
+    (void)mk_label(scr, UI_PAD, 200, UI_FONT(12), COL_DIM,   "冷启动首帧最慢 之后命中缓存");
+
+    s_pages[1] = scr;
+}
+
+static void page_switch_cb(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    s_cur_page ^= 1U;
+    s_switch_pending = 1U;
+}
+
+uint8_t app_ui_take_switch(lv_obj_t **out_screen, int *out_index)
+{
+    if ((s_switch_pending != 0U) && (out_screen != NULL))
+    {
+        *out_screen = s_pages[s_cur_page];
+        if (out_index != NULL)
+        {
+            *out_index = (int)s_cur_page;
+        }
+        s_switch_pending = 0U;
+        return 1U;
+    }
+    return 0U;
+}
+
 void app_ui_create(void)
 {
     lv_obj_t *scr = lv_scr_act();
@@ -391,6 +463,14 @@ void app_ui_create(void)
     refresh_runtime();
 
     (void)lv_timer_create(ui_tick_cb, 1000, NULL);
+
+    /* Second screen + 5 s auto-rotate between the two pages.  DWT is
+     * enabled so the main loop can measure the Chinese rasterisation
+     * cost of each switch (cold first paint vs. warm cache hit). */
+    dwt_ensure_enabled();
+    s_pages[0] = lv_scr_act();
+    build_page_font();
+    (void)lv_timer_create(page_switch_cb, PAGE_SWITCH_MS, NULL);
 }
 
 void app_ui_show_fault(const char *line1, const char *line2, const char *line3)

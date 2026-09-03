@@ -144,7 +144,7 @@ LVGL ─► stb_truetype ─► f_lseek() ─► f_read() ─► SD 卡
 | stb_truetype | **v1.26htcw**（LVGL fork，带 `STBTT_STREAM` 流式支持） |
 | FatFs | `third_party/FatFs`，盘符 `1:` |
 | RTOS | 裸机（无 FreeRTOS 参与字体路径） |
-| DCache | **关闭**（只开了 ICache）；MPU region0 = AXI-SRAM 512 KB，cacheable/write-back |
+| DCache | **开启**（I/D Cache 均开，`main.c:48` `SCB_EnableDCache`）；MPU Region0 = AXI-SRAM 512 KB cacheable/write-back；SDIO 走轮询（非 DMA）无一致性问题。缓存/MPU 架构原则见 [§9.6](#96-缓存mpu-架构原则与踩坑) |
 | 卡死根因 | `stbtt_GetGlyphKernAdvance()` 走 GPOS 全表字节级扫描 × 流式每次 1 字节 → SD 事务爆炸 |
 | LVGL 是否需要 kerning | **不需要**。LVGL 8 的 label 绘制按单字形 advance 排版，没有字距语义；kerning 只会白白付出 GPOS 扫描代价 |
 
@@ -474,3 +474,87 @@ box mismatches = 0
 3. 其次：`f_read()` 走的是 FatFs 单次读，可评估改 `f_read` 大块 + `FA_FASTSEEK`。
 
 > 本轮目标（CTF 生成 + NOT_FOUND 零开销 + 英文数字正常显示）已全部达成并通过实机验证。
+
+---
+
+## 9. 日志系统重构：PRINT_LOG + TX 中断驱动（2026-09-03）
+
+### 9.1 目标与范围
+- 全工程裸 `printf(` 调用替换为 `PRINT_LOG(...)`，参数 / 格式与原 `printf` 完全一致。
+- 参考 101 工程的 logger 风格，实现**裸机版**（无 RTOS）日志接管：`Bsp/log.h` + `Bsp/log.c`。
+- **FreeRTOS 移除结论**：经核查本工程**自有源码完全裸机**，无任何 `FreeRTOS`/`vTask`/`semphr`
+  调用（命中均在 `third_party/`），`CMakeLists.txt` 也未编译内核 —— 无对应代码可删。
+
+### 9.2 架构
+```
+PRINT_LOG(fmt, ...) ─► printf_log() ─► vsnprintf(栈缓冲 256B) ─► uart_write()
+uart_write() ─► 写入 TX 环形缓冲(1024B) ─► USART1 TXE 中断逐字节发送（非阻塞）
+```
+- **编译期零成本关闭**：`PRINT_LOG_ENABLE=0` 时宏展开为 `((void)0)`，函数体早返回，零 FLASH / UART 开销。
+- **不重入 newlib `printf`/`_write`**：自带 `vsnprintf` + `uart_write`，无并发踩锁风险。
+
+### 9.3 临界区保护（写缓冲时关串口中断）
+`uart_write()` 在修改环形缓冲索引前调用 `__HAL_UART_DISABLE_IT(&huart1, UART_IT_TXE)`
+关闭 TX 中断；若发送器空闲则把首字节 prime 进 `TDR`，再 `__HAL_UART_ENABLE_IT` 重开中断。
+ISR（`log_uart_tx_irq`）在 TXE 事件里逐字节取缓冲发送、发完自动关 TXE。
+→ 落实"写入要关闭串口中断避免出错"的明确要求。
+
+### 9.4 接线点
+- `Core/Src/stm32h7xx_it.c`：原 `USART1_IRQHandler` 走 `Default_Handler`，新增
+  `USART1_IRQHandler() ─► log_uart_tx_irq()`，并 `#include "log.h"`。
+- `Core/Src/main.c`：`MX_USART1_UART_Init()` 之后调用 `log_uart_init()`（幂等使能 USART1 NVIC）。
+- `CMakeLists.txt`：注册 `Bsp/log.c`。
+
+### 9.5 替换位置清单（58 处 `printf`→`PRINT_LOG`）
+| 文件 | 替换数 | 说明 |
+|------|------:|------|
+| `Application/app_main.c` | 41 | 首行加 `#include "log.h"` |
+| `Bsp/lv_font_harmony.c` | 10 | 首行加 `#include "log.h"`；`snprintf` 保留 |
+| `Bsp/lv_font_provider.c` | 7 | 首行加 `#include "log.h"`；`snprintf` 保留 |
+
+残余 `printf(` 全为注释 / `snprintf` 子串 / 新 `printf_log` 函数名，无真实调用。
+
+### 9.6 缓存 / MPU 架构原则与踩坑（2026-09-03 用户纠正）
+- **本工程 D-Cache 实际开启**（`main.c:48` `SCB_EnableDCache` + MPU Region0 AXI-SRAM cacheable）。
+  之前记忆"D-Cache 关闭"是**过时错误结论**，已订正。
+- **用户原则**：SDIO 没用 DMA 时，可以开 DCache；**即便上 DMA 也不该全局关 DCache，
+  而是用 MPU 把 DMA 缓冲标记为非缓存区**。规划由用户配合设计（未落地代码）。
+- 已订正 `main.c` / `drv_sdio.c` 两处"D-Cache 关 / SD 用内部 DMA"的**过时注释**
+  （`drv_sdio.c` 实际用 `HAL_SD_ReadBlocks()` 轮询版，非 IDMA）。
+- 未来 DMA 场景 MPU 草案（待定稿）：Region0 AXI-SRAM 512KB 保持 Cacheable；Region1
+  SDMMC IDMA 扇区缓冲（SRAM_D2，non-cacheable）；Region2 SPI6(BDMA,D3 域) LCD 缓冲
+  （SRAM4 0x38000000，non-cacheable）。non-cacheable 核心收益：CPU 与 DMA 看同一份内存，
+  **无需手动 `SCB_Clean/InvalidateDCache`**。详见 `soc-cache-mpu` skill。
+
+### 9.7 验收（下载验证 ✅）
+- Debug FLASH 338528B(16.14%) / RAM_D1 262440B(50.06%)；Release FLASH 342500B(16.33%)；均 **0 warning**。
+- OpenOCD 烧录 `build/lvgl_oled.elf`：**Verified OK**。
+- COM6（ST-Link VCP）抓到完整启动 banner，证明 TX 中断驱动 `PRINT_LOG` 在硬件上真实输出。
+
+---
+
+## 10. 多页面切换与字库栅格化时延评估（2026-09-03）
+
+### 10.1 需求
+新增一个含中文的页面，与现有页面 **~5s 自动切换**，借以直观评估当前 CTF 字库的
+栅格化时延是否可用。
+
+### 10.2 实现
+- `Application/app_ui.c`：新增第二页（中文"鸿蒙字体引擎"状态页）；5s 定时器只置
+  "待切换"标志（不在定时器回调内做重绘，避免 LVGL 重入）。
+- `Application/app_main.c`：主循环在每轮 `lv_timer_handler()` 前检测待切换，执行
+  `lv_scr_load(新页)` 并用 **DWT CYCCNT**（`SystemCoreClock`=HCLK 240MHz 换算）测量
+  这次整页重绘（含中文栅格化）的耗时，打印 `[PAGE] switch -> N, render X us`。
+
+### 10.3 实测时延（这才是对"字库处理时延"的可信数字）
+启动自检 `CTF probe`（12 个码位）给出**纯字库**耗时：
+- **CPU 纯栅格化（raster）**：67–373 us，平均 ~200 us —— 真正的"字库计算"开销，极快。
+- **冷栅格化总耗时（cold，含 SD 读 TTF 块）**：1991–5170 us，平均 ~4500 us；其中
+  **SD 卡等待（sd）占 ~90%**（每字约 2 次 `f_read`）。
+- 整页切换渲染（`lv_refr_now` 全屏重绘）：首屏冷渲染 865 ms；后续切换（glyph 命中
+  bitmap 池）176–237 ms —— 主要是 **SPI6 整屏刷屏**，字库几乎零成本。
+
+### 10.4 结论
+纯字库栅格化是**亚毫秒级**，瓶颈在 **SD 块读放大**与 **SPI 刷屏**，不在字体引擎本身。
+**当前方案可用**。冷栅格化优化方向见 [§8.13](#813-已知问题与后续性能本轮暂不处理)
+（CTF v2 glyf 预取打包 / 顺序预读 / `FA_FASTSEEK`）。

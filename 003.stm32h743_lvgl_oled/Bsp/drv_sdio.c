@@ -3,9 +3,13 @@
   * @file    drv_sdio.c
   * @brief   SDMMC1 block device layer used by FatFs.
   *
-  *  Buffers handed to HAL_SD_ReadBlocks()/WriteBlocks() are moved by the SDMMC
-  *  internal DMA.  That master cannot reach DTCM, which is why the linker
-  *  script puts all RAM (.data/.bss/heap/stack) in AXI-SRAM at 0x24000000.
+ *  Buffers handed to HAL_SD_ReadBlocks()/WriteBlocks() are moved by the CPU
+ *  draining the SDMMC FIFO (polling path, NOT the SDMMC internal DMA), so the
+ *  D-Cache can stay enabled with no coherency hazard.  All RAM lives in
+ *  AXI-SRAM at 0x24000000 by linker design.  If this driver is later switched
+ *  to HAL_SD_ReadBlocks_DMA(), that IDMA master cannot reach DTCM, so the DMA
+ *  buffer must be placed in AXI-SRAM / SRAM_D2 / SRAM4 and marked
+ *  non-cacheable by the MPU.
   ******************************************************************************
   */
 #include "drv_sdio.h"
@@ -22,6 +26,13 @@ GlobalType_t drv_sdcard_init(void)
     {
         return RT_FAIL;
     }
+
+    hsd1.Instance                 = SDMMC1;
+    hsd1.Init.ClockEdge           = SDMMC_CLOCK_EDGE_RISING;
+    hsd1.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
+    hsd1.Init.BusWide             = SDMMC_BUS_WIDE_4B;
+    hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
+    hsd1.Init.ClockDiv            = 4;
 
     if (HAL_SD_Init(&hsd1) != HAL_OK)
     {

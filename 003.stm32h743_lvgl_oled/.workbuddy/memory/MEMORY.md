@@ -27,7 +27,9 @@
 - 含 GBK 中文的源文件（如 drv_oled_fonts.c）需在提交前转成 UTF-8，否则 `-finput-charset=UTF-8` 报 "Illegal byte sequence"。
 - `MCU_FLAGS` 必须写成 CMake list，不能直接一个带空格的字符串。
 - FatFs `f_read` 第4参是 `UINT*`，不是 `uint32_t*`（32位下二者类型不同）。
-- SDMMC IDMA 访问不了 DTCM → 主 RAM 放 AXI-SRAM，且 D-Cache 保持关闭。
+- **缓存 / MPU 架构原则（用户 2026-09-03 纠正，重要）**：D-Cache **已开启**（`SCB_EnableDCache`），不是关的。SDMMC 当前**非 DMA**（CPU 走 SDIO 内部 FIFO，无共享 RAM 缓冲）→ 无 cache 一致性问题，D-Cache 可放心开。
+  **即便将来启用 DMA（SDMMC IDMA / SPI6 LCD DMA 等），也绝不该全局关 D-Cache**，而要用 MPU 把 DMA 缓冲所在 region 标记为 **non-cacheable**（或 write-through + 手动 clean/invalidate）。SDMMC IDMA 仍访问不了 DTCM，DMA 缓冲应放 AXI-SRAM / SRAM_D2/D3 并配 MPU 非缓存区。
+  **MPU 规划需与用户配合设计**（见 2026-09-03.md 当日记录）。
 - 抓串口 banner 必须**先开串口再复位**（banner 只在启动时打印一次）。
 - PowerShell 里 `Start-Process openocd -ArgumentList ...`，`-c` 后的多词命令要再套一层引号：`'"init; reset run; exit"'`，否则被按空格拆参。
 - 本机 `arm-none-eabi-gdb` 未链接 iconv，`set host-charset` 不可用，CP1252 警告可忽略。

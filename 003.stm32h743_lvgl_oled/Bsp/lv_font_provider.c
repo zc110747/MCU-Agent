@@ -4,6 +4,7 @@
   * @brief   Font engine selection - see lv_font_cfg.h for the switch itself.
   ******************************************************************************
   */
+#include "log.h"
 #include "lv_font_provider.h"
 #include "lv_font_gbk.h"
 #include "lv_font_harmony.h"
@@ -176,20 +177,20 @@ static GlobalType_t start_ctf(void)
 
     if (lv_font_provider_locate(ctf_path, ttf_path, (uint32_t)sizeof(ctf_path)) != RT_OK)
     {
-        printf("[FONT] CTF: no index under %s\r\n", CTF_FONT_DIR);
+        PRINT_LOG("[FONT] CTF: no index under %s\r\n", CTF_FONT_DIR);
         return RT_FAIL;
     }
 
     if (lvgl_font_engine_init(ctf_path, ttf_path) != RT_OK)
     {
-        printf("[FONT] CTF: %s unusable\r\n", ctf_path);
+        PRINT_LOG("[FONT] CTF: %s unusable\r\n", ctf_path);
         return RT_FAIL;
     }
 
     s_engine = FONT_ENGINE_CTF;
-    printf("[FONT] engine: CTF index + TTF\r\n");
-    printf("[FONT]   ctf  %s\r\n", ctf_path);
-    printf("[FONT]   ttf  %s\r\n", ttf_path);
+    PRINT_LOG("[FONT] engine: CTF index + TTF\r\n");
+    PRINT_LOG("[FONT]   ctf  %s\r\n", ctf_path);
+    PRINT_LOG("[FONT]   ttf  %s\r\n", ttf_path);
     return RT_OK;
 }
 
@@ -204,14 +205,14 @@ GlobalType_t lv_font_provider_init(void)
     if (lv_font_harmony_init() == RT_OK)
     {
         s_engine = FONT_ENGINE_HARMONYOS;
-        printf("[FONT] engine: HarmonyOS Sans TC (%s)\r\n",
+        PRINT_LOG("[FONT] engine: HarmonyOS Sans TC (%s)\r\n",
                lv_font_harmony_file());
         return RT_OK;
     }
 #endif
 
     s_engine = FONT_ENGINE_GBK;
-    printf("[FONT] engine: GBK bitmaps\r\n");
+    PRINT_LOG("[FONT] engine: GBK bitmaps\r\n");
     return RT_FAIL;
 }
 

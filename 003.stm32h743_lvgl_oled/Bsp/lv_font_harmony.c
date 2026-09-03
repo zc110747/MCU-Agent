@@ -22,6 +22,7 @@
   *  mode turns one measurement into a few dozen seek+1-byte-read pairs.
   ******************************************************************************
   */
+#include "log.h"
 #include "lv_font_harmony.h"
 #include "lv_font_gbk.h"
 #include "ff.h"
@@ -183,11 +184,11 @@ static GlobalType_t harmony_scan(void)
     res = f_opendir(&dir, HARMONY_FONT_DIR);
     if (res != FR_OK)
     {
-        printf("[TTF ] %s: opendir failed (%d)\r\n", HARMONY_FONT_DIR, (int)res);
+        PRINT_LOG("[TTF ] %s: opendir failed (%d)\r\n", HARMONY_FONT_DIR, (int)res);
         return RT_FAIL;
     }
 
-    printf("[TTF ] scanning %s\r\n", HARMONY_FONT_DIR);
+    PRINT_LOG("[TTF ] scanning %s\r\n", HARMONY_FONT_DIR);
 
     for (;;)
     {
@@ -209,7 +210,7 @@ static GlobalType_t harmony_scan(void)
             continue;               /* not a font file, not interesting */
         }
 
-        printf("[TTF ]   %-40s %8lu B  score %d\r\n",
+        PRINT_LOG("[TTF ]   %-40s %8lu B  score %d\r\n",
                fno.fname, (unsigned long)fno.fsize, sc);
 
         if (sc > best_score)
@@ -225,7 +226,7 @@ static GlobalType_t harmony_scan(void)
 
     if (best_score == 0)
     {
-        printf("[TTF ] no .ttf / .ttc found\r\n");
+        PRINT_LOG("[TTF ] no .ttf / .ttc found\r\n");
         return RT_FAIL;
     }
 
@@ -237,7 +238,7 @@ static GlobalType_t harmony_scan(void)
         int n = snprintf(s_path, sizeof(s_path), "%s/%s", HARMONY_FONT_DIR, s_file);
         if ((n < 0) || ((size_t)n >= sizeof(s_path)))
         {
-            printf("[TTF ] path too long\r\n");
+            PRINT_LOG("[TTF ] path too long\r\n");
             return RT_FAIL;
         }
     }
@@ -353,7 +354,7 @@ GlobalType_t lv_font_harmony_init(void)
     memset(s_slots, 0, sizeof(s_slots));
 
 #if HARMONY_TTF_AVAILABLE == 0
-    printf("[TTF ] disabled: LV_USE_TINY_TTF / LV_TINY_TTF_FILE_SUPPORT is 0\r\n");
+    PRINT_LOG("[TTF ] disabled: LV_USE_TINY_TTF / LV_TINY_TTF_FILE_SUPPORT is 0\r\n");
     return RT_FAIL;
 #else
     {
@@ -364,7 +365,7 @@ GlobalType_t lv_font_harmony_init(void)
             return RT_FAIL;
         }
 
-        printf("[TTF ] %s (%lu B)\r\n", s_file, (unsigned long)s_file_bytes);
+        PRINT_LOG("[TTF ] %s (%lu B)\r\n", s_file, (unsigned long)s_file_bytes);
 
         for (i = 0u; i < HARMONY_SIZES; i++)
         {
@@ -377,7 +378,7 @@ GlobalType_t lv_font_harmony_init(void)
 
             if (ttf == NULL)
             {
-                printf("[TTF ]   %2u px: create FAILED\r\n", (unsigned)s_sizes[i]);
+                PRINT_LOG("[TTF ]   %2u px: create FAILED\r\n", (unsigned)s_sizes[i]);
                 continue;
             }
 
@@ -400,7 +401,7 @@ GlobalType_t lv_font_harmony_init(void)
             s_font[i].dsc                 = &s_fdsc[i];
             s_font[i].fallback            = gbk_fallback(s_sizes[i]);
 
-            printf("[TTF ]   %2u px: line %d, base %d (%lu ms)\r\n",
+            PRINT_LOG("[TTF ]   %2u px: line %d, base %d (%lu ms)\r\n",
                    (unsigned)s_sizes[i],
                    (int)s_font[i].line_height, (int)s_font[i].base_line,
                    (unsigned long)((uint32_t)HAL_GetTick() - t0));
@@ -408,7 +409,7 @@ GlobalType_t lv_font_harmony_init(void)
 
         if (ok == 0u)
         {
-            printf("[TTF ] no usable font size - falling back to GBK\r\n");
+            PRINT_LOG("[TTF ] no usable font size - falling back to GBK\r\n");
             return RT_FAIL;
         }
 

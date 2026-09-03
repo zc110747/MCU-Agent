@@ -7,17 +7,20 @@
   *    MPU -> I-Cache -> HAL_Init -> 480 MHz clock -> GPIO/SPI6/SDMMC1/USART1
   *    -> application_init() -> application_run() forever.
   *
-  *  Cache policy
-  *  ------------
-  *  Only the I-Cache is enabled.  The D-Cache is intentionally left OFF:
-  *  SDMMC1 moves sector data with its internal DMA, and with D-Cache on every
-  *  buffer would need explicit clean/invalidate maintenance.  For a display
-  *  demo the extra throughput is irrelevant, and this keeps SD reads correct
-  *  by construction.  (See MPU_Config() for the region setup.)
+ *  Cache policy
+ *  ------------
+ *  Both I-Cache and D-Cache are enabled.  SDMMC1 currently uses the polling
+ *  HAL_SD_ReadBlocks()/WriteBlocks() path (the CPU drains the SDMMC FIFO into
+ *  the sector buffer), so no SDMMC internal DMA touches RAM and there is no
+ *  cache-coherency hazard - D-Cache stays on safely.  If SDMMC IDMA (or any
+ *  other peripheral DMA) is introduced later, the DMA buffer regions must be
+ *  made non-cacheable via the MPU, NOT by disabling D-Cache globally.
+ *  (See MPU_Config() for the region setup.)
   ******************************************************************************
   */
 #include "main.h"
 #include "app_main.h"
+#include "log.h"
 
 /* Peripheral handles --------------------------------------------------------*/
 SPI_HandleTypeDef  hspi6;
@@ -44,7 +47,8 @@ int main(void)
     /* 1. MPU + caches --------------------------------------------------------*/
     MPU_Config();
     SCB_EnableICache();
-
+    SCB_EnableDCache();
+    
     /* 2. HAL / SysTick -------------------------------------------------------*/
     HAL_Init();
 
@@ -54,6 +58,7 @@ int main(void)
     /* 4. Peripherals ---------------------------------------------------------*/
     MX_GPIO_Init();
     MX_USART1_UART_Init();
+    log_uart_init();
     MX_SPI6_Init();
     MX_SDMMC1_SD_Init();
 
@@ -278,7 +283,7 @@ static void MX_SDMMC1_SD_Init(void)
     hsd1.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
     hsd1.Init.BusWide             = SDMMC_BUS_WIDE_4B;
     hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-    hsd1.Init.ClockDiv            = 6;
+    hsd1.Init.ClockDiv            = 4;
 
     (void)HAL_SD_Init(&hsd1);
 }
