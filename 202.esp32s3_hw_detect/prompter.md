@@ -915,7 +915,7 @@ AP fallback
 AP：
 
 ```text
-ESP32S3-Debugger-XXXX
+wifi-XXXX（XXXX = MAC 末 4 位十六进制大写，如 wifi-A118）
 ```
 
 Web：

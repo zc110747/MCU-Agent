@@ -36,7 +36,9 @@
 ├── bsp/
 │   ├── uart_monitor.h/.cpp     # UART 监视（HardwareSerial + 任务 + 二进制/文本）
 │   ├── adc_monitor.h/.cpp      # ExternalAdc 抽象 + ADS1115 实现 + 采样任务
-│   └── gpio_monitor.h/.cpp     # GPIO 数字输入/输出
+│   ├── gpio_monitor.h/.cpp     # GPIO 数字输入/输出
+│   ├── ws2812_led.h/.cpp       # WS2812B 状态灯（GPIO48，R/G/B 单闪 + RGB 循环）
+│   └── pwm_output.h/.cpp       # 单路 PWM 输出（LEDC，period/duty 可运行时配置）
 ├── storage/
 │   ├── config_manager.h/.cpp   # Preferences(NVS) 持久化
 │   └── log_manager.h/.cpp       # 分级日志 + 环形缓冲 + 可选 WS 转发
@@ -369,7 +371,11 @@ Global variables use 80436 bytes (24%) of dynamic memory, leaving 247244 bytes f
 - **构建范式验证**：Arduino 单编译单元（`*.ino` 强制 `#include` 各子目录 `.cpp`）+ 全部 19 个头文件 `#ifndef` 守卫，成功规避 arduino-cli 复制工程后的头文件重定义。
 - **静态校验**：所有 `#include` 缺失已补（ArduinoJson / WiFi / esp_mac / pin_config 等）；`constexpr IPAddress`、`Update.write` const 转换、回调静态成员可见性等编译错误已修复。
 - **脚本就绪**：`build_oneclick.bat`、`flash-esp32.bat` 已生成并验证可调用（参考 201 项目范式）。
-- **待真机验证**（需烧录后在本机串口 + 浏览器执行）：UART/ADC/GPIO 端到端数据流、WiFi STA+AP、MQTT 发布订阅、WebSocket 实时推送、Web OTA 升级。架构与协议已就绪，功能验证不阻塞交付。
+- **真机启动横幅验证 PASS（2026-09-03，`tools/check_banner.py`）**：RTS 复位后抓取启动日志，
+  断言 4/4 通过 —— 固件横幅、`WebSocket: ready :81`、`AP 'wifi-A118' up @ 192.168.4.1`（wifi-<MAC 后四位>）、
+  `System Ready`；UART/ADC/GPIO/LED/PWM 全模块 ready。MQTT down 为 AP 模式下无 broker 的预期行为。
+- **待真机验证**（浏览器接入 AP 后执行）：Interface 页四项实时读数（`tools/verify/verify_interface.py`
+  或手动观察 `state` 快照刷新）、UART/ADC 端到端数据流、WiFi STA 切换、MQTT 发布订阅、Web OTA 升级。
 
 > 回归验收可扩展 `verify_*.py`（串口/网络自测）给出 pass/fail 计数，沿用 201 项目节奏。
 

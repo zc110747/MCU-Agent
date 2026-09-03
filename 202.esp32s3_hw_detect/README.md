@@ -241,6 +241,27 @@ $ git check-ignore -v 202.esp32s3_hw_detect/debug/adc_monitor.cpp
 > `git check-ignore -v <工程>/<新目录>/probe.txt` 确认不被屏蔽。
 > 已知黑名单：`Drivers` / `third_party` / `zephyr` / `Debug`(含小写 `debug`) / `Release` / `obj` / `.build`。
 
+### Phase 11 — AP 热点名 `wifi-<MAC 后四位>` + eFuse 读 MAC（含 git 还原重放）
+
+**11.1 需求**：AP 模式热点名由 `ESP32S3-Debugger-XXXXXX` 改为固定格式 `wifi-XXXX`（XXXX = MAC 末 4 位大写）。
+
+**11.2 实现（`578e8a4`）**
+
+| 文件 | 改动 |
+|------|------|
+| `config/app_config.h` | `AP_SSID_PREFIX` → `"wifi-"` |
+| `network/wifi_manager.cpp` | `startAP()` 用 `esp_read_mac(mac, ESP_MAC_WIFI_STA)` 直读 eFuse 拼 SSID（`#include <esp_mac.h>`） |
+| `user_document.md` / `DELIVERY.md` | 热点名说明同步为 `wifi-XXXX` |
+
+**11.3 踩坑：启动早期读 MAC 全 0**
+`WiFi.macAddress()` / `softAPmacAddress()` 在 WiFi 驱动初始化前返回全 0；实测先 `WiFi.mode(WIFI_MODE_AP)`
+再读 softAPmacAddress **仍然全 0**（开机仅 ~200ms）。最终改用 **eFuse API `esp_read_mac`**（不依赖 WiFi 驱动），
+与 Device ID 同源 → SSID 尾部与 Device ID 尾部一致（`esp32s3-F6FFA118` → `wifi-A118`）。
+
+**11.4 git 还原重放事故**
+用户为同步昨晚工作将仓库还原，今晨 5 处修改被抹掉 → 按记录重放全部改动 → 增量编译 + 烧录
+COM22 + 串口确认 `AP 'wifi-A118' up @ 192.168.4.1` → 提交 `578e8a4`（main 分支，6 文件 +30/-5）。
+
 ---
 
 ## 3. 当前状态（实测）
@@ -256,11 +277,16 @@ $ git check-ignore -v 202.esp32s3_hw_detect/debug/adc_monitor.cpp
   - `tools/chk_pages.js` → `JS_SYNTAX_OK`、`ALL_IDS_OK (52)`、`ALL_PANES_OK`、`NO_INLINE_COLOR_OK`
   - `tools/chk_ui_logic.js` → **22/22 passed, 0 failed**（四项需求的 UI 行为全覆盖）
   - `tools/verify/*.py` → `py_compile` 全部通过
+- **AP 热点名版（578e8a4）**：`wifi-<MAC 后四位>`（eFuse `esp_read_mac` 直读，修复启动早期 MAC 全 0），
+  增量构建零警告，Flash 1,053,434 B / 80%、DRAM 80,876 B / 24%。
+- **真机启动横幅验证 PASS（2026-09-03，`tools/check_banner.py`）**：`AP 'wifi-A118' up @ 192.168.4.1`、
+  `WebSocket: ready :81`、全模块 ready、`System Ready`（断言 4/4 通过；MQTT down 为 AP 模式预期）。
 - **flash-esp32.bat 端口扫描**：已修复三处根因（括号坑 / FQBN 匹配 / python 存根），
   解析逻辑经 `arduino-cli board list` 真实输出校验（COM22 → `esp32:esp32:esp32_family` 命中），
-  端到端待双击验证。
-- **待真机验证**（需烧录后跑 `tools/verify/run_all.py`）：WS2812 五模式实时输出、PWM 波形与量化参数、
-  GPIO 回读电平、ADC 四通道、UART 端到端、MQTT、OTA。
+  端到端待双击验证（用户择机）。
+- **待真机验证**（浏览器连 `wifi-A118` → `192.168.4.1` 后）：Interface 页四项实时读数（`state` 快照）、
+  WS2812 五模式实时输出、PWM 波形与量化参数、ADC 四通道、UART 端到端、MQTT、OTA；
+  可跑 `cd tools\verify && python run_all.py` 回归。
 
 ---
 
@@ -269,8 +295,9 @@ $ git check-ignore -v 202.esp32s3_hw_detect/debug/adc_monitor.cpp
 - MQTT TLS 字段已预留但 v1 仍明文 TCP；OTA 仅 Web；AI Agent 仅协议层就绪未实现逻辑。
 - ADS1115 单拍 4 通道上限约 125 Hz；921600 超高速下 WS/MQTT 长期掉线会触发设计内 drop 保护。
 - PWM 为单路输出（新配置自动释放旧引脚）；WS2812 亮度固定 40（防眩光）。
-- **下一步**：烧录本版 → 跑 `cd tools\verify && python run_all.py`（AP 模式）做端到端回归 →
-  按需恢复新需求。
+- **下一步**：浏览器连 AP `wifi-A118`（密码见 user_document.md）→ 打开 `http://192.168.4.1` 实测
+  Interface 四项实时读数 → 跑 `cd tools\verify && python run_all.py` 端到端回归 →
+  `flash-esp32.bat` 双击验证端口扫描 → 远端 push（由用户执行）。
 - **`state` 快照周期**：目前固定 400 ms（`AppConfig::STATE_PUSH_INTERVAL_MS`）。若多客户端 + 高 UART
   吞吐下发现 ws_task 栈/带宽吃紧，可放宽到 500~1000 ms；界面观感 400 ms 已接近"即时"。
 - 更远：安全层（TLS/HTTPS/JWT）、AI Agent 总线联动、UART DMA 双缓冲、配置版本号 + 工厂复位。
