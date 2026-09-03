@@ -40,8 +40,23 @@
 - **晶振真实频率交叉验证法**：openocd `sleep 20000` 作主机参考，前后各读一次 `uwTick`，比对得实测误差 0.010% → 反推 HSE=25.0025MHz。频率配错会成倍偏差，此法极灵敏。
 - 链接告警 `LOAD segment with RWX permissions` 用 `-Wl,--no-warn-rwx-segments` 消除。
 
-## 当前状态（2026-08-05 实机验证通过）
-- 固件已烧录并 Verified OK，480MHz 运行正常。
-- 串口输出全绿：`[LCD] ST7789 240x240 on SPI6 ready`、`[SD] mounted, fonts loaded`、UNIGBK+GBK12/16/24/32 全 OK。
-- 中文渲染已端到端证实：从 SD 卡取出的 24x24 点阵 dump 后渲染出清晰的"中""文"字形。
+## 当前状态（2026-09-03 CTF 字体引擎完成，实机验证通过）
+- **字体系统**：CTF 索引 + 原 TTF（Phase 1~8 全部完成）。引擎切换 `LV_FONT_ENGINE`：
+  2=CTF+TTF（默认）/ 1=TTF 直读 / 0=GBK 点阵。默认字体 HarmonyOS_Sans_SC（GB2312 一级 100%），
+  TC 六字重保留；SD 卡 `1:/SYSTEM/HarmonyOS_Sans_SC/`（.ctf 693KB + .ttf 8MB）。
+- 硬性语义已实测：缺字 `CTF_NOT_FOUND` → **0 次 SD 读**，UI 文本合拢不画框（LV_USE_FONT_PLACEHOLDER=0）、
+  不刷屏；英文/数字走 fallback 内置 Montserrat 12/16/24/32；空格 EMP 与 NOT_FOUND 严格区分。
+- 内存布局（BSS 静态）：ttf 块缓存 64KB(16K×4) + 位图池 32KB/176slot + ctf 缓存 4KB + L1 shadow 2KB
+  + stb arena 36KB（实测 peak 5920B）。stb 源码零修改，`STBTT_STREAM_*` 宏接 ttf_reader。
+- 全工程 SD 随机读唯一收口：`Bsp/font/ttf_reader.c` 的 `ttf_fill()`；块缓存实测整轮 65536 码位遍历
+  仅 20 次 f_read（无缓存为几十万次）。主机端验收 `tools/host_test/`（PC 编译固件真实源码），7 字体全绿；
+  一键脚本 `run_host_test.bat`（用法：ctf_host_test.exe <font.ctf> <font.ttf>）。
+- 构建基线（双构零警告）：Debug FLASH 340864B(16.25%)/RAM_D1 318736B(60.79%)；
+  Release FLASH 344824B(16.44%)/RAM_D1 318744B(60.80%)。板级自检探针 `lvgl_font_selftest()`。
+- **遗留（用户明确下轮处理）**：冷栅格化偏慢 avg 4852us/worst 6547us；拆分探针已埋
+  （ttf_reader 的 seek_cycles/read_cycles），首疑 f_read 读放大。方向：CTF v2 glyf 预取打包/顺序预读/FA_FASTSEEK。
+- README 第 8 节（8.1~8.13）已完整归档全部 Phase 成果与实机数据。
+
+## 前期状态（2026-08-05 GBK 基线）
 - VSCode 仿真链路（reset/load/断点/单步/step into/变量监视/外设寄存器/attach）全部实测可用。
+- GBK 点阵链路（UNIGBK+GBK12/16/24/32）保留可用，作为引擎 0 的回退路径。
