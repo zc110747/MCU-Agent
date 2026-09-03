@@ -2,6 +2,7 @@
 #include "storage/config_manager.h"
 #include "storage/log_manager.h"
 #include <WiFi.h>
+#include <esp_mac.h>
 
 namespace RHD {
 
@@ -41,8 +42,12 @@ void WiFiManager::connectSta(const String& ssid, const String& pass) {
 }
 
 void WiFiManager::startAP() {
+    // esp_read_mac works from eFuse without bringing up the WiFi driver.
+    // WiFi.macAddress()/softAPmacAddress() return all-zero before the
+    // WiFi driver is initialized. Same source as ConfigManager::computeDeviceId(),
+    // so the SSID tail matches the Device ID tail.
     uint8_t mac[6];
-    WiFi.macAddress(mac);
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char ssid[32];
     snprintf(ssid, sizeof(ssid), "%s%02X%02X",
              AppConfig::AP_SSID_PREFIX, mac[4], mac[5]);

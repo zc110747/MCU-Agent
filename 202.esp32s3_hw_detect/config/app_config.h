@@ -71,7 +71,7 @@ constexpr int LOG_RING_LINES = 200;   // web "Logs" history
 constexpr uint32_t MIN_FREE_HEAP_WARN = 40000;  // warn if free heap below this
 
 // --- WiFi ---
-constexpr char AP_SSID_PREFIX[]   = "ESP32S3-Debugger-";  // + last 4 MAC hex
+constexpr char AP_SSID_PREFIX[]   = "wifi-";             // + last 4 MAC hex, e.g. wifi-A1B2
 constexpr char AP_PASSWORD[]      = "debugger123";        // AP mode default password
 const IPAddress AP_IP(192, 168, 4, 1);
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;

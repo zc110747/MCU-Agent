@@ -97,7 +97,7 @@ flash-esp32.bat --no-pause    :: 非交互（CI）
 
 | 项 | 值 |
 |---|---|
-| 热点名 | `ESP32S3-Debugger-XXXX`（XXXX = MAC 末 4 位十六进制大写） |
+| 热点名 | `wifi-XXXX`（XXXX = MAC 末 4 位十六进制大写） |
 | 热点密码 | `debugger123` |
 | 设备 IP | `192.168.4.1`（Web:80 / WebSocket:81） |
 | 运行指示 | GPIO48 RUN LED 闪烁 = 正常 |

@@ -11,7 +11,7 @@
  * @brief WiFi STA with AP fallback and auto-reconnect.
  *
  * Normal operation is STA. If no SSID is configured or STA association fails,
- * the device brings up an AP (ESP32S3-Debugger-XXXX @ 192.168.4.1) so the user
+ * the device brings up an AP (wifi-XXXX @ 192.168.4.1) so the user
  * can configure WiFi from the browser. STA auto-reconnects if the link drops.
  */
 namespace RHD {
