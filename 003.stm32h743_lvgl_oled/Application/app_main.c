@@ -5,18 +5,19 @@
   *
   *  Boot order matters here:
   *
-  *    1. panel        - so anything that follows has somewhere to complain to
-  *    2. RTC          - LSE/LSI probing takes up to a second, get it out of
-  *                      the way before the UI wants a time to show
-  *    3. SD + fonts   - mounts 1: and opens GBKxx.FON; the LVGL font driver
-  *                      reads glyphs straight out of those files
-  *    4. LVGL         - lv_init(), display port, then the screen
-  *
-  *  Source files are UTF-8 and are compiled *without* -fexec-charset, so the
-  *  string literals stay UTF-8 - which is what LVGL expects.  The UTF-8 code
-  *  points are translated to GBK inside the font driver (see lv_gbk_map.c).
-  ******************************************************************************
-  */
+ *    1. panel        - so anything that follows has somewhere to complain to
+ *    2. RTC          - LSE/LSI probing takes up to a second, get it out of
+ *                      the way before the UI wants a time to show
+ *    3. SD + fonts   - mounts 1: and opens GBKxx.FON
+ *    4. LVGL         - lv_init(), display port, cached FS port, font engine,
+ *                      then the screen
+ *
+ *  Source files are UTF-8 and are compiled with -fexec-charset=UTF-8, so the
+ *  string literals stay UTF-8 - which is what LVGL expects.  The GBK engine
+ *  translates each code point to the GBK index GBKxx.FON uses (lv_gbk_map.c);
+ *  the HarmonyOS engine feeds the code point straight to the .ttf rasteriser.
+ ******************************************************************************
+ */
 #include "app_main.h"
 #include "app_ui.h"
 #include "drv_spi_oled.h"
@@ -25,7 +26,10 @@
 #include "drv_rtc.h"
 #include "lvgl.h"
 #include "lv_port_disp.h"
-#include "lv_font_gbk.h"
+#include "lv_port_fs.h"
+#include "lv_font_provider.h"
+#include "lv_font_cfg.h"
+#include "lvgl_font.h"
 
 #define LED_BLINK_MS        500U
 
@@ -108,10 +112,125 @@ static void log_sd_info(void)
            (unsigned long)(HAL_GetTick() - t0));
 }
 
+/**
+  * @brief  Dump the CTF/TTF block-cache counters.
+  */
+static void log_ctf_stats(const char *tag)
+{
+    lvgl_font_stats_t st;
+
+    lvgl_font_get_stats(&st);
+
+    printf("[CTF ] %s: lookup %lu, not-found %lu, io-err %lu\r\n",
+           tag, (unsigned long)st.ctf_lookups,
+           (unsigned long)st.ctf_not_found,
+           (unsigned long)st.ctf_io_errors);
+    printf("[CTF ] %s: ttf hit %lu, miss %lu, f_read %lu, %lu B\r\n",
+           tag, (unsigned long)st.ttf_hits, (unsigned long)st.ttf_misses,
+           (unsigned long)st.ttf_fills, (unsigned long)st.ttf_bytes);
+    printf("[CTF ] %s: sd wait %lu us (lseek %lu + read %lu)\r\n",
+           tag, (unsigned long)(st.ttf_seek_us + st.ttf_read_us),
+           (unsigned long)st.ttf_seek_us, (unsigned long)st.ttf_read_us);
+    printf("[CTF ] %s: bitmap hit %lu, miss %lu, flush %lu, %lu B held\r\n",
+           tag, (unsigned long)st.bmp_hits, (unsigned long)st.bmp_misses,
+           (unsigned long)st.bmp_flushes, (unsigned long)st.bmp_bytes);
+    printf("[CTF ] %s: stb arena peak %lu B, overflow %lu\r\n",
+           tag, (unsigned long)st.arena_peak, (unsigned long)st.arena_fails);
+}
+
+/**
+  * @brief  Rasterise a fixed vector on the real board and print what it cost.
+  *
+  *  The acceptance invariant is the last line: a code point the index does not
+  *  carry must not cost a single SD read, because it never reaches the TTF.
+  */
+static void log_ctf_probe(void)
+{
+    lvgl_font_probe_t p[16];
+    uint32_t          n;
+    uint32_t          i;
+    uint32_t          nf        = 0u;
+    uint32_t          nf_reads  = 0u;
+    uint32_t          nf_latin  = 0u;
+    uint32_t          cold_max  = 0u;
+    uint32_t          cold_tot  = 0u;
+    uint32_t          cold_n    = 0u;
+    uint32_t          sd_tot    = 0u;
+
+    n = lvgl_font_selftest(p, (uint32_t)(sizeof(p) / sizeof(p[0])));
+
+    printf("\r\n[CTF ] on-target probe, %u code points\r\n", (unsigned)n);
+    printf("[CTF ]  U+xxxxx  px  src adv  box     ofs      cold us  sd us raster   ink   SD\r\n");
+
+    for (i = 0u; i < n; i++)
+    {
+        const lvgl_font_probe_t *e = &p[i];
+        uint32_t                 raster = (e->cold_us > e->sd_us)
+                                        ? (e->cold_us - e->sd_us) : 0u;
+
+        printf("[CTF ]  U+%05lX %4lu  %s %4lu %3lux%-3lu %+4d,%-4d %7lu %6lu %6lu %6lu %4lu\r\n",
+               (unsigned long)e->cp, (unsigned long)e->px,
+               (e->found != 0u) ? ((e->empty != 0u) ? "EMP" : "CTF")
+                                : ((e->fb_adv_w != 0u) ? "FAL" : " -- "),
+               (unsigned long)((e->found != 0u) ? e->adv_w : e->fb_adv_w),
+               (unsigned long)e->box_w, (unsigned long)e->box_h,
+               (int)e->ofs_x, (int)e->ofs_y,
+               (unsigned long)e->cold_us, (unsigned long)e->sd_us,
+               (unsigned long)raster,
+               (unsigned long)e->ink, (unsigned long)e->sd_reads);
+
+        if (e->found == 0u)
+        {
+            nf++;
+            nf_reads += e->sd_reads;
+            if (e->fb_adv_w != 0u)
+            {
+                nf_latin++;
+            }
+        }
+        else
+        {
+            if (e->cold_us > cold_max)
+            {
+                cold_max = e->cold_us;
+            }
+            cold_tot += e->cold_us;
+            sd_tot   += e->sd_us;
+            cold_n++;
+        }
+    }
+
+    printf("[CTF ] found %lu, NOT_FOUND %lu (of which Latin fallback %lu)\r\n",
+           (unsigned long)(n - nf), (unsigned long)nf, (unsigned long)nf_latin);
+    printf("[CTF ] cold raster: avg %lu us, worst %lu us (sd %lu us, cpu %lu us)\r\n",
+           (unsigned long)((cold_n != 0u) ? (cold_tot / cold_n) : 0u),
+           (unsigned long)cold_max, (unsigned long)sd_tot,
+           (unsigned long)((cold_tot > sd_tot) ? (cold_tot - sd_tot) : 0u));
+    printf("[CTF ] NOT_FOUND cost %lu SD reads (must be 0): %s\r\n",
+           (unsigned long)nf_reads, (nf_reads == 0u) ? "PASS" : "FAIL");
+}
+
+/**
+  * @brief  Log the LVGL heap: how much is left and how fragmented it got.
+  */
+static void log_lvgl_heap(void)
+{
+    lv_mem_monitor_t mon;
+
+    lv_mem_monitor(&mon);
+    printf("[LVGL] heap: %u B free of %u B, max block %u B, used %u%%, frag %u%%\r\n",
+           (unsigned)mon.free_size,
+           (unsigned)mon.total_size,
+           (unsigned)mon.free_biggest_size,
+           (unsigned)mon.used_pct,
+           (unsigned)mon.frag_pct);
+}
+
 void application_init(void)
 {
     uint32_t mask;
     uint8_t  font_ready;
+    uint32_t t0;
 
     printf("\r\n");
     printf("========================================\r\n");
@@ -163,9 +282,33 @@ void application_init(void)
            LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
            (unsigned)(LV_MEM_SIZE / 1024U));
 
+    /* The font engines read through LVGL's file system, so the cached FatFs
+     * driver has to be up before they are initialised. */
+    lv_port_fs_init();
+
     if (font_ready != 0U)
     {
+        /* Picks LV_FONT_ENGINE (default: HarmonyOS Sans TC) and degrades to the
+         * GBK bitmaps on its own if the .ttf is not there. */
+        (void)lv_font_provider_init();
+
+        /* lv_disp_drv_register() already installed a theme with LV_FONT_DEFAULT
+         * (the GBK 16).  Re-running the init now swaps the theme's font for the
+         * engine we actually ended up with, so widgets that carry no text style
+         * of their own also get HarmonyOS. */
+        lv_theme_default_init(lv_disp_get_default(),
+                              lv_palette_main(LV_PALETTE_BLUE),
+                              lv_palette_main(LV_PALETTE_RED),
+                              LV_THEME_DEFAULT_DARK,
+                              lv_font_provider_default());
+    }
+
+    if (font_ready != 0U)
+    {
+        t0 = HAL_GetTick();
         app_ui_create();
+        printf("[UI  ] built in %lu ms\r\n",
+               (unsigned long)(HAL_GetTick() - t0));
     }
     else
     {
@@ -176,8 +319,25 @@ void application_init(void)
     }
 
     /* Paint the first frame before returning so the screen is never left
-     * showing the power-on garbage while the main loop spins up. */
+     * showing the power-on garbage while the main loop spins up.  With a cold
+     * glyph cache this is where every character is rasterised once. */
+    t0 = HAL_GetTick();
     (void)lv_timer_handler();
+    printf("[UI  ] first frame in %lu ms\r\n",
+           (unsigned long)(HAL_GetTick() - t0));
+
+    log_lvgl_heap();
+
+#if LV_FONT_ENGINE == LV_FONT_ENGINE_CTF
+    if (lv_font_provider_engine() == FONT_ENGINE_CTF)
+    {
+        /* The probe flushes the glyph cache, so run it after the first frame -
+         * it measures cold rasterisation, not a cache hit. */
+        log_ctf_probe();
+        log_ctf_stats("probe");
+        log_lvgl_heap();
+    }
+#endif
 
     s_last_lvgl_tick = HAL_GetTick();
     s_last_led_tick  = s_last_lvgl_tick;

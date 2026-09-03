@@ -17,21 +17,29 @@
   *    156   ├───────────────────────────────┤
   *          │  主频  480 MHz         HSE    │
   *          │  运行  00:12:34               │
-  *          │  字库  SD卡 GBK 点阵          │
-  *          │  缓存  命中 512 / 未中 96     │  12 px
-  *    240   └───────────────────────────────┘
-  *
-  *  Every label is created once; the refresh timer only rewrites the text, so
-  *  LVGL redraws just the dirty rectangles and the SPI traffic stays low.
-  ******************************************************************************
+ *          │  字库  鸿蒙TTF         LSE     │  16 px
+ *          │  缓存  命中 512 / 读卡 96     │  12 px
+ *    240   └───────────────────────────────┘
+ *
+ *  Every label is created once; the refresh timer only rewrites the text, so
+ *  LVGL redraws just the dirty rectangles and the SPI traffic stays low.
+ ******************************************************************************
   */
 #include "app_ui.h"
 #include "lvgl.h"
 #include "lv_font_gbk.h"
+#include "lv_font_harmony.h"
+#include "lv_font_provider.h"
+#include "lv_port_fs.h"
 #include "drv_rtc.h"
 #include "drv_sdio.h"
 #include "drv_oled_text.h"
 #include <stdio.h>
+
+/* No label names a concrete font: everything goes through the provider, so the
+ * engine switch in lv_font_cfg.h is the only place that has to be edited (or
+ * the only CMake variable that has to be flipped). */
+#define UI_FONT(px)     lv_font_provider_get((px))
 
 /* ---- Geometry --------------------------------------------------------------*/
 #define UI_W                240
@@ -234,9 +242,19 @@ static void refresh_runtime(void)
                           (int)((s_uptime_sec / 60U) % 60U),
                           (int)(s_uptime_sec % 60U));
 
-    lv_font_gbk_cache_stats(&hits, &miss);
-    lv_label_set_text_fmt(s_ui.cache, "缓存  命中 %d / 读卡 %d",
-                          (int)hits, (int)miss);
+    /* Both engines count "glyph served from RAM" vs "glyph that reached the
+     * card"; which one is live decides whose counters we show. */
+    if (lv_font_provider_engine() == FONT_ENGINE_HARMONYOS)
+    {
+        lv_font_harmony_stats(&hits, &miss);
+    }
+    else
+    {
+        lv_font_gbk_cache_stats(&hits, &miss);
+    }
+
+    lv_label_set_text_fmt(s_ui.cache, "缓存  命中 %lu / 读卡 %lu",
+                          (unsigned long)hits, (unsigned long)miss);
 }
 
 /**
@@ -285,24 +303,24 @@ void app_ui_create(void)
     lv_obj_set_style_bg_color(hdr, lv_color_hex(COL_HDR), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
 
-    (void)mk_label_center(hdr, 6, &lv_font_gbk_16, COL_HDR_TXT,
+    (void)mk_label_center(hdr, 6, UI_FONT(16), COL_HDR_TXT,
                           "STM32H743 信息面板");
 
     /* ---- Clock -----------------------------------------------------------*/
-    s_ui.clock = mk_label_center(scr, CLOCK_Y, &lv_font_gbk_32, COL_CLOCK,
+    s_ui.clock = mk_label_center(scr, CLOCK_Y, UI_FONT(32), COL_CLOCK,
                                  "--:--:--");
-    s_ui.date  = mk_label_center(scr, DATE_Y, &lv_font_gbk_16, COL_DATE,
+    s_ui.date  = mk_label_center(scr, DATE_Y, UI_FONT(16), COL_DATE,
                                  "---------");
 
     mk_separator(scr, SEP1_Y);
 
     /* ---- SD card ---------------------------------------------------------*/
-    s_ui.sd_head = mk_label(scr, UI_PAD, SD_HEAD_Y, &lv_font_gbk_16,
+    s_ui.sd_head = mk_label(scr, UI_PAD, SD_HEAD_Y, UI_FONT(16),
                             COL_LABEL, "SD卡容量");
-    s_ui.sd_fs   = mk_label(scr, 0, SD_HEAD_Y, &lv_font_gbk_16, COL_DIM, "--");
+    s_ui.sd_fs   = mk_label(scr, 0, SD_HEAD_Y, UI_FONT(16), COL_DIM, "--");
     align_right(s_ui.sd_fs, SD_HEAD_Y);
 
-    s_ui.sd_val = mk_label(scr, UI_PAD, SD_VAL_Y, &lv_font_gbk_16,
+    s_ui.sd_val = mk_label(scr, UI_PAD, SD_VAL_Y, UI_FONT(16),
                            COL_VALUE, "读取中...");
 
     s_ui.sd_bar = lv_bar_create(scr);
@@ -320,18 +338,18 @@ void app_ui_create(void)
     lv_obj_set_style_bg_opa(s_ui.sd_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(s_ui.sd_bar, 2, LV_PART_INDICATOR);
 
-    s_ui.sd_pct = mk_label(scr, 0, SD_BAR_Y - 3, &lv_font_gbk_12,
+    s_ui.sd_pct = mk_label(scr, 0, SD_BAR_Y - 3, UI_FONT(12),
                            COL_ACCENT, "--%");
     align_right(s_ui.sd_pct, SD_BAR_Y - 3);
 
     mk_separator(scr, SEP2_Y);
 
     /* ---- Board info ------------------------------------------------------*/
-    s_ui.freq = mk_label(scr, UI_PAD, INFO1_Y, &lv_font_gbk_16, COL_LABEL, "");
+    s_ui.freq = mk_label(scr, UI_PAD, INFO1_Y, UI_FONT(16), COL_LABEL, "");
     lv_label_set_text_fmt(s_ui.freq, "主频  %d MHz",
                           (int)(HAL_RCC_GetSysClockFreq() / 1000000U));
 
-    s_ui.clksrc = mk_label(scr, 0, INFO1_Y, &lv_font_gbk_16, COL_DIM, "");
+    s_ui.clksrc = mk_label(scr, 0, INFO1_Y, UI_FONT(16), COL_DIM, "");
     if (g_clock_source == CLOCK_SRC_HSE_XTAL)
     {
         lv_label_set_text(s_ui.clksrc, "HSE 25M");
@@ -344,14 +362,15 @@ void app_ui_create(void)
     }
     align_right(s_ui.clksrc, INFO1_Y);
 
-    s_ui.uptime = mk_label(scr, UI_PAD, INFO2_Y, &lv_font_gbk_16,
+    s_ui.uptime = mk_label(scr, UI_PAD, INFO2_Y, UI_FONT(16),
                            COL_LABEL, "运行  00:00:00");
 
     /* Font source line doubles as an RTC clock-source readout. */
-    s_ui.fontinfo = mk_label(scr, UI_PAD, INFO3_Y, &lv_font_gbk_16,
+    s_ui.fontinfo = mk_label(scr, UI_PAD, INFO3_Y, UI_FONT(16),
                              COL_LABEL, "");
     mask = lcd_driver_font_status();
-    lv_label_set_text_fmt(s_ui.fontinfo, "字库  SD卡 GBK  时基 %s",
+    lv_label_set_text_fmt(s_ui.fontinfo, "字库  %s  时基 %s",
+                          lv_font_provider_name(),
                           (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE"
                                                                   : "LSI");
     if (mask == 0U)
@@ -360,7 +379,7 @@ void app_ui_create(void)
                                     LV_PART_MAIN);
     }
 
-    s_ui.cache = mk_label(scr, UI_PAD, INFO4_Y, &lv_font_gbk_12,
+    s_ui.cache = mk_label(scr, UI_PAD, INFO4_Y, UI_FONT(12),
                           COL_DIM, "缓存  命中 0 / 读卡 0");
 
     s_built        = 1U;
@@ -395,26 +414,26 @@ void app_ui_show_fault(const char *line1, const char *line2, const char *line3)
 
     /* ASCII only from here down - the Chinese glyphs live on the card that
      * just failed to come up. */
-    (void)mk_label_center(hdr, 6, &lv_font_gbk_16, 0xFFFFFF, "SD / FONT ERROR");
+    (void)mk_label_center(hdr, 6, UI_FONT(16), 0xFFFFFF, "SD / FONT ERROR");
 
-    (void)mk_label(scr, UI_PAD, 50,  &lv_font_gbk_16, 0xFFD966,
+    (void)mk_label(scr, UI_PAD, 50,  UI_FONT(16), 0xFFD966,
                    (line1 != NULL) ? line1 : "");
-    (void)mk_label(scr, UI_PAD, 74,  &lv_font_gbk_16, 0xFFFFFF,
+    (void)mk_label(scr, UI_PAD, 74,  UI_FONT(16), 0xFFFFFF,
                    (line2 != NULL) ? line2 : "");
-    (void)mk_label(scr, UI_PAD, 98,  &lv_font_gbk_16, 0xFFFFFF,
+    (void)mk_label(scr, UI_PAD, 98,  UI_FONT(16), 0xFFFFFF,
                    (line3 != NULL) ? line3 : "");
 
-    (void)mk_label(scr, UI_PAD, 140, &lv_font_gbk_12, 0x80D0FF,
+    (void)mk_label(scr, UI_PAD, 140, UI_FONT(12), 0x80D0FF,
                    "Expected on the card:");
-    (void)mk_label(scr, UI_PAD, 158, &lv_font_gbk_12, 0xB0B0B0,
+    (void)mk_label(scr, UI_PAD, 158, UI_FONT(12), 0xB0B0B0,
                    "1:/SYSTEM/FONT/UNIGBK.BIN");
-    (void)mk_label(scr, UI_PAD, 174, &lv_font_gbk_12, 0xB0B0B0,
+    (void)mk_label(scr, UI_PAD, 174, UI_FONT(12), 0xB0B0B0,
                    "1:/SYSTEM/FONT/GBK12.FON");
-    (void)mk_label(scr, UI_PAD, 190, &lv_font_gbk_12, 0xB0B0B0,
+    (void)mk_label(scr, UI_PAD, 190, UI_FONT(12), 0xB0B0B0,
                    "1:/SYSTEM/FONT/GBK16.FON");
-    (void)mk_label(scr, UI_PAD, 206, &lv_font_gbk_12, 0xB0B0B0,
+    (void)mk_label(scr, UI_PAD, 206, UI_FONT(12), 0xB0B0B0,
                    "1:/SYSTEM/FONT/GBK24.FON");
-    (void)mk_label(scr, UI_PAD, 222, &lv_font_gbk_12, 0xB0B0B0,
+    (void)mk_label(scr, UI_PAD, 222, UI_FONT(12), 0xB0B0B0,
                    "1:/SYSTEM/FONT/GBK32.FON");
 }
 

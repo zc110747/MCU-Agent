@@ -37,6 +37,23 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
+# ---- Font engine ----------------------------------------------------------
+#  2 = CTF index + the original .ttf  (default)
+#        A .ctf built by tools/ttf2ctf maps a code point to its glyf offset in
+#        three cached reads, so measuring a glyph never touches the TTF and a
+#        character the font lacks is rejected with no I/O at all.  Latin falls
+#        back to the compiled-in Montserrat bitmaps.
+#  1 = HarmonyOS Sans TC outlines streamed straight from the card through
+#        LVGL's tiny_ttf (the previous engine, kept for comparison)
+#  0 = classic GBK bitmap fonts read from 1:/SYSTEM/FONT/GBKxx.FON
+#
+#  Override from the command line with e.g.  cmake -DLV_FONT_ENGINE=0 ..
+#
+#  NOTE: the cached value sticks once the build directory exists, so pass
+#  -DLV_FONT_ENGINE=<n> explicitly when switching rather than editing this line.
+set(LV_FONT_ENGINE 2 CACHE STRING "2 = CTF+TTF, 1 = HarmonyOS TTF, 0 = GBK bitmap")
+message(STATUS "Font engine: ${LV_FONT_ENGINE} (2 = CTF+TTF, 1 = HarmonyOS TTF, 0 = GBK)")
+
 # ---- Compile options --------------------------------------------------------
 #  -fdebug-prefix-map maps the absolute source root to "." so the debug info
 #    embedded in the .elf references "./Core/Src/main.c" instead of a full
@@ -59,6 +76,7 @@ add_compile_definitions(
   STM32H743xx
   USE_HAL_DRIVER
   HSE_VALUE=25000000
+  LV_FONT_ENGINE=${LV_FONT_ENGINE}
 )
 
 # ---- Per-config optimisation / debug flags ----------------------------------
@@ -83,6 +101,7 @@ set(CMAKE_EXE_LINKER_FLAGS
 include_directories(
   Core/Inc
   Bsp
+  Bsp/font
   Application
   Drivers/CMSIS/Include
   sys_startup
@@ -90,6 +109,9 @@ include_directories(
   third_party/FatFs
   third_party/lvgl
   third_party/lvgl/src
+  # stb_truetype lives next to LVGL's tiny_ttf; stb_adapter.c compiles it with
+  # its own stream macros and needs the header on the path.
+  ${CMAKE_SOURCE_DIR}/third_party/lvgl/src/extra/libs/tiny_ttf
 )
 
 # ---- HAL driver sources (glob, then drop the HAL template files) ------------
@@ -124,10 +146,20 @@ set(PROJECT_SRCS
   Bsp/drv_sdio.c
   Bsp/drv_rtc.c
   Bsp/disk_interface.c
-  # BSP: LVGL glue - display flush, SD-backed GBK font, Unicode->GBK table
+  # BSP: LVGL glue - display flush, cached FatFs driver, font engines
   Bsp/lv_port_disp.c
+  Bsp/lv_port_fs.c
   Bsp/lv_font_gbk.c
+  Bsp/lv_font_harmony.c
+  Bsp/lv_font_provider.c
   Bsp/lv_gbk_map.c
+  # BSP: CTF index + cached TTF reader (HarmonyOS font backend, Phase 3/4/5)
+  Bsp/font/blkcache.c
+  Bsp/font/ttf_reader.c
+  Bsp/font/ctf_reader.c
+  # BSP: CTF font engine (Phase 6 stb adapter + Phase 7 LVGL backend)
+  Bsp/font/stb_adapter.c
+  Bsp/font/lvgl_font.c
   # Demo application
   Application/app_main.c
   Application/app_ui.c

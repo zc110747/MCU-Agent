@@ -8,6 +8,7 @@
 *.obj
 *.bin
 *.elf
+*.txt
 
 # Precompiled Headers
 *.gch
@@ -80,6 +81,7 @@ Testing/
 **/Debug/*
 **/obj/*
 **/.build
+**/sd_card/*
 
 node_modules
 

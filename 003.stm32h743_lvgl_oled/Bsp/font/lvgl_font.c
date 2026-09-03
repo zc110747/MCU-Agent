@@ -1,0 +1,754 @@
+/**
+  ******************************************************************************
+  * @file    lvgl_font.c
+  * @brief   LVGL font backed by a CTF index plus the original TTF.
+  * @see     lvgl_font.h
+  *
+  *  Two things make this fast enough for a 240x240 panel driven over SPI:
+  *
+  *   1. Measuring a glyph never touches the TTF.  The index carries advance and
+  *      bounding box in font units, so get_glyph_dsc() is pure index arithmetic.
+  *      LVGL measures every character on every layout and every draw, so this is
+  *      the difference between a few dozen SD transactions per character and
+  *      none.
+  *
+  *   2. Rendering a glyph happens once.  Rasterised bitmaps stay in a RAM pool
+  *      until the pool wraps.
+  *
+  *  Kerning is deliberately not used.  LVGL 8.3 has no kerning concept at the
+  *  label level - it advances by adv_w and nothing else - and stb's kern lookup
+  *  walks GPOS one byte at a time, which is precisely the cost this redesign
+  *  removes.
+  ******************************************************************************
+  */
+#include "lvgl_font.h"
+
+/* The Latin fallback is compiled-in Montserrat.  Without it, English and digits
+ * would disappear whenever the SD card is missing. */
+#if !LV_FONT_MONTSERRAT_12 || !LV_FONT_MONTSERRAT_16 || \
+    !LV_FONT_MONTSERRAT_24 || !LV_FONT_MONTSERRAT_32
+    #error "the CTF font engine needs LV_FONT_MONTSERRAT_12/16/24/32 as its Latin fallback"
+#endif
+
+#include "ctf_reader.h"
+#include "ttf_reader.h"
+#include "stb_adapter.h"
+#include <string.h>
+
+/*---------------------------------------------------------------------------*/
+/* Configuration                                                              */
+/*---------------------------------------------------------------------------*/
+
+/* 16 KB x 4 is the block cache the design calls for.  stb reads TrueType
+ * tables a field at a time, so this is what turns tens of thousands of SD
+ * transactions into a handful. */
+static uint8_t s_ttf_cache[TTF_BLOCK_SIZE * TTF_BLOCK_COUNT];
+
+/* Index reads are tiny and clustered: 512 B x 8, plus a 2 KB copy of the
+ * Level-1 table so the first hop of every lookup costs nothing. */
+static uint8_t s_ctf_cache[CTF_BLOCK_SIZE * CTF_BLOCK_COUNT];
+static uint8_t s_l1_shadow[CTF_L1_SHADOW_SIZE];
+
+/** Rasterised glyph pool.  Wraps, and a wrap discards everything. */
+#define CTF_BMP_POOL_SIZE   (32u * 1024u)
+#define CTF_BMP_SLOTS       176u
+#define CTF_BMP_HINT_BITS   6u
+#define CTF_BMP_HINTS       (1u << CTF_BMP_HINT_BITS)
+
+static uint8_t s_bmp_pool[CTF_BMP_POOL_SIZE] __attribute__((aligned(4)));
+
+typedef struct
+{
+    uint32_t unicode;
+    uint16_t px;
+    uint16_t w;
+    uint16_t h;
+    uint32_t off;
+} bmp_slot_t;
+
+static bmp_slot_t s_bmp[CTF_BMP_SLOTS];
+static uint32_t   s_bmp_count;
+
+/** Direct-mapped hint so a hit does not scan all slots; 0 means empty. */
+static uint16_t   s_bmp_hint[CTF_BMP_HINTS];
+
+/*---------------------------------------------------------------------------*/
+/* State                                                                      */
+/*---------------------------------------------------------------------------*/
+
+static const uint16_t s_sizes[CTF_FONT_SIZES] = { 12u, 16u, 24u, 32u };
+
+typedef struct
+{
+    uint16_t px;
+    float    scale;
+} ctf_font_dsc_t;
+
+static ttf_reader_t   s_ttf;
+static ctf_reader_t   s_ctf;
+static lv_font_t      s_font[CTF_FONT_SIZES];
+static ctf_font_dsc_t s_fdsc[CTF_FONT_SIZES];
+
+static uint8_t  s_ready;
+static char     s_ctf_path[96];
+static char     s_ttf_path[96];
+
+/* Statistics.  All of them are just counters - never printed by a miss path. */
+static uint32_t s_lookups;
+static uint32_t s_missing;
+static uint32_t s_bmp_hits;
+static uint32_t s_bmp_misses;
+static uint32_t s_bmp_flushes;
+static uint32_t s_bmp_bytes;
+
+/*---------------------------------------------------------------------------*/
+/* Bitmap pool                                                                */
+/*---------------------------------------------------------------------------*/
+
+/**
+  * A bump pool with an all-or-nothing wrap.  Proper per-slot eviction would
+  * need a free list and coalescing; a full reset costs one extra rasterisation
+  * pass every few hundred glyphs and is a dozen lines instead of a hundred.
+  */
+static void bmp_flush(void)
+{
+    s_bmp_count  = 0u;
+    s_bmp_bytes  = 0u;
+    (void)memset(s_bmp_hint, 0, sizeof(s_bmp_hint));
+}
+
+static uint32_t bmp_hint_of(uint32_t unicode, uint16_t px)
+{
+    uint32_t h = (unicode * 2654435761u) ^ ((uint32_t)px * 40503u);
+    return (h >> 13) & (CTF_BMP_HINTS - 1u);
+}
+
+static const bmp_slot_t *bmp_find(uint32_t unicode, uint16_t px)
+{
+    uint32_t hint = bmp_hint_of(unicode, px);
+    uint16_t cand = s_bmp_hint[hint];
+    uint32_t i;
+
+    if ((cand != 0u) && (cand <= s_bmp_count))
+    {
+        const bmp_slot_t *s = &s_bmp[cand - 1u];
+        if ((s->unicode == unicode) && (s->px == px))
+        {
+            return s;
+        }
+    }
+
+    for (i = s_bmp_count; i > 0u; i--)
+    {
+        const bmp_slot_t *s = &s_bmp[i - 1u];
+        if ((s->unicode == unicode) && (s->px == px))
+        {
+            return s;
+        }
+    }
+
+    return NULL;
+}
+
+/**
+  * @retval NULL when the glyph is larger than the whole pool
+  */
+static uint8_t *bmp_alloc(uint32_t bytes, uint32_t *off)
+{
+    uint32_t need = (bytes + 3u) & ~3u;
+
+    if (need > CTF_BMP_POOL_SIZE)
+    {
+        return NULL;
+    }
+
+    if (((s_bmp_bytes + need) > CTF_BMP_POOL_SIZE) ||
+        (s_bmp_count >= CTF_BMP_SLOTS))
+    {
+        s_bmp_flushes++;
+        bmp_flush();
+    }
+
+    *off = s_bmp_bytes;
+    s_bmp_bytes += need;
+    return &s_bmp_pool[*off];
+}
+
+static void bmp_commit(uint32_t unicode, uint16_t px,
+                       uint16_t w, uint16_t h, uint32_t off)
+{
+    bmp_slot_t *s;
+
+    if (s_bmp_count >= CTF_BMP_SLOTS)
+    {
+        return;
+    }
+
+    s           = &s_bmp[s_bmp_count];
+    s->unicode  = unicode;
+    s->px       = px;
+    s->w        = w;
+    s->h        = h;
+    s->off      = off;
+    s_bmp_count++;
+
+    s_bmp_hint[bmp_hint_of(unicode, px)] = (uint16_t)s_bmp_count;
+}
+
+/*---------------------------------------------------------------------------*/
+/* LVGL callbacks                                                             */
+/*---------------------------------------------------------------------------*/
+
+static const lv_font_t *montserrat_for(uint16_t px)
+{
+    switch (px)
+    {
+        case 12u:  return &lv_font_montserrat_12;
+        case 24u:  return &lv_font_montserrat_24;
+        case 32u:  return &lv_font_montserrat_32;
+        case 16u:
+        default:   return &lv_font_montserrat_16;
+    }
+}
+
+/**
+  * Measure one glyph.  Pure index arithmetic - no TTF access, ever.
+  *
+  * @return false when the index does not carry this code point.  LVGL then
+  *         tries font->fallback (built-in Montserrat) and, failing that, draws
+  *         nothing.  This is a normal outcome and is never logged.
+  */
+static bool ctf_get_glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *dsc,
+                              uint32_t letter, uint32_t letter_next)
+{
+    const ctf_font_dsc_t *fd;
+    ctf_entry_t           e;
+    ctf_result_t          rc;
+    int32_t               ix0, iy0, ix1, iy1;
+    int32_t               adv;
+
+    /* LVGL 8.3 advances by adv_w only - there is no kerning to apply, and
+     * asking stb for one would mean scanning GPOS. */
+    (void)letter_next;
+
+    if ((font == NULL) || (dsc == NULL))
+    {
+        return false;
+    }
+
+    fd = (const ctf_font_dsc_t *)font->dsc;
+    s_lookups++;
+
+    rc = ctf_find_unicode(&s_ctf, letter, &e);
+
+    if (rc != CTF_OK)
+    {
+        /* Not in this font.  Hand it to the fallback chain and stop here:
+         * no TTF read, no log line, no placeholder bitmap. */
+        s_missing++;
+        return false;
+    }
+
+    adv = ctf_scale_advance((int32_t)e.advance_width, fd->scale);
+    if (adv < 0)
+    {
+        adv = 0;
+    }
+
+    /* EMPTY and NOT_FOUND are different states.  A space has no outline but a
+     * perfectly good advance, so it must lay out normally. */
+    if (ctf_entry_is_empty(&e))
+    {
+        dsc->adv_w          = (uint16_t)adv;
+        dsc->box_w          = 0u;
+        dsc->box_h          = 0u;
+        dsc->ofs_x          = 0;
+        dsc->ofs_y          = 0;
+        dsc->bpp            = 0u;
+        dsc->is_placeholder = false;
+        dsc->resolved_font  = NULL;
+        return true;
+    }
+
+    ctf_box_from_entry(&e, fd->scale, &ix0, &iy0, &ix1, &iy1);
+
+    dsc->adv_w          = (uint16_t)adv;
+    dsc->box_w          = (uint16_t)(ix1 - ix0 + 1);
+    dsc->box_h          = (uint16_t)(iy1 - iy0 + 1);
+    dsc->ofs_x          = (int16_t)ix0;
+    dsc->ofs_y          = (int16_t)(-iy1);
+    dsc->bpp            = 8u;
+    dsc->is_placeholder = false;
+    dsc->resolved_font  = NULL;
+    return true;
+}
+
+/**
+  * Fetch the rasterised bitmap for a glyph, rendering it on a miss.
+  *
+  * @return NULL when the glyph is absent or empty, or when it is too large for
+  *         the pool.  LVGL treats NULL as "draw nothing" or walks the fallback.
+  */
+static const uint8_t *ctf_get_glyph_bitmap(const lv_font_t *font, uint32_t letter)
+{
+    const ctf_font_dsc_t *fd;
+    const bmp_slot_t     *slot;
+    ctf_entry_t           e;
+    ctf_result_t          rc;
+    int32_t               ix0, iy0, ix1, iy1;
+    uint16_t              w, h;
+    uint32_t              bytes;
+    uint32_t              off;
+    uint8_t              *buf;
+
+    if (font == NULL)
+    {
+        return NULL;
+    }
+
+    fd = (const ctf_font_dsc_t *)font->dsc;
+
+    slot = bmp_find(letter, fd->px);
+    if (slot != NULL)
+    {
+        s_bmp_hits++;
+        return &s_bmp_pool[slot->off];
+    }
+
+    s_lookups++;
+    s_bmp_misses++;
+
+    rc = ctf_find_unicode(&s_ctf, letter, &e);
+    if (rc != CTF_OK)
+    {
+        return NULL;
+    }
+
+    if (ctf_entry_is_empty(&e))
+    {
+        return NULL;    /* nothing to draw; the descriptor already advanced */
+    }
+
+    ctf_box_from_entry(&e, fd->scale, &ix0, &iy0, &ix1, &iy1);
+
+    w = (uint16_t)(ix1 - ix0 + 1);
+    h = (uint16_t)(iy1 - iy0 + 1);
+
+    if ((w == 0u) || (h == 0u))
+    {
+        return NULL;
+    }
+
+    bytes = (uint32_t)w * (uint32_t)h;
+
+    buf = bmp_alloc(bytes, &off);
+    if (buf == NULL)
+    {
+        return NULL;    /* bigger than the pool - draw nothing rather than hang */
+    }
+
+    (void)stb_adapter_render(e.glyph_id, fd->px, buf, w, h,
+                             (int16_t)ix0, (int16_t)(-iy1));
+
+    bmp_commit(letter, fd->px, w, h, off);
+
+    return buf;
+}
+
+/*---------------------------------------------------------------------------*/
+/* Public API                                                                 */
+/*---------------------------------------------------------------------------*/
+
+static void path_copy(char *dst, size_t dst_size, const char *src)
+{
+    size_t i;
+
+    if (src == NULL)
+    {
+        dst[0] = '\0';
+        return;
+    }
+
+    for (i = 0u; (src[i] != '\0') && (i < (dst_size - 1u)); i++)
+    {
+        dst[i] = src[i];
+    }
+    dst[i] = '\0';
+}
+
+static void build_font(uint32_t i)
+{
+    const ctf_header_t *h = ctf_header(&s_ctf);
+    float               scale;
+
+    scale = (float)s_sizes[i] / (float)h->units_per_em;
+
+    s_fdsc[i].px    = s_sizes[i];
+    s_fdsc[i].scale = scale;
+
+    s_font[i].dsc                = (const void *)&s_fdsc[i];
+    s_font[i].get_glyph_dsc      = ctf_get_glyph_dsc;
+    s_font[i].get_glyph_bitmap   = ctf_get_glyph_bitmap;
+    s_font[i].line_height        = (lv_coord_t)(scale *
+                                       ((float)h->ascent - (float)h->descent +
+                                        (float)h->line_gap));
+    s_font[i].base_line          = (lv_coord_t)(scale *
+                                       ((float)h->line_gap - (float)h->descent));
+    s_font[i].subpx              = 0u;
+    s_font[i].underline_position = (int8_t)(-((int)(s_sizes[i] / 10u)) - 1);
+    s_font[i].underline_thickness = 1;
+
+    /* Latin comes from flash when the index has no such glyph. */
+    s_font[i].fallback = montserrat_for(s_sizes[i]);
+}
+
+GlobalType_t lvgl_font_engine_init(const char *ctf_path, const char *ttf_path)
+{
+    uint32_t i;
+
+    s_ready = 0u;
+
+    if ((ctf_path == NULL) || (ttf_path == NULL))
+    {
+        return RT_FAIL;
+    }
+
+    if (ctf_open(&s_ctf, ctf_path,
+                 s_ctf_cache, CTF_BLOCK_SIZE, CTF_BLOCK_COUNT,
+                 s_l1_shadow) != RT_OK)
+    {
+        return RT_FAIL;
+    }
+
+    /* Refuse to render from a TTF that is not the one the index describes;
+     * every offset in the index would point somewhere else. */
+    if (ctf_verify_ttf(&s_ctf, ttf_path, 0) != RT_OK)
+    {
+        ctf_close(&s_ctf);
+        return RT_FAIL;
+    }
+
+    if (ttf_open(&s_ttf, ttf_path,
+                 s_ttf_cache, TTF_BLOCK_SIZE, TTF_BLOCK_COUNT) != RT_OK)
+    {
+        ctf_close(&s_ctf);
+        return RT_FAIL;
+    }
+
+    if (stb_adapter_open(&s_ttf, 0u) != RT_OK)
+    {
+        ttf_close(&s_ttf);
+        ctf_close(&s_ctf);
+        return RT_FAIL;
+    }
+
+    (void)memset(s_font, 0, sizeof(s_font));
+    (void)memset(s_fdsc, 0, sizeof(s_fdsc));
+
+    for (i = 0u; i < CTF_FONT_SIZES; i++)
+    {
+        build_font(i);
+    }
+
+    bmp_flush();
+
+    path_copy(s_ctf_path, sizeof(s_ctf_path), ctf_path);
+    path_copy(s_ttf_path, sizeof(s_ttf_path), ttf_path);
+
+    s_lookups     = 0u;
+    s_missing     = 0u;
+    s_bmp_hits    = 0u;
+    s_bmp_misses  = 0u;
+    s_bmp_flushes = 0u;
+    s_bmp_bytes   = 0u;
+
+    s_ready = 1u;
+    return RT_OK;
+}
+
+void lvgl_font_engine_deinit(void)
+{
+    stb_adapter_close();
+    ttf_close(&s_ttf);
+    ctf_close(&s_ctf);
+    bmp_flush();
+    s_ready = 0u;
+}
+
+int lvgl_font_engine_ready(void)
+{
+    return (int)s_ready;
+}
+
+const lv_font_t *lvgl_font_get(uint16_t px_size)
+{
+    uint32_t i;
+
+    if (!s_ready)
+    {
+        return NULL;
+    }
+
+    /* Round down to the nearest size we instantiate. */
+    for (i = CTF_FONT_SIZES; i > 0u; i--)
+    {
+        if (px_size >= s_sizes[i - 1u])
+        {
+            return &s_font[i - 1u];
+        }
+    }
+
+    return &s_font[0];
+}
+
+const char *lvgl_font_ctf_path(void)
+{
+    return s_ctf_path;
+}
+
+const char *lvgl_font_ttf_path(void)
+{
+    return s_ttf_path;
+}
+
+/*---------------------------------------------------------------------------*/
+/* On-target acceptance probe                                                */
+/*---------------------------------------------------------------------------*/
+
+/**
+  *  A fixed vector, chosen to cover every branch of the lookup:
+  *
+  *    present CJK (dense), present CJK (worst case stroke count), present
+  *    Latin, present digit, EMPTY (a space), a composite accent, plus code
+  *    points no CJK font carries (astral plane, PUA) to exercise the
+  *    NOT_FOUND path on real hardware.
+  *
+  *  Which of these are present is font dependent - the probe reports what it
+  *  found rather than asserting it.
+  */
+static const struct
+{
+    uint32_t cp;
+    uint16_t px;
+} s_probe_vec[] = {
+    { 0x4E2Du, 24u },   /* dense CJK                      */
+    { 0x6587u, 24u },   /* dense CJK                      */
+    { 0x91D1u, 32u },   /* 8 strokes at 32 px             */
+    { 0x9F9Fu, 32u },   /* 30 strokes: worst-case arena   */
+    { 0x0041u, 16u },   /* Latin capital                  */
+    { 0x0030u, 16u },   /* digit                          */
+    { 0x0020u, 16u },   /* EMPTY: advance, no outline     */
+    { 0x00E9u, 32u },   /* composite accent               */
+    { 0xFF0Cu, 24u },   /* fullwidth comma                */
+    { 0x1F600u, 24u },  /* astral: absent from CJK fonts  */
+    { 0xF8FFu, 24u },   /* PUA: absent from CJK fonts     */
+    { 0x0378u, 24u },   /* unassigned Greek: absent       */
+};
+
+#define PROBE_VEC_N  (sizeof(s_probe_vec) / sizeof(s_probe_vec[0]))
+
+/*---------------------------------------------------------------------------*/
+/* Timing                                                                     */
+/*---------------------------------------------------------------------------*/
+
+/** HAL_GetTick() only resolves 1 ms, which is coarser than one glyph. */
+static uint32_t cycles_to_us(uint32_t cycles)
+{
+    uint32_t mhz = (SystemCoreClock != 0u) ? (SystemCoreClock / 1000000u) : 1u;
+
+    if (mhz == 0u)
+    {
+        mhz = 1u;
+    }
+    return cycles / mhz;
+}
+
+/** CYCCNT gives ns-class resolution; HAL_GetTick() only resolves 1 ms, which
+ *  is coarser than a single glyph rasterisation. */
+static void probe_timer_start(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0u;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+/** Cumulative microseconds the card has cost us so far (seek + read). */
+static uint32_t sd_us_so_far(void)
+{
+    uint32_t sc, rc;
+
+    ttf_cycles(&s_ttf, &sc, &rc);
+    return cycles_to_us(sc + rc);
+}
+
+static uint32_t sd_reads_so_far(void)
+{
+    lvgl_font_stats_t st;
+
+    lvgl_font_get_stats(&st);
+    return st.ttf_fills;
+}
+
+uint32_t lvgl_font_selftest(lvgl_font_probe_t *out, uint32_t capacity)
+{
+    uint32_t i;
+    uint32_t n = 0u;
+
+    if ((out == NULL) || (capacity == 0u) || !s_ready)
+    {
+        return 0u;
+    }
+
+    if (capacity > PROBE_VEC_N)
+    {
+        capacity = (uint32_t)PROBE_VEC_N;
+    }
+
+    probe_timer_start();
+
+    /* Everything below is timed cold, then warm. */
+    bmp_flush();
+
+    for (i = 0u; i < capacity; i++)
+    {
+        const lv_font_t      *f = lvgl_font_get(s_probe_vec[i].px);
+        lv_font_glyph_dsc_t   dsc;
+        lvgl_font_probe_t    *p = &out[n];
+        const uint8_t        *bmp;
+        uint32_t              reads0, reads1;
+        uint32_t              sdus0, sdus1;
+        uint32_t              c0, c1;
+        uint32_t              j;
+
+        (void)memset(p, 0, sizeof(*p));
+        p->cp = s_probe_vec[i].cp;
+        p->px = s_probe_vec[i].px;
+
+        if (f == NULL)
+        {
+            n++;
+            continue;
+        }
+
+        (void)memset(&dsc, 0, sizeof(dsc));
+        reads0 = sd_reads_so_far();
+        sdus0  = sd_us_so_far();
+
+        /* Index arithmetic only - this must never touch the TTF.
+         * lv_font_get_glyph_dsc() walks the fallback chain itself, so a hit is
+         * only a hit when it resolves back to *this* font. */
+        c0 = DWT->CYCCNT;
+        {
+            bool ok = lv_font_get_glyph_dsc(f, &dsc, p->cp, 0u);
+            p->found = (ok && (dsc.resolved_font == f)) ? 1u : 0u;
+        }
+        c1 = DWT->CYCCNT;
+        (void)c0; (void)c1;         /* tens of cycles - below timer interest */
+
+        if (p->found != 0u)
+        {
+            p->adv_w = dsc.adv_w;
+            p->box_w = dsc.box_w;
+            p->box_h = dsc.box_h;
+            p->ofs_x = dsc.ofs_x;
+            p->ofs_y = dsc.ofs_y;
+            p->empty = ((dsc.box_w == 0u) || (dsc.box_h == 0u) ||
+                        (dsc.bpp == 0u)) ? 1u : 0u;
+        }
+        else
+        {
+            /* NOT_FOUND as far as the index is concerned.  Record what the
+             * built-in font contributed so the log shows Latin still renders
+             * when the index has nothing to offer. */
+            p->fb_adv_w = dsc.adv_w;
+        }
+
+        /* Cold: rasterise + whatever SD traffic that costs. */
+        c0 = DWT->CYCCNT;
+        bmp = lv_font_get_glyph_bitmap(f, p->cp);
+        c1 = DWT->CYCCNT;
+        p->cold_us = cycles_to_us(c1 - c0);
+
+        /* Warm: straight out of the bitmap pool. */
+        c0 = DWT->CYCCNT;
+        bmp = lv_font_get_glyph_bitmap(f, p->cp);
+        c1 = DWT->CYCCNT;
+        p->warm_us = cycles_to_us(c1 - c0);
+
+        if ((bmp != NULL) && (p->box_w != 0u) && (p->box_h != 0u))
+        {
+            uint32_t bytes = (uint32_t)p->box_w * (uint32_t)p->box_h;
+            uint32_t ink   = 0u;
+
+            for (j = 0u; j < bytes; j++)
+            {
+                if (bmp[j] != 0u)
+                {
+                    ink++;
+                }
+            }
+            p->ink = ink;
+        }
+
+        reads1 = sd_reads_so_far();
+        sdus1  = sd_us_so_far();
+        p->sd_reads = reads1 - reads0;
+        p->sd_us    = sdus1 - sdus0;
+
+        n++;
+    }
+
+    return n;
+}
+
+void lvgl_font_get_stats(lvgl_font_stats_t *out)
+{
+    uint32_t hits, misses, fills, fill_bytes;
+    uint32_t c_look, c_nf, c_io;
+    uint32_t sc, rc;
+
+    if (out == NULL)
+    {
+        return;
+    }
+
+    (void)memset(out, 0, sizeof(*out));
+
+    out->lookups     = s_lookups;
+    out->missing     = s_missing;
+    out->bmp_hits    = s_bmp_hits;
+    out->bmp_misses  = s_bmp_misses;
+    out->bmp_flushes = s_bmp_flushes;
+    out->bmp_bytes   = s_bmp_bytes;
+
+    stb_adapter_arena_stats(&out->arena_peak, &out->arena_fails);
+
+    ttf_stats(&s_ttf, &hits, &misses, &fills, &fill_bytes);
+    out->ttf_hits   = hits;
+    out->ttf_misses = misses;
+    out->ttf_fills  = fills;
+    out->ttf_bytes  = fill_bytes;
+
+    ttf_cycles(&s_ttf, &sc, &rc);
+    out->ttf_seek_us = cycles_to_us(sc);
+    out->ttf_read_us = cycles_to_us(rc);
+
+    ctf_stats(&s_ctf, &c_look, &c_nf, &c_io);
+    out->ctf_lookups   = c_look;
+    out->ctf_not_found = c_nf;
+    out->ctf_io_errors = c_io;
+}
+
+void lvgl_font_reset_stats(void)
+{
+    s_lookups     = 0u;
+    s_missing     = 0u;
+    s_bmp_hits    = 0u;
+    s_bmp_misses  = 0u;
+    s_bmp_flushes = 0u;
+}
+
+void lvgl_font_flush_bitmaps(void)
+{
+    bmp_flush();
+}
