@@ -51,19 +51,19 @@ int main(void)
     /* Console first, so that every later stage can report progress */
     bsp_log_init();
 
-    printf("\r\n\r\n");
-    LOG_I("==============================================");
-    LOG_I(" STM32H743 SD-card JPEG slideshow");
-    LOG_I(" SYSCLK    : %lu Hz", (unsigned long)HAL_RCC_GetSysClockFreq());
-    LOG_I(" Build     : %s %s", __DATE__, __TIME__);
-    LOG_I("==============================================");
+    printf_log("\r\n\r\n");
+    PRINT_LOG("[I] ==============================================\r\n");
+    PRINT_LOG("[I]  STM32H743 SD-card JPEG slideshow\r\n");
+    PRINT_LOG("[I]  SYSCLK    : %lu Hz\r\n", (unsigned long)HAL_RCC_GetSysClockFreq());
+    PRINT_LOG("[I]  Build     : %s %s\r\n", __DATE__, __TIME__);
+    PRINT_LOG("[I] ==============================================\r\n");
 
     /* Panel up first: gives immediate visual feedback that the board booted */
     bsp_oled_init();
 
     /* Storage */
     if (bsp_sdcard_mount() != RT_OK) {
-        LOG_E("SD card mount failed, halting slideshow");
+        PRINT_LOG("[E] SD card mount failed, halting slideshow\r\n");
         bsp_oled_show_banner("SD CARD ERROR", "check card / wiring");
     }
 
@@ -236,6 +236,6 @@ void Error_Handler(void)
 #ifdef USE_FULL_ASSERT
 void assert_failed(uint8_t *file, uint32_t line)
 {
-    printf("assert failed: %s:%lu\r\n", (char *)file, (unsigned long)line);
+    printf_log("assert failed: %s:%lu\r\n", (char *)file, (unsigned long)line);
 }
 #endif /* USE_FULL_ASSERT */

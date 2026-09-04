@@ -17,7 +17,7 @@
 | LCD_BL | PG12 | 背光，高有效 |
 | LED | PG7 | 每次换图翻转一次，作心跳指示 |
 | SDMMC1 | PC8–PC12、PD2 | 4-bit 总线 |
-| USART1 | PA9 / PA10 | 115200-8-N-1，printf 日志 |
+| USART1 | PA9 / PA10 | 115200-8-N-1，非阻塞 PRINT_LOG 日志（环形缓冲 + TXE 中断） |
 
 ## 目录结构
 
@@ -25,7 +25,7 @@
 Core/           启动文件、main、HAL MSP、中断向量、syscalls
 Drivers/        CMSIS + STM32H7xx HAL（原样引入，不改动）
 third_party/    fatfs (R0.16)、tjpgd (R0.03)
-bsp/            板级驱动：OLED、SD 卡、串口日志（含厂商 OLED 驱动）
+bsp/            板级驱动：OLED、SD 卡、非阻塞 PRINT_LOG 日志（环形缓冲 + TXE 中断）
 app/            应用层：JPEG 解码流水线、轮播逻辑
 cmake/          arm-none-eabi 工具链文件
 tools/          STM32H743.svd（调试时查看外设寄存器）
@@ -98,8 +98,8 @@ f_read ──▶ jd_prepare ──▶ 选择 1/1、1/2、1/4、1/8 硬解降采�
 
 | 区域 | 占用 | 容量 |
 | --- | --- | --- |
-| FLASH | 59 KB | 2 MB |
-| RAM_D1 (AXI SRAM) | 159 KB | 512 KB |
+| FLASH | 58304 B (2.78%) | 2 MB |
+| RAM_D1 (AXI SRAM) | 163424 B (31.17%) | 512 KB |
 
 其中帧缓冲 112.5 KB、TJpgDec 工作区约 14 KB。DTCM / RAM_D2 / RAM_D3 / ITCM 全部空闲，
 链接脚本已预留 `.dtcm`、`.ram_d2`、`.ram_d3` 段方便后续扩展（例如加 LVGL）。
@@ -111,20 +111,36 @@ SDMMC 与 SPI 均使用 CPU 轮询模式（`HAL_SD_ReadBlocks` 从 FIFO 逐字�
 MPU 只保留背景映射，无需配置 non-cacheable 窗口。
 后续若改用 DMA（SDMMC IDMA 或 SPI DMA），需要为对应缓冲区补上 MPU 配置或 cache 维护操作。
 
+## 日志系统（PRINT_LOG）
+
+`bsp/bsp_log.{c,h}` 提供非阻塞日志：`printf_log()` 是 `printf()` 的直接替代，先把格式化结果写入栈上
+缓冲，再推入发送环形缓冲（1 KB）；USART1 的 **TXE 发送完成中断**在后台逐字节把环形缓冲排空，
+**调用方永不阻塞 UART**。
+
+- 应用统一入口：`PRINT_LOG("fmt\r\n", ...)`（原先的 `LOG_I/LOG_W/LOG_E` 宏已删除，统一走此入口）。
+- 关闭输出：构建时加 `-DPRINT_LOG_ENABLE=0`，所有 `PRINT_LOG(...)` 被编译消除
+  （死代码消除，零运行时开销、无 UART 流量）。`bsp_log.h` 默认 `PRINT_LOG_ENABLE 1`。
+- 约束：`PRINT_LOG` / `printf_log` 仅限线程模式调用，**禁止在 ISR 中使用**；
+  中断侧由 `USART1_IRQHandler → log_uart_tx_irq()` 自动 drain 环形缓冲。
+- 多缓冲安全：写环形缓冲时关闭 TXE 中断以保护共享索引；发送空闲时由 `uart_write` 触发首字节，ISR 排空剩余。
+- `printf()` 经 newlib `_write` 重定向也走同一非阻塞环形缓冲（兼容散落的 `printf`）。
+
 ## 运行日志示例
 
 ```
-==============================================
- STM32H743 SD-card JPEG slideshow
- SYSCLK    : 480000000 Hz
- Build     : Aug  6 2026 09:40:12
-==============================================
-SD card: SDHC, 30436 MB, block 512 B
-scanning 0:/image ...
-  [ 0] 001.jpg                          184320 bytes
-  [ 1] 002.jpg                          221184 bytes
-2 jpeg file(s) in 0:/image
-[1/2] 001.jpg  1920x1080 -> 1/4 -> crop 270 -> 240x240  118ms
+[I] ==============================================
+[I]  STM32H743 SD-card JPEG slideshow
+[I]  SYSCLK    : 480000000 Hz
+[I]  Build     : Sep  4 2026 15:45:26
+[I] ==============================================
+[I] SD card: type=1, blocks=62586880, blocksize=512, capacity=30560 MB
+[I] FatFs volume 1: mounted
+[I] scanning 1:/image ...
+[I]   [ 0] 001.jpg                          86871 bytes
+[I]   [ 1] 002.jpg                          17380 bytes
+[I]   [ 2] 003.jpg                          213773 bytes
+[I] 3 jpeg file(s) in 1:/image
+[I] [1/3] 001.jpg  768x480 -> 1/2 -> crop 240 -> 240x240  97ms
 ```
 
 ## 异常处理

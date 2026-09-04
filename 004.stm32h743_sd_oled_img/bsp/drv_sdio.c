@@ -148,12 +148,12 @@ GlobalType_t bsp_sdcard_mount(void)
     /* opt = 1 -> mount immediately so errors surface here, not at f_open() */
     res = f_mount(&s_fatfs, SD_DRIVE_PATH, 1);
     if (res != FR_OK) {
-        LOG_E("f_mount(%s) failed, FRESULT=%d", SD_DRIVE_PATH, res);
+        PRINT_LOG("[E] f_mount(%s) failed, FRESULT=%d\r\n", SD_DRIVE_PATH, res);
         return RT_FAIL;
     }
 
     s_mounted = 1;
-    LOG_I("FatFs volume %s mounted", SD_DRIVE_PATH);
+    PRINT_LOG("[I] FatFs volume %s mounted\r\n", SD_DRIVE_PATH);
     return RT_OK;
 }
 
@@ -174,13 +174,13 @@ void bsp_sdcard_dump_info(void)
     uint64_t               bytes;
 
     if (HAL_SD_GetCardInfo(&hsd1, &info) != HAL_OK) {
-        LOG_W("HAL_SD_GetCardInfo failed");
+        PRINT_LOG("[W] HAL_SD_GetCardInfo failed\r\n");
         return;
     }
 
     bytes = (uint64_t)info.LogBlockNbr * (uint64_t)info.LogBlockSize;
 
-    LOG_I("SD card: type=%lu, blocks=%lu, blocksize=%lu, capacity=%lu MB",
+    PRINT_LOG("[I] SD card: type=%lu, blocks=%lu, blocksize=%lu, capacity=%lu MB\r\n",
           (unsigned long)info.CardType,
           (unsigned long)info.LogBlockNbr,
           (unsigned long)info.LogBlockSize,

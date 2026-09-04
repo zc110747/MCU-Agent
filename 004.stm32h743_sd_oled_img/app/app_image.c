@@ -191,7 +191,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
 
     if (f_open(&s_file, path, FA_READ) != FR_OK)
     {
-        LOG_E("open %s failed", path);
+        PRINT_LOG("[E] open %s failed\r\n", path);
         return RT_FAIL;
     }
 
@@ -201,7 +201,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
     res = jd_prepare(&s_jdec, jpeg_in_func, s_jpeg_work, sizeof(s_jpeg_work), &ctx);
     if (res != JDR_OK)
     {
-        LOG_E("jd_prepare %s: %s", path, app_image_jres_str((int)res));
+        PRINT_LOG("[E] jd_prepare %s: %s\r\n", path, app_image_jres_str((int)res));
         f_close(&s_file);
         if (info != NULL) { info->jres = (int)res; }
         return RT_FAIL;
@@ -228,7 +228,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
     out_h = (uint16_t)(s_jdec.height >> scale);
     if ((out_w == 0U) || (out_h == 0U))
     {
-        LOG_E("degenerate size %ux%u", out_w, out_h);
+        PRINT_LOG("[E] degenerate size %ux%u\r\n", out_w, out_h);
         f_close(&s_file);
         return RT_FAIL;
     }
@@ -258,7 +258,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
 
     if (res != JDR_OK)
     {
-        LOG_E("jd_decomp %s: %s", path, app_image_jres_str((int)res));
+        PRINT_LOG("[E] jd_decomp %s: %s\r\n", path, app_image_jres_str((int)res));
         return RT_FAIL;
     }
 

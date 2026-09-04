@@ -80,7 +80,7 @@ static GlobalType_t slideshow_scan(void)
     fr = f_opendir(&s_dir, SLIDESHOW_DIR);
     if (fr != FR_OK)
     {
-        LOG_E("opendir %s failed (fr=%d)", SLIDESHOW_DIR, (int)fr);
+        PRINT_LOG("[E] opendir %s failed (fr=%d)\r\n", SLIDESHOW_DIR, (int)fr);
         return RT_FAIL;
     }
 
@@ -101,12 +101,12 @@ static GlobalType_t slideshow_scan(void)
         }
         if (strlen(s_fno.fname) >= SLIDESHOW_MAX_NAME)
         {
-            LOG_W("name too long, skipped: %s", s_fno.fname);
+            PRINT_LOG("[W] name too long, skipped: %s\r\n", s_fno.fname);
             continue;
         }
 
         strcpy(s_files[s_file_count], s_fno.fname);
-        LOG_I("  [%2lu] %-32s %lu bytes",
+        PRINT_LOG("[I]   [%2lu] %-32s %lu bytes\r\n",
               (unsigned long)s_file_count,
               s_files[s_file_count],
               (unsigned long)s_fno.fsize);
@@ -114,7 +114,7 @@ static GlobalType_t slideshow_scan(void)
         s_file_count++;
         if (s_file_count >= SLIDESHOW_MAX_FILES)
         {
-            LOG_W("file list full (%d), remaining files ignored",
+            PRINT_LOG("[W] file list full (%d), remaining files ignored\r\n",
                   SLIDESHOW_MAX_FILES);
             break;
         }
@@ -122,7 +122,7 @@ static GlobalType_t slideshow_scan(void)
 
     f_closedir(&s_dir);
 
-    LOG_I("%lu jpeg file(s) in %s", (unsigned long)s_file_count, SLIDESHOW_DIR);
+    PRINT_LOG("[I] %lu jpeg file(s) in %s\r\n", (unsigned long)s_file_count, SLIDESHOW_DIR);
     return (s_file_count > 0U) ? RT_OK : RT_FAIL;
 }
 
@@ -147,7 +147,7 @@ static GlobalType_t slideshow_show(uint32_t idx)
 
     bsp_oled_blit_frame(app_image_framebuffer());
 
-    LOG_I("[%lu/%lu] %s  %ux%u -> 1/%u -> crop %u -> 240x240  %lums",
+    PRINT_LOG("[I] [%lu/%lu] %s  %ux%u -> 1/%u -> crop %u -> 240x240  %lums\r\n",
           (unsigned long)(idx + 1U), (unsigned long)s_file_count,
           s_files[idx],
           info.src_width, info.src_height,
@@ -179,7 +179,7 @@ void app_slideshow_init(void)
         return;
     }
 
-    LOG_I("scanning %s ...", SLIDESHOW_DIR);
+    PRINT_LOG("[I] scanning %s ...\r\n", SLIDESHOW_DIR);
 
     if (slideshow_scan() != RT_OK)
     {
@@ -216,7 +216,7 @@ void app_slideshow_poll(void)
         }
         if (slideshow_scan() == RT_OK)
         {
-            LOG_I("card back online, slideshow resumed");
+            PRINT_LOG("[I] card back online, slideshow resumed\r\n");
             s_ready = 1;
             (void)slideshow_show(s_index);
             s_last_tick = HAL_GetTick();
@@ -242,7 +242,7 @@ void app_slideshow_poll(void)
          */
         if (!bsp_sdcard_is_mounted())
         {
-            LOG_E("card lost, going back to retry mode");
+            PRINT_LOG("[E] card lost, going back to retry mode\r\n");
             bsp_oled_show_banner("SD CARD LOST", "reinsert the card");
             s_ready      = 0;
             s_retry_tick = HAL_GetTick();
