@@ -49,6 +49,7 @@
 #include "gbk_conv.h"   /* GBK (card name) -> UTF-8 for the OLED font driver */
 #include <stdio.h>
 #include <string.h>
+#include "bsp_log.h"
 
 /* The browser and the console both work off the card root. */
 #define NES_DIR             "1:"
@@ -196,7 +197,7 @@ static int load_rom_named(const char *name)
 
     if (nes_rom_arena() == NULL)
     {
-        printf("[NES ] no ROM arena (allocation failed at page open)\r\n");
+        PRINT_LOG("[NES ] no ROM arena (allocation failed at page open)\r\n");
         s_fail_reason = "内存不足";
         return -1;
     }
@@ -207,7 +208,7 @@ static int load_rom_named(const char *name)
     fr = f_open(&file, path, FA_READ);
     if (fr != FR_OK)
     {
-        printf("[NES ] open %s failed (%d)\r\n", utf8, (int)fr);
+        PRINT_LOG("[NES ] open %s failed (%d)\r\n", utf8, (int)fr);
         s_fail_reason = "文件打不开";
         return -1;
     }
@@ -217,14 +218,14 @@ static int load_rom_named(const char *name)
     if (size < 16U)
     {
         (void)f_close(&file);
-        printf("[NES ] %s is only %lu B\r\n", utf8, (unsigned long)size);
+        PRINT_LOG("[NES ] %s is only %lu B\r\n", utf8, (unsigned long)size);
         s_fail_reason = "不是 NES 文件";
         return -1;
     }
 
     if (size > nes_rom_arena_size())
     {
-        printf("[NES ] %s is %lu B, arena holds %lu B\r\n", utf8,
+        PRINT_LOG("[NES ] %s is %lu B, arena holds %lu B\r\n", utf8,
                (unsigned long)size,
                (unsigned long)nes_rom_arena_size());
         (void)f_close(&file);
@@ -237,7 +238,7 @@ static int load_rom_named(const char *name)
 
     if ((fr != FR_OK) || (read == 0U))
     {
-        printf("[NES ] read %s failed (%d)\r\n", utf8, (int)fr);
+        PRINT_LOG("[NES ] read %s failed (%d)\r\n", utf8, (int)fr);
         s_fail_reason = "读取失败";
         return -1;
     }
@@ -254,12 +255,12 @@ static int load_rom_named(const char *name)
             "ok", "不是 NES 文件", "文件过大", "Mapper 不支持"
         };
 
-        printf("[NES ] %s rejected: %s\r\n", utf8, reason[(int)err]);
+        PRINT_LOG("[NES ] %s rejected: %s\r\n", utf8, reason[(int)err]);
         s_fail_reason = reason_cn[(int)err];
         return -1;
     }
 
-    printf("[NES ] %s loaded, %lu B, mapper %u (%s)\r\n",
+    PRINT_LOG("[NES ] %s loaded, %lu B, mapper %u (%s)\r\n",
            utf8, (unsigned long)read,
            (unsigned)nes_mapper_number(), nes_mapper_name());
 
@@ -351,7 +352,7 @@ static void on_pick(int index, const char *name_gbk, const char *name_utf8,
         return;
     }
 
-    printf("[NES ] cannot load %s: %s\r\n",
+    PRINT_LOG("[NES ] cannot load %s: %s\r\n",
            (name_utf8 != NULL) ? name_utf8 : "?", s_fail_reason);
 
     sd_browser_show_error(s_browser, "无法加载", s_fail_reason);
@@ -377,7 +378,7 @@ static void nes_enter(lv_obj_t *root)
      * nes_exit so the memory is available to other apps while we are not here. */
     if (nes_open() != 0)
     {
-        printf("[NES ] cannot allocate emulator memory\r\n");
+        PRINT_LOG("[NES ] cannot allocate emulator memory\r\n");
     }
 
     find_roms();                    /* keeps the console list in sync */
@@ -413,7 +414,7 @@ static void stop_game(void)
         (void)lv_timer_handler();
     }
 
-    printf("[NES ] stopped after %lu frames\r\n",
+    PRINT_LOG("[NES ] stopped after %lu frames\r\n",
            (unsigned long)nes_frame_count());
 }
 
@@ -427,7 +428,7 @@ static void start_game(void)
     LCD_SetBackColor(LCD_BLACK);
     LCD_Clear();
 
-    printf("[NES ] running - 按 SELECT / BACK / MENU 退出\r\n");
+    PRINT_LOG("[NES ] running - 按 SELECT / BACK / MENU 退出\r\n");
 }
 
 static int nes_key(key_id_t id, key_edge_t edge)

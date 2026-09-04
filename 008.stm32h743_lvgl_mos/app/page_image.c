@@ -30,6 +30,7 @@
 #include "gbk_conv.h"
 #include <stdio.h>
 #include <string.h>
+#include "bsp_log.h"
 
 #define IMG_DIR             "1:"
 
@@ -193,7 +194,7 @@ static int show_image(const char *name)
     s_state = IMG_STATE_VIEWING;
     img_blit();
 
-    printf("[IMG ] viewing - 按 SELECT / BACK 返回\r\n");
+    PRINT_LOG("[IMG ] viewing - 按 SELECT / BACK 返回\r\n");
     return 0;
 }
 
@@ -231,7 +232,7 @@ static void on_pick(int index, const char *name_gbk, const char *name_utf8,
         return;
     }
 
-    printf("[IMG ] cannot open %s: %s\r\n",
+    PRINT_LOG("[IMG ] cannot open %s: %s\r\n",
            (name_utf8 != NULL) ? name_utf8 : "?", s_fail_reason);
 
     sd_browser_show_error(s_browser, "无法打开", s_fail_reason);

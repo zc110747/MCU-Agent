@@ -22,6 +22,7 @@
   */
 #include "main.h"
 #include "app_main.h"
+#include "bsp_log.h"
 
 /* Peripheral handles --------------------------------------------------------*/
 SPI_HandleTypeDef  hspi6;
@@ -65,6 +66,7 @@ int main(void)
     /* 4. Peripherals ---------------------------------------------------------*/
     MX_GPIO_Init();
     MX_USART1_UART_Init();
+    log_uart_init();
     MX_SPI6_Init();
     MX_SDMMC1_SD_Init();
 

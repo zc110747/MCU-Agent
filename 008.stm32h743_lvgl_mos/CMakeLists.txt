@@ -186,6 +186,7 @@ set(PROJECT_SRCS
   bsp/drv_rtc.c
   bsp/disk_interface.c
   bsp/sram_pool.c
+  bsp/bsp_log.c
   # BSP: software baseline JPEG encoder + OLED screenshot capture
   bsp/jpeg_enc.c
   bsp/screen_cap.c

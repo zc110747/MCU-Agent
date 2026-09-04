@@ -22,6 +22,7 @@
 #include "bsp_console.h"
 #include "drv_usb_cdc.h"
 #include "main.h"
+#include "bsp_log.h"
 
 #include <string.h>
 
@@ -124,8 +125,7 @@ void bsp_console_write(const char *data, uint32_t len)
         return;
     }
 
-    (void)HAL_UART_Transmit(&huart1, (uint8_t *)data, (uint16_t)len,
-                            CON_TX_TIMEOUT);
+    bsp_uart_write((const uint8_t *)data, (int)len);
 
     (void)drv_usb_cdc_write(data, len);
 }

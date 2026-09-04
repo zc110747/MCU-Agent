@@ -52,6 +52,7 @@
 #include "gbk_conv.h"        /* GBK (card content) -> UTF-8 for the OLED font driver */
 #include <stdio.h>
 #include <string.h>
+#include "bsp_log.h"
 
 #define TXT_DIR             "1:"
 
@@ -217,7 +218,7 @@ static int open_file(const char *dir_gbk, const char *name_gbk)
     fr = f_open(&file, path, FA_READ);
     if (fr != FR_OK)
     {
-        printf("[TXT ] open %s failed (%d)\r\n", path, (int)fr);
+        PRINT_LOG("[TXT ] open %s failed (%d)\r\n", path, (int)fr);
         return -1;
     }
 
@@ -227,7 +228,7 @@ static int open_file(const char *dir_gbk, const char *name_gbk)
 
     if (fr != FR_OK)
     {
-        printf("[TXT ] read %s failed (%d)\r\n", path, (int)fr);
+        PRINT_LOG("[TXT ] read %s failed (%d)\r\n", path, (int)fr);
         return -1;
     }
 
@@ -273,7 +274,7 @@ static int open_file(const char *dir_gbk, const char *name_gbk)
     s_page      = 0;
     s_has_next  = 0;
 
-    printf("[TXT ] loaded %s (%lu B, %s%s)\r\n", path,
+    PRINT_LOG("[TXT ] loaded %s (%lu B, %s%s)\r\n", path,
            (unsigned long)read,
            s_is_utf8 ? "utf8" : "gbk",
            s_truncated ? ", truncated" : "");
@@ -492,7 +493,7 @@ static void on_pick(int index, const char *name_gbk, const char *name_utf8,
         return;
     }
 
-    printf("[TXT ] cannot open %s\r\n",
+    PRINT_LOG("[TXT ] cannot open %s\r\n",
            (name_utf8 != NULL) ? name_utf8 : "?");
     sd_browser_show_error(s_browser, "无法打开", "不是文本文件或读取失败");
 }
@@ -716,7 +717,7 @@ int page_txt_seed(const char *name)
             fr = f_mkdir(path);
             if ((fr != FR_OK) && (fr != FR_EXIST))
             {
-                printf("[TXT ] seed mkdir %s failed (%d)\r\n", path, (int)fr);
+                PRINT_LOG("[TXT ] seed mkdir %s failed (%d)\r\n", path, (int)fr);
                 return -1;
             }
         }
@@ -726,7 +727,7 @@ int page_txt_seed(const char *name)
     fr = f_open(&file, path, FA_WRITE | FA_CREATE_ALWAYS);
     if (fr != FR_OK)
     {
-        printf("[TXT ] seed open %s failed (%d)\r\n", path, (int)fr);
+        PRINT_LOG("[TXT ] seed open %s failed (%d)\r\n", path, (int)fr);
         return -1;
     }
 
@@ -738,14 +739,14 @@ int page_txt_seed(const char *name)
         fr = f_write(&file, buf, (UINT)n, &bw);
         if ((fr != FR_OK) || (bw != (UINT)n))
         {
-            printf("[TXT ] seed write failed (%d)\r\n", (int)fr);
+            PRINT_LOG("[TXT ] seed write failed (%d)\r\n", (int)fr);
             (void)f_close(&file);
             return -1;
         }
     }
 
     (void)f_close(&file);
-    printf("[TXT ] seeded %s (80 lines)\r\n", path);
+    PRINT_LOG("[TXT ] seeded %s (80 lines)\r\n", path);
     return 0;
 }
 

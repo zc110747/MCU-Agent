@@ -30,6 +30,7 @@
 #include "lvgl.h"
 #include <stdio.h>
 #include <string.h>
+#include "bsp_log.h"
 
 /* ------------------------------------------------------------------- state */
 static uint8_t s_open = 0U;     /* page entered (on_enter called)        */
@@ -47,7 +48,7 @@ static void cam_enter(lv_obj_t *root)
      * without a sensor this fails and the page stays blank until BACK. */
     if (drv_camera_open() != RT_OK)
     {
-        printf("[CAM ] open failed - no sensor / i2c error?\r\n");
+        PRINT_LOG("[CAM ] open failed - no sensor / i2c error?\r\n");
         return;
     }
 
@@ -56,13 +57,13 @@ static void cam_enter(lv_obj_t *root)
 
     if (drv_camera_start() != RT_OK)
     {
-        printf("[CAM ] start failed\r\n");
+        PRINT_LOG("[CAM ] start failed\r\n");
         drv_camera_close();
         return;
     }
 
     s_cam_running = 1U;
-    printf("[CAM ] live preview started - 按 BACK/MENU/SELECT/B 退出\r\n");
+    PRINT_LOG("[CAM ] live preview started - 按 BACK/MENU/SELECT/B 退出\r\n");
 }
 
 static void cam_exit(void)
@@ -71,7 +72,7 @@ static void cam_exit(void)
     s_cam_running = 0U;
     s_open = 0U;
     bsp_key_release_all();
-    printf("[CAM ] page closed, buffers released\r\n");
+    PRINT_LOG("[CAM ] page closed, buffers released\r\n");
 }
 
 static int cam_key(key_id_t id, key_edge_t edge)

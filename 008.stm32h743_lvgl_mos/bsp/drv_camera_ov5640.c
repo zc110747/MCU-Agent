@@ -7,7 +7,7 @@
 //
 //  Purpose:
 //      OV5640 sensor init over DCMI + I2C4(SCCB).  Ported from #005
-//      (drv_dcmi_ov5640.c): logger replaced by printf, public entry renamed
+//      (drv_dcmi_ov5640.c): logger replaced by PRINT_LOG, public entry renamed
 //      to drv_camera_ov5640_init.  The register table and AF firmware blob
 //      are copied verbatim and MUST NOT be altered.
 //
@@ -16,6 +16,7 @@
 /////////////////////////////////////////////////////////////////////////////
 #include "drv_camera.h"
 #include "drv_camera_ov5640.h"
+#include "bsp_log.h"
 
 extern DCMI_HandleTypeDef hdcmi;
 
@@ -498,20 +499,20 @@ GlobalType_t drv_camera_ov5640_init(void)
     chip_id = drv_dcmi_ov5640_read_id();
     if (chip_id != DCMI_OV5640_ID)
     {
-        printf("[CAM ] OV5640 not found (id=0x%04X)\r\n", chip_id);
+        PRINT_LOG("[CAM ] OV5640 not found (id=0x%04X)\r\n", chip_id);
         return RT_FAIL;
     }
-    printf("[CAM ] OV5640 detected (id=0x%04X)\r\n", chip_id);
+    PRINT_LOG("[CAM ] OV5640 detected (id=0x%04X)\r\n", chip_id);
 
     if (dcmi_ov5640_regs_config() != RT_OK)
     {
-        printf("[CAM ] regs_config failed\r\n");
+        PRINT_LOG("[CAM ] regs_config failed\r\n");
         return RT_FAIL;
     }
 
     if (dcmi_ov5640_set_framsize(OV5640_WIDTH, OV5640_HEIGHT) != RT_OK)
     {
-        printf("[CAM ] set_framsize failed\r\n");
+        PRINT_LOG("[CAM ] set_framsize failed\r\n");
         return RT_FAIL;
     }
 
@@ -524,10 +525,10 @@ GlobalType_t drv_camera_ov5640_init(void)
      * bring-up - the sensor still streams a live preview.  (Mirrors #002,
      * which never loads this firmware.) */
     if (dcmi_ov5640_download_firmware() != RT_OK) {
-        printf("[CAM ] warning: AF firmware download failed (non-fatal)\r\n");
+        PRINT_LOG("[CAM ] warning: AF firmware download failed (non-fatal)\r\n");
     }
 
-    printf("ov5640 camera init success!\r\n");
+    PRINT_LOG("ov5640 camera init success!\r\n");
     return RT_OK;
 }
 

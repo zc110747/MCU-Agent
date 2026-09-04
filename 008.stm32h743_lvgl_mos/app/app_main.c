@@ -6,7 +6,7 @@
   *  Boot order matters here:
   *
   *    1. console     - UART + USB CDC, so everything that follows has somewhere
-  *                     to complain to (printf lands on both cables)
+  *                     to complain to (PRINT_LOG lands on both cables)
   *    2. panel       - the operator gets a picture as early as possible
   *    3. RTC         - LSE/LSI probing takes up to a second, get it out of the
   *                     way before the UI wants a time to show
@@ -41,6 +41,7 @@
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_font_gbk.h"
+#include "bsp_log.h"
 
 #define LED_BLINK_MS        500U
 
@@ -62,11 +63,11 @@ static uint8_t  s_font_ready     = 0U;
 
 static void log_font_status(uint32_t mask)
 {
-    printf("[FONT] UNIGBK.BIN : %s\r\n", (mask & FONT_MASK_UNIGBK) ? "OK" : "--");
-    printf("[FONT] GBK12.FON  : %s\r\n", (mask & FONT_MASK_GBK12)  ? "OK" : "--");
-    printf("[FONT] GBK16.FON  : %s\r\n", (mask & FONT_MASK_GBK16)  ? "OK" : "--");
-    printf("[FONT] GBK24.FON  : %s\r\n", (mask & FONT_MASK_GBK24)  ? "OK" : "--");
-    printf("[FONT] GBK32.FON  : %s\r\n", (mask & FONT_MASK_GBK32)  ? "OK" : "--");
+    PRINT_LOG("[FONT] UNIGBK.BIN : %s\r\n", (mask & FONT_MASK_UNIGBK) ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK12.FON  : %s\r\n", (mask & FONT_MASK_GBK12)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK16.FON  : %s\r\n", (mask & FONT_MASK_GBK16)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK24.FON  : %s\r\n", (mask & FONT_MASK_GBK24)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK32.FON  : %s\r\n", (mask & FONT_MASK_GBK32)  ? "OK" : "--");
 }
 
 static void init_rtc(void)
@@ -75,23 +76,23 @@ static void init_rtc(void)
 
     if (drv_rtc_init() != RT_OK)
     {
-        printf("[RTC ] no low-speed clock - calendar unavailable\r\n");
+        PRINT_LOG("[RTC ] no low-speed clock - calendar unavailable\r\n");
         return;
     }
 
-    printf("[RTC ] clocked by %s%s\r\n",
+    PRINT_LOG("[RTC ] clocked by %s%s\r\n",
            (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE 32.768 kHz crystal"
                                                    : "LSI internal RC",
            (drv_rtc_clock_source() == RTC_CLK_LSI) ? " (+/-5%, will drift)" : "");
 
     if (drv_rtc_was_reset())
     {
-        printf("[RTC ] backup domain was empty, seeded from build time\r\n");
+        PRINT_LOG("[RTC ] backup domain was empty, seeded from build time\r\n");
     }
 
     if (drv_rtc_get(&dt) == RT_OK)
     {
-        printf("[RTC ] %04u-%02u-%02u %s %02u:%02u:%02u\r\n",
+        PRINT_LOG("[RTC ] %04u-%02u-%02u %s %02u:%02u:%02u\r\n",
                (unsigned)dt.year, (unsigned)dt.month, (unsigned)dt.day,
                drv_rtc_weekday_en(dt.weekday),
                (unsigned)dt.hour, (unsigned)dt.minute, (unsigned)dt.second);
@@ -108,7 +109,7 @@ static void log_sd_info(void)
 
     if (drv_sd_query_info(&info) != RT_OK)
     {
-        printf("[SD  ] capacity query failed\r\n");
+        PRINT_LOG("[SD  ] capacity query failed\r\n");
         return;
     }
 
@@ -116,7 +117,7 @@ static void log_sd_info(void)
     drv_sd_format_size(info.fs_total_bytes, total,  sizeof(total));
     drv_sd_format_size(info.fs_free_bytes,  freesz, sizeof(freesz));
 
-    printf("[SD  ] %s %s, card %s, fs %s, free %s (%lu ms)\r\n",
+    PRINT_LOG("[SD  ] %s %s, card %s, fs %s, free %s (%lu ms)\r\n",
            drv_sd_card_name(info.card_type),
            drv_sd_fs_name(info.fs_type),
            card, total, freesz,
@@ -185,37 +186,37 @@ void application_init(void)
      * page opens.  The NES emulator (and, later, a camera) draw from here. */
     sram_pool_init();
 
-    printf("\r\n");
-    printf("========================================\r\n");
-    printf(" %s %s - STM32H743ZIT6\r\n", APP_FW_NAME, APP_FW_VERSION);
-    printf(" SYSCLK : %lu Hz\r\n", (unsigned long)HAL_RCC_GetSysClockFreq());
-    printf(" HCLK   : %lu Hz\r\n", (unsigned long)HAL_RCC_GetHCLKFreq());
+    PRINT_LOG("\r\n");
+    PRINT_LOG("========================================\r\n");
+    PRINT_LOG(" %s %s - STM32H743ZIT6\r\n", APP_FW_NAME, APP_FW_VERSION);
+    PRINT_LOG(" SYSCLK : %lu Hz\r\n", (unsigned long)HAL_RCC_GetSysClockFreq());
+    PRINT_LOG(" HCLK   : %lu Hz\r\n", (unsigned long)HAL_RCC_GetHCLKFreq());
 
     if (g_clock_source == CLOCK_SRC_HSE_XTAL)
     {
-        printf(" HSE    : 25 MHz crystal OK (CSS armed)\r\n");
+        PRINT_LOG(" HSE    : 25 MHz crystal OK (CSS armed)\r\n");
     }
     else
     {
-        printf(" HSE    : *** CRYSTAL FAILED -> running on HSI ***\r\n");
-        printf("          check X1 / load caps on PH0-PH1\r\n");
+        PRINT_LOG(" HSE    : *** CRYSTAL FAILED -> running on HSI ***\r\n");
+        PRINT_LOG("          check X1 / load caps on PH0-PH1\r\n");
     }
-    printf("========================================\r\n");
+    PRINT_LOG("========================================\r\n");
 
     if (drv_usb_cdc_init() == 0)
     {
-        printf("[USB ] CDC device on PA11/PA12, waiting for host\r\n");
+        PRINT_LOG("[USB ] CDC device on PA11/PA12, waiting for host\r\n");
     }
     else
     {
-        printf("[USB ] init FAILED - console is UART only\r\n");
+        PRINT_LOG("[USB ] init FAILED - console is UART only\r\n");
     }
 
     /* 2. Panel ------------------------------------------------------------*/
     driver_spi_oled_init();
     LCD_SetBackColor(LCD_BLACK);
     LCD_Clear();
-    printf("[LCD ] ST7789 240x240 on SPI6 ready\r\n");
+    PRINT_LOG("[LCD ] ST7789 240x240 on SPI6 ready\r\n");
 
     /* 3. RTC --------------------------------------------------------------*/
     init_rtc();
@@ -225,21 +226,21 @@ void application_init(void)
     {
         s_font_ready = 1U;
         mask = lcd_driver_font_status();
-        printf("[SD  ] mounted, fonts loaded\r\n");
+        PRINT_LOG("[SD  ] mounted, fonts loaded\r\n");
         log_font_status(mask);
         log_sd_info();
     }
     else
     {
         s_font_ready = 0U;
-        printf("[SD  ] mount or font open FAILED\r\n");
-        printf("[SD  ] expected 1:/SYSTEM/FONT/GBKxx.FON\r\n");
+        PRINT_LOG("[SD  ] mount or font open FAILED\r\n");
+        PRINT_LOG("[SD  ] expected 1:/SYSTEM/FONT/GBKxx.FON\r\n");
     }
 
     /* 5. LVGL + menu ------------------------------------------------------*/
     lv_init();
     lv_port_disp_init();
-    printf("[LVGL] v%d.%d.%d, %u KB heap\r\n",
+    PRINT_LOG("[LVGL] v%d.%d.%d, %u KB heap\r\n",
            LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
            (unsigned)(LV_MEM_SIZE / 1024U));
 
@@ -247,7 +248,7 @@ void application_init(void)
     {
         register_pages();
         app_menu_init();
-        printf("[MENU] %d pages registered\r\n", app_menu_count());
+        PRINT_LOG("[MENU] %d pages registered\r\n", app_menu_count());
 
         /* Boot straight into the clock "watch" face; BACK returns to menu. */
         (void)app_menu_open_cmd("clock");
@@ -298,8 +299,8 @@ void application_run(void)
     if (g_hse_css_fault)
     {
         g_hse_css_fault = 0U;
-        printf("\r\n[CLK ] *** HSE CSS FAULT: 25 MHz crystal stopped ***\r\n");
-        printf("[CLK ] hardware fell back to HSI, SYSCLK now %lu Hz\r\n",
+        PRINT_LOG("\r\n[CLK ] *** HSE CSS FAULT: 25 MHz crystal stopped ***\r\n");
+        PRINT_LOG("[CLK ] hardware fell back to HSI, SYSCLK now %lu Hz\r\n",
                (unsigned long)HAL_RCC_GetSysClockFreq());
     }
 

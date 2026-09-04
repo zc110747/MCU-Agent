@@ -7,6 +7,7 @@
 #include "main.h"
 #include "stm32h7xx_it.h"
 #include "bsp_console.h"
+#include "bsp_log.h"
 
 /******************************************************************************/
 /*           Cortex-M7 Processor Interruption and Exception Handlers          */
@@ -96,6 +97,8 @@ void SDMMC1_IRQHandler(void)
 void USART1_IRQHandler(void)
 {
     bsp_console_uart_irq();
+
+    log_uart_tx_irq();
 }
 
 /**

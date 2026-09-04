@@ -11,6 +11,7 @@
 #include "tjpgd.h"
 #include <stdio.h>
 #include <string.h>
+#include "bsp_log.h"
 
 /* The frame lives in .bss (AXI-SRAM, RAM_D1): 240 * 240 * 2 = 112.5 kB.  It is
  * deliberately *not* in DTCM - that block is reserved for the NES machine
@@ -446,13 +447,13 @@ int img_decode_file(const char *path, img_info_t *info, const char **reason)
 
     if (rc == 0)
     {
-        printf("[IMG ] %s %s %dx%d -> %dx%d (%lu B)\r\n",
+        PRINT_LOG("[IMG ] %s %s %dx%d -> %dx%d (%lu B)\r\n",
                path, info->format, info->src_w, info->src_h,
                info->out_w, info->out_h, (unsigned long)info->bytes);
     }
     else
     {
-        printf("[IMG ] %s failed: %s\r\n", path, *reason);
+        PRINT_LOG("[IMG ] %s failed: %s\r\n", path, *reason);
     }
 
     return rc;

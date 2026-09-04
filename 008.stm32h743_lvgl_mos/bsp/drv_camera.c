@@ -6,6 +6,7 @@
   */
 #include "drv_camera.h"
 #include "drv_camera_ov5640.h"
+#include "bsp_log.h"
 
 #include <string.h>
 
@@ -59,13 +60,13 @@ GlobalType_t drv_camera_open(void)
 
     if (drv_camera_ov5640_init() != RT_OK)
     {
-        printf("ov5640 init failed\r\n");
+        PRINT_LOG("ov5640 init failed\r\n");
         return RT_FAIL;
     }
 
     if (cam_config_crop() != RT_OK)
     {
-        printf("dcmi crop config failed\r\n");
+        PRINT_LOG("dcmi crop config failed\r\n");
         return RT_FAIL;
     }
 
@@ -74,7 +75,7 @@ GlobalType_t drv_camera_open(void)
         s_frame[i] = cam_alloc_aligned(&s_frame_raw[i]);
         if (s_frame[i] == NULL)
         {
-            printf("camera buffer alloc failed (%d)\r\n", i);
+            PRINT_LOG("camera buffer alloc failed (%d)\r\n", i);
             /* free what we got so far */
             for (i = i - 1; i >= 0; i--)
             {
@@ -93,7 +94,7 @@ GlobalType_t drv_camera_open(void)
     g_cam_overruns = 0;
     g_cam_last_idx = 0;
 
-    printf("camera ready: sensor %dx%d, crop %dx%d\r\n",
+    PRINT_LOG("camera ready: sensor %dx%d, crop %dx%d\r\n",
            OV5640_WIDTH, OV5640_HEIGHT, CAM_WIDTH, CAM_HEIGHT);
     return RT_OK;
 }
