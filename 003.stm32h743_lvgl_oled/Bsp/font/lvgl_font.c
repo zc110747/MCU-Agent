@@ -49,6 +49,24 @@ static uint8_t s_ttf_cache[TTF_BLOCK_SIZE * TTF_BLOCK_COUNT];
 static uint8_t s_ctf_cache[CTF_BLOCK_SIZE * CTF_BLOCK_COUNT];
 static uint8_t s_l1_shadow[CTF_L1_SHADOW_SIZE];
 
+/**
+  * Pool for the resident Level-2 page table.
+  *
+  * A page record is 40 B and covers 256 code points, so one Unicode plane needs
+  * at most 256 * 40 = 10 KB.  Both HarmonyOS builds we ship report 256 pages
+  * (BMP only), i.e. exactly 10240 B; the 288-page budget leaves room for a font
+  * that also carries a handful of supplementary-plane pages without falling
+  * back to reading page records off the card.
+  *
+  * Sized generously on purpose: this buffer is what makes a NOT_FOUND lookup
+  * cost zero SD access, and 11 KB out of the ~200 KB still free in AXI-SRAM is
+  * a good trade for that.
+  */
+#define CTF_PAGE_POOL_PAGES  288u
+#define CTF_PAGE_POOL_SIZE   (CTF_PAGE_POOL_PAGES * CTF_PAGE_SIZE)
+
+static uint8_t s_page_pool[CTF_PAGE_POOL_SIZE] __attribute__((aligned(4)));
+
 /** Rasterised glyph pool.  Wraps, and a wrap discards everything. */
 #define CTF_BMP_POOL_SIZE   (32u * 1024u)
 #define CTF_BMP_SLOTS       176u
@@ -92,6 +110,9 @@ static ctf_font_dsc_t s_fdsc[CTF_FONT_SIZES];
 static uint8_t  s_ready;
 static char     s_ctf_path[96];
 static char     s_ttf_path[96];
+
+/** What the index pinned in RAM; captured at init so the banner can print it. */
+static ctf_resident_t s_resident;
 
 /* Statistics.  All of them are just counters - never printed by a miss path. */
 static uint32_t s_lookups;
@@ -407,6 +428,7 @@ GlobalType_t lvgl_font_engine_init(const char *ctf_path, const char *ttf_path)
     uint32_t i;
 
     s_ready = 0u;
+    (void)memset(&s_resident, 0, sizeof(s_resident));
 
     if ((ctf_path == NULL) || (ttf_path == NULL))
     {
@@ -417,6 +439,17 @@ GlobalType_t lvgl_font_engine_init(const char *ctf_path, const char *ttf_path)
                  s_ctf_cache, CTF_BLOCK_SIZE, CTF_BLOCK_COUNT,
                  s_l1_shadow) != RT_OK)
     {
+        return RT_FAIL;
+    }
+
+    /* Pin the front of the index now, while the card is quiet: the table
+     * directory, and the whole page table if it fits.  A pool that is too small
+     * is not fatal - the reader keeps serving page records from its cache - so
+     * only a hard I/O error is worth aborting for. */
+    if (ctf_load_resident(&s_ctf, s_page_pool, sizeof(s_page_pool),
+                          &s_resident) != RT_OK)
+    {
+        ctf_close(&s_ctf);
         return RT_FAIL;
     }
 
@@ -472,6 +505,7 @@ void lvgl_font_engine_deinit(void)
     ttf_close(&s_ttf);
     ctf_close(&s_ctf);
     bmp_flush();
+    (void)memset(&s_resident, 0, sizeof(s_resident));
     s_ready = 0u;
 }
 
@@ -705,6 +739,7 @@ void lvgl_font_get_stats(lvgl_font_stats_t *out)
 {
     uint32_t hits, misses, fills, fill_bytes;
     uint32_t c_look, c_nf, c_io;
+    uint32_t p_ram, p_sd;
     uint32_t sc, rc;
 
     if (out == NULL)
@@ -737,6 +772,29 @@ void lvgl_font_get_stats(lvgl_font_stats_t *out)
     out->ctf_lookups   = c_look;
     out->ctf_not_found = c_nf;
     out->ctf_io_errors = c_io;
+
+    ctf_page_stats(&s_ctf, &p_ram, &p_sd);
+    out->ctf_page_ram = p_ram;
+    out->ctf_page_sd  = p_sd;
+}
+
+void lvgl_font_get_resident(ctf_resident_t *out)
+{
+    if (out == NULL)
+    {
+        return;
+    }
+    *out = s_resident;
+}
+
+uint32_t lvgl_font_resident_bytes(void)
+{
+    return s_resident.total_bytes;
+}
+
+uint32_t lvgl_font_page_pool_bytes(void)
+{
+    return (uint32_t)sizeof(s_page_pool);
 }
 
 void lvgl_font_reset_stats(void)

@@ -126,6 +126,10 @@ static void log_ctf_stats(const char *tag)
            tag, (unsigned long)st.ctf_lookups,
            (unsigned long)st.ctf_not_found,
            (unsigned long)st.ctf_io_errors);
+    /* With the page table resident, "page sd" must stay at 0 forever. */
+    PRINT_LOG("[CTF ] %s: page from RAM %lu, from card %lu (index %lu B in RAM)\r\n",
+           tag, (unsigned long)st.ctf_page_ram, (unsigned long)st.ctf_page_sd,
+           (unsigned long)lvgl_font_resident_bytes());
     PRINT_LOG("[CTF ] %s: ttf hit %lu, miss %lu, f_read %lu, %lu B\r\n",
            tag, (unsigned long)st.ttf_hits, (unsigned long)st.ttf_misses,
            (unsigned long)st.ttf_fills, (unsigned long)st.ttf_bytes);

@@ -170,6 +170,44 @@ GlobalType_t lv_font_provider_locate(char *ctf_path,
 /* Engine selection                                                           */
 /*---------------------------------------------------------------------------*/
 
+/**
+  * @brief  Report what the index pinned in RAM once the card is up.
+  *
+  *  The page table is the only variable part - it scales with the number of
+  *  Unicode planes the font covers - so the figure is measured, not assumed.
+  *  "pages: on card" is the degraded case: the pool was too small and the second
+  *  hop of a lookup goes back to reading 40-byte records through the cache.
+  */
+static void log_resident(void)
+{
+    ctf_resident_t r;
+
+    lvgl_font_get_resident(&r);
+
+    PRINT_LOG("[FONT]   index in RAM %lu B = tables %lu + L1 %lu + pages %lu\r\n",
+              (unsigned long)r.total_bytes,
+              (unsigned long)r.table_bytes,
+              (unsigned long)r.l1_bytes,
+              (unsigned long)r.page_bytes);
+
+    if (r.page_resident != 0u)
+    {
+        PRINT_LOG("[FONT]   pages resident: %lu B of a %lu B pool -> "
+                  "NOT_FOUND costs 0 SD reads\r\n",
+                  (unsigned long)r.page_needed,
+                  (unsigned long)lvgl_font_page_pool_bytes());
+    }
+    else
+    {
+        PRINT_LOG("[FONT]   pages on card: need %lu B, pool %lu B\r\n",
+                  (unsigned long)r.page_needed,
+                  (unsigned long)r.page_capacity);
+    }
+
+    PRINT_LOG("[FONT]   entries stay on card: %lu B\r\n",
+              (unsigned long)r.entry_bytes);
+}
+
 static GlobalType_t start_ctf(void)
 {
     static char ctf_path[128];
@@ -191,6 +229,7 @@ static GlobalType_t start_ctf(void)
     PRINT_LOG("[FONT] engine: CTF index + TTF\r\n");
     PRINT_LOG("[FONT]   ctf  %s\r\n", ctf_path);
     PRINT_LOG("[FONT]   ttf  %s\r\n", ttf_path);
+    log_resident();
     return RT_OK;
 }
 

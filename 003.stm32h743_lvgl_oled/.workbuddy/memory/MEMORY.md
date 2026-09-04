@@ -16,8 +16,8 @@
 - 构建用 cmake + ninja；仿真用 ST-Link + openocd + cortex-debug。
 
 ## 调试环境（已实测可用）
-- **ST-Link 自带虚拟串口 = COM6**，且 VCP 就接在 PA9/PA10(USART1)，115200 8N1 可直接看 printf。
-- openocd 可执行：`D:\software\ST\OpenOCD\bin\openocd.exe`（PATH 里直接 `openocd` 亦可）。
+- **ST-Link 自带虚拟串口 = COM19（本机会话实测；历史曾为 COM6，端口随 USB 枚举可能变化）**，VCP 接在 PA9/PA10(USART1)，115200 8N1 可直接看 printf。
+- openocd 可执行：`/d/Software/openocd/bin/openocd`（PATH 里直接 `openocd` 亦可；记忆里 `D:\software\ST\...` 路径已失效）。
 - SVD 已复制进工程 `debug/STM32H743.svd`（源自 STM32CubeIDE 插件目录），launch.json 用相对路径引用。
 - `.vscode/launch.json` 两个配置：`Debug (OpenOCD + ST-Link)`（build→flash→停 main）与 `Attach (no reflash)`（附加运行中目标）。
 - `scripts/runtime_check.gdb`：attach 后一键自检 tick / LED 心跳 / LCD 刷新 / SPI6 / GPIO。
@@ -42,22 +42,23 @@
 - **晶振真实频率交叉验证法**：openocd `sleep 20000` 作主机参考，前后各读一次 `uwTick`，比对得实测误差 0.010% → 反推 HSE=25.0025MHz。频率配错会成倍偏差，此法极灵敏。
 - 链接告警 `LOAD segment with RWX permissions` 用 `-Wl,--no-warn-rwx-segments` 消除。
 
-## 当前状态（2026-09-03 CTF 字体引擎完成，实机验证通过）
+## 当前状态（2026-09-04 CTF 索引前部常驻 RAM 完成，端到端验证通过）
+- **CTF 索引前部常驻 RAM（2026-09-04 新增）**：`ctf_load_resident()` 在 SD 挂载后把 TTF 表目录(132B) + L1(2KB) + 页表(256×40=10240B) 搬进 RAM 页池(288×40=11520B)；满足则 `page_all_ready=1` 永不回退，缺字判定零 SD 读（`page_sd_reads` 恒 0）。新增 `page_pointers_ok()` 安全前置 + `ctf_resident_t` 占用核算 + `[2c]` 主机等价性测试。
 - **字体系统**：CTF 索引 + 原 TTF（Phase 1~8 全部完成）。引擎切换 `LV_FONT_ENGINE`：
   2=CTF+TTF（默认）/ 1=TTF 直读 / 0=GBK 点阵。默认字体 HarmonyOS_Sans_SC（GB2312 一级 100%），
   TC 六字重保留；SD 卡 `1:/SYSTEM/HarmonyOS_Sans_SC/`（.ctf 693KB + .ttf 8MB）。
 - 硬性语义已实测：缺字 `CTF_NOT_FOUND` → **0 次 SD 读**，UI 文本合拢不画框（LV_USE_FONT_PLACEHOLDER=0）、
   不刷屏；英文/数字走 fallback 内置 Montserrat 12/16/24/32；空格 EMP 与 NOT_FOUND 严格区分。
 - 内存布局（BSS 静态）：ttf 块缓存 64KB(16K×4) + 位图池 32KB/176slot + ctf 缓存 4KB + L1 shadow 2KB
-  + stb arena 36KB（实测 peak 5920B）。stb 源码零修改，`STBTT_STREAM_*` 宏接 ttf_reader。
+  + stb arena 36KB（实测 peak 5920B）+ **CTF 页池 11.25KB(288×40)**（索引前部常驻）。stb 源码零修改，`STBTT_STREAM_*` 宏接 ttf_reader。
 - 全工程 SD 随机读唯一收口：`Bsp/font/ttf_reader.c` 的 `ttf_fill()`；块缓存实测整轮 65536 码位遍历
   仅 20 次 f_read（无缓存为几十万次）。主机端验收 `tools/host_test/`（PC 编译固件真实源码），7 字体全绿；
   一键脚本 `run_host_test.bat`（用法：ctf_host_test.exe <font.ctf> <font.ttf>）。
-- 构建基线（双构零警告）：Debug FLASH 340864B(16.25%)/RAM_D1 318736B(60.79%)；
-  Release FLASH 344824B(16.44%)/RAM_D1 318744B(60.80%)。板级自检探针 `lvgl_font_selftest()`。
+- 构建基线（双构零警告）：Debug FLASH 341896B(16.30%)/RAM_D1 332152B(63.35%)；
+  Release FLASH 345996B(16.50%)/RAM_D1 332160B(63.35%)。页池 +resident 结构使 RAM_D1 较 CTF v1 基线 +~13KB，仍余 ~187KB。板级自检探针 `lvgl_font_selftest()`。
 - **遗留（用户明确下轮处理）**：冷栅格化偏慢 avg 4852us/worst 6547us；拆分探针已埋
   （ttf_reader 的 seek_cycles/read_cycles），首疑 f_read 读放大。方向：CTF v2 glyf 预取打包/顺序预读/FA_FASTSEEK。
-- README 第 8 节（8.1~8.13）已完整归档全部 Phase 成果与实机数据。
+- README 第 8 节（8.1~8.14）已完整归档全部 Phase 成果与实机数据（含索引常驻 RAM）。
 
 ## 前期状态（2026-08-05 GBK 基线）
 - VSCode 仿真链路（reset/load/断点/单步/step into/变量监视/外设寄存器/attach）全部实测可用。

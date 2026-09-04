@@ -126,6 +126,16 @@ extern "C" {
 #define CTF_TBL_OFFSET             4u   /* u32 */
 #define CTF_TBL_LENGTH             8u   /* u32 */
 
+/**
+  * Build a table tag the way the generator stores it.  ttf2ctf packs the four
+  * ASCII bytes little endian (`struct.pack("<I")`), so the first character ends
+  * up in the low byte:  CTF_TAG('g','l','y','f').
+  */
+#define CTF_TAG(a, b, c, d)   ((uint32_t)(uint8_t)(a)         |  \
+                               ((uint32_t)(uint8_t)(b) <<  8) |  \
+                               ((uint32_t)(uint8_t)(c) << 16) |  \
+                               ((uint32_t)(uint8_t)(d) << 24))
+
 #define CTF_L1_PAGE_OFFSET         0u   /* u32, 0 = plane is empty */
 #define CTF_L1_PAGE_COUNT          4u   /* u16 */
 #define CTF_L1_RESERVED            6u   /* u16 */

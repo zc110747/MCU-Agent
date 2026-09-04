@@ -40,8 +40,13 @@ static uint8_t ttf_cache[TTF_BLOCK_SIZE * TTF_BLOCK_COUNT];
 static uint8_t ctf_cache[CTF_BLOCK_SIZE * CTF_BLOCK_COUNT];
 static uint8_t l1_shadow[CTF_L1_SHADOW_SIZE];
 
-static ttf_reader_t g_ttf;
-static ctf_reader_t g_ctf;
+/* Same budget the firmware reserves: 288 pages * 40 B. */
+#define HOST_PAGE_POOL_PAGES  288u
+static uint8_t page_pool[HOST_PAGE_POOL_PAGES * CTF_PAGE_SIZE];
+
+static ttf_reader_t   g_ttf;
+static ctf_reader_t   g_ctf;
+static ctf_resident_t g_res;
 
 /* -------------------------------------------------------------------------- */
 /* 1. Index geometry                                                          */
@@ -70,6 +75,12 @@ static void test_geometry(const char *ctf_path, const char *ttf_path)
           (h->units_per_em >= 256u) && (h->units_per_em <= 16384u));
     check("ascent > 0 > descent", (h->ascent > 0) && (h->descent < 0));
     check("L1 shadow copied", g_ctf.l1_ready == 1u);
+
+    /* Same call order the firmware uses: pin the index front right after the
+     * open, before anything starts looking characters up. */
+    check("ctf_load_resident()",
+          ctf_load_resident(&g_ctf, page_pool, sizeof(page_pool),
+                            &g_res) == RT_OK);
 
     check("ctf_verify_ttf() size matches",
           ctf_verify_ttf(&g_ctf, ttf_path, 0) == RT_OK);
@@ -238,6 +249,125 @@ static void test_full_walk(void)
     check("every glyph_id < num_glyphs", bad_glyph == 0u);
     check("every glyf range inside the TTF", bad_range == 0u);
     check("no lookup errors", errors == 0u);
+}
+
+/**
+  * The resident index feature copies the page table into RAM so that lookups
+  * (including the NOT_FOUND bit test) never touch the card.  This test proves
+  * two things about that change:
+  *
+  *   1. Resident mode is actually used: page records come from RAM
+  *      (page_ram_hits rise) and NOT from the card (page_sd_reads stay flat).
+  *   2. Resident mode is observationally identical to the card path: every one
+  *      of the 65536 code points yields the same result code, glyph id,
+  *      advance and empty flag whether the page table is in RAM or on the SD.
+  *
+  * The second point is what stops a "faster path" from quietly becoming a
+  * "different path".
+  */
+static int8_t   r_rc[65536];
+static uint16_t r_gid[65536];
+static uint16_t r_adv[65536];
+static uint8_t  r_empty[65536];
+
+static void test_resident_equivalence(void)
+{
+    uint32_t cp;
+    uint32_t ram_before, sd_before, ram_after, sd_after;
+    uint32_t mismatch = 0u;
+
+    printf("\n[2c] resident page-table vs card-path equivalence\n");
+    if (!ctf_is_open(&g_ctf))
+    {
+        printf("  skipped - index not open\n");
+        return;
+    }
+
+    check("page table resident in RAM", g_res.page_resident == 1u);
+    check("resident index reports non-zero RAM footprint",
+          ctf_resident_bytes(&g_ctf) > 0u);
+
+    /* --- Pass 1: resident mode.  Capture every result. ------------------- */
+    ctf_page_stats(&g_ctf, &ram_before, &sd_before);
+    for (cp = 0u; cp <= 0xFFFFu; cp++)
+    {
+        ctf_entry_t  e;
+        ctf_result_t rc = ctf_find_unicode(&g_ctf, cp, &e);
+
+        if (rc == CTF_ERR_IO || rc == CTF_ERR_RANGE)
+        {
+            r_rc[cp] = -1;
+        }
+        else
+        {
+            r_rc[cp] = (int8_t)rc;
+        }
+        if (rc == CTF_OK)
+        {
+            r_gid[cp]   = e.glyph_id;
+            r_adv[cp]   = e.advance_width;
+            r_empty[cp] = (ctf_entry_is_empty(&e) != 0u) ? 1u : 0u;
+        }
+        else
+        {
+            r_gid[cp]   = 0u;
+            r_adv[cp]   = 0u;
+            r_empty[cp] = 0u;
+        }
+    }
+    ctf_page_stats(&g_ctf, &ram_after, &sd_after);
+
+    check("resident pass reads pages from RAM (ram_hits up)",
+          ram_after > ram_before);
+    check("resident pass reads 0 pages from card (sd_reads flat)",
+          sd_after == sd_before);
+
+    /* --- Pass 2: degraded mode (page table back on the card). ------------ */
+    g_ctf.page_all_ready = 0u;
+    g_ctf.page_pool      = NULL;
+    g_ctf.page_ready     = 0u;
+    g_ctf.page_ram_hits  = 0u;
+    g_ctf.page_sd_reads  = 0u;
+
+    ctf_page_stats(&g_ctf, &ram_before, &sd_before);
+    for (cp = 0u; cp <= 0xFFFFu; cp++)
+    {
+        ctf_entry_t  e;
+        ctf_result_t rc = ctf_find_unicode(&g_ctf, cp, &e);
+        int8_t      got;
+
+        if (rc == CTF_ERR_IO || rc == CTF_ERR_RANGE)
+        {
+            got = -1;
+        }
+        else
+        {
+            got = (int8_t)rc;
+        }
+        if (got != r_rc[cp])
+        {
+            mismatch++;
+            continue;
+        }
+        if ((rc == CTF_OK) &&
+            ((r_gid[cp]   != e.glyph_id) ||
+             (r_adv[cp]   != e.advance_width) ||
+             (r_empty[cp] != ((ctf_entry_is_empty(&e) != 0u) ? 1u : 0u))))
+        {
+            mismatch++;
+        }
+    }
+    ctf_page_stats(&g_ctf, &ram_after, &sd_after);
+
+    check("degraded pass reads pages from card (sd_reads up)",
+          sd_after > sd_before);
+    check("resident and card paths agree on all 65536 code points",
+          mismatch == 0u);
+
+    /* Restore resident mode for the remaining tests. */
+    g_ctf.page_all_ready = 1u;
+    g_ctf.page_pool      = page_pool;
+    g_ctf.page_ready     = 0u;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -509,6 +639,7 @@ int main(int argc, char **argv)
     test_geometry(argv[1], argv[2]);
     test_lookup();
     test_full_walk();
+    test_resident_equivalence();
     test_ttf_bounds();
     test_render();
     dump_stats();

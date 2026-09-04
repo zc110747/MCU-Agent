@@ -32,6 +32,7 @@
 #include <stdint.h>
 #include "lvgl.h"
 #include "main.h"
+#include "ctf_reader.h"   /* ctf_resident_t, reported by lvgl_font_get_resident */
 
 /** Sizes this backend instantiates.  Add pairs in lvgl_font.c only. */
 #define CTF_FONT_12   12u
@@ -87,7 +88,28 @@ typedef struct
     uint32_t ctf_lookups;
     uint32_t ctf_not_found;
     uint32_t ctf_io_errors;
+    uint32_t ctf_page_ram;   /**< page records served from the resident table  */
+    uint32_t ctf_page_sd;    /**< page records that still went to the card     */
 } lvgl_font_stats_t;
+
+/*---------------------------------------------------------------------------*/
+/* Resident index footprint                                                  */
+/*---------------------------------------------------------------------------*/
+
+/**
+  * @brief  What the index pinned in RAM at init, and how much it cost.
+  *
+  *  Valid after lvgl_font_engine_init(); zeroed before it.  `page_resident == 1`
+  *  is the interesting bit: it means the second hop of every lookup - and so the
+  *  whole NOT_FOUND decision - is a pure RAM operation.
+  */
+void lvgl_font_get_resident(ctf_resident_t *out);
+
+/** Bytes of RAM this backend holds for the index (table dir + L1 + pages). */
+uint32_t lvgl_font_resident_bytes(void);
+
+/** Bytes reserved for the resident page table, whether or not it got used. */
+uint32_t lvgl_font_page_pool_bytes(void);
 
 /*---------------------------------------------------------------------------*/
 /* On-target acceptance probe                                                */

@@ -207,17 +207,26 @@ GlobalType_t ctf_open(ctf_reader_t *c,
         return RT_FAIL;
     }
 
-    c->open       = 0u;
-    c->size       = 0u;
-    c->l1_shadow  = l1_shadow;
-    c->l1_ready   = 0u;
-    c->page_ready = 0u;
-    c->page_plane = 0u;
-    c->page_no    = 0u;
-    c->lookups    = 0u;
-    c->not_found  = 0u;
-    c->io_errors  = 0u;
+    c->open           = 0u;
+    c->size           = 0u;
+    c->l1_shadow      = l1_shadow;
+    c->l1_ready       = 0u;
+    c->table_count    = 0u;
+    c->table_ready    = 0u;
+    c->page_pool      = NULL;
+    c->page_pool_size = 0u;
+    c->page_bytes     = 0u;
+    c->page_all_ready = 0u;
+    c->page_ready     = 0u;
+    c->page_plane     = 0u;
+    c->page_no        = 0u;
+    c->lookups        = 0u;
+    c->not_found      = 0u;
+    c->io_errors      = 0u;
+    c->page_ram_hits  = 0u;
+    c->page_sd_reads  = 0u;
     (void)memset(&c->h, 0, sizeof(c->h));
+    (void)memset(c->tables, 0, sizeof(c->tables));
 
     res = f_open(&c->f, path, FA_READ);
     if (res != FR_OK)
@@ -250,6 +259,8 @@ GlobalType_t ctf_open(ctf_reader_t *c,
         return RT_FAIL;
     }
 
+    /* Level 1 is a fixed 2 KB and is the first hop of every single lookup, so
+     * it is pulled in here rather than left to the optional prefetch step. */
     if (l1_shadow != NULL)
     {
         if (blkcache_read(&c->cache, c->h.l1_index_offset,
@@ -263,6 +274,187 @@ GlobalType_t ctf_open(ctf_reader_t *c,
     return RT_OK;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Resident index                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+  * Are all the plane->page pointers inside the region we just pooled?
+  *
+  * The lookup path turns a file offset into a pool offset by subtracting
+  * page_index_offset.  That subtraction is only safe if every non-empty plane
+  * points at or after page_index_offset and its whole run fits, so it is proven
+  * once here instead of being re-checked per lookup.
+  */
+static int page_pointers_ok(const ctf_reader_t *c)
+{
+    uint32_t plane;
+
+    for (plane = 0u; plane < c->h.l1_index_count; plane++)
+    {
+        ctf_l1_t l1;
+        uint32_t rel;
+        uint32_t run;
+
+        ctf_l1_parse(c->l1_shadow + (plane * CTF_L1_SIZE), &l1);
+        if ((l1.page_offset == 0u) || (l1.page_count == 0u))
+        {
+            continue;
+        }
+        if (l1.page_offset < c->h.page_index_offset)
+        {
+            return 0;
+        }
+        rel = l1.page_offset - c->h.page_index_offset;
+        if (rel > c->page_bytes)
+        {
+            return 0;
+        }
+        run = (uint32_t)l1.page_count * CTF_PAGE_SIZE;
+        if (run > (c->page_bytes - rel))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+GlobalType_t ctf_load_resident(ctf_reader_t   *c,
+                               uint8_t        *page_pool,
+                               uint32_t        page_pool_size,
+                               ctf_resident_t *out)
+{
+    GlobalType_t rc = RT_OK;
+
+    if ((c == NULL) || (c->open == 0u))
+    {
+        return RT_FAIL;
+    }
+
+    /* --- TTF table directory: where glyf/loca/cmap/hmtx live in the .ttf --- */
+    c->table_count = 0u;
+    c->table_ready = 0u;
+    if ((c->h.table_index_count != 0u) &&
+        (c->h.table_index_count <= CTF_TABLE_RESIDENT_MAX))
+    {
+        uint32_t i;
+        uint8_t  raw[CTF_TABLE_SIZE];
+
+        c->table_ready = 1u;
+        for (i = 0u; i < c->h.table_index_count; i++)
+        {
+            if (blkcache_read(&c->cache,
+                              c->h.table_index_offset + (i * CTF_TABLE_SIZE),
+                              raw, CTF_TABLE_SIZE) != RT_OK)
+            {
+                c->io_errors++;
+                c->table_ready = 0u;
+                c->table_count = 0u;
+                rc = RT_FAIL;
+                break;
+            }
+            ctf_table_parse(raw, &c->tables[i]);
+            c->table_count = i + 1u;
+        }
+    }
+
+    /* --- Level-2 page table: only worth it if the whole thing fits -------- */
+    c->page_pool      = page_pool;
+    c->page_pool_size = page_pool_size;
+    c->page_bytes     = 0u;
+    c->page_all_ready = 0u;
+
+    if ((page_pool != NULL) && (c->l1_ready != 0u) && (c->h.page_index_count != 0u))
+    {
+        uint32_t need = c->h.page_index_count * CTF_PAGE_SIZE;
+
+        /* A partial copy would mean checking "is this page pooled?" on every
+         * lookup - the branch costs more than it saves, so it is all or none. */
+        if (need <= page_pool_size)
+        {
+            if (blkcache_read(&c->cache, c->h.page_index_offset,
+                              page_pool, need) == RT_OK)
+            {
+                c->page_bytes = need;
+                if (page_pointers_ok(c) != 0)
+                {
+                    c->page_all_ready = 1u;
+                }
+                else
+                {
+                    /* Header and L1 disagree: fall back to reading pages
+                     * through the cache, which validates each one anyway. */
+                    c->page_bytes = 0u;
+                }
+            }
+            else
+            {
+                c->io_errors++;
+                rc = RT_FAIL;
+            }
+        }
+    }
+
+    ctf_resident_info(c, out);
+    return rc;
+}
+
+void ctf_resident_info(const ctf_reader_t *c, ctf_resident_t *out)
+{
+    if ((c == NULL) || (out == NULL))
+    {
+        return;
+    }
+
+    (void)memset(out, 0, sizeof(*out));
+
+    out->table_resident = c->table_ready;
+    out->table_bytes    = (c->table_ready != 0u)
+                          ? (c->table_count * CTF_TABLE_SIZE) : 0u;
+
+    out->l1_resident    = c->l1_ready;
+    out->l1_bytes       = (c->l1_ready != 0u)
+                          ? (c->h.l1_index_count * CTF_L1_SIZE) : 0u;
+
+    out->page_resident  = c->page_all_ready;
+    out->page_bytes     = (c->page_all_ready != 0u) ? c->page_bytes : 0u;
+    out->page_needed    = c->h.page_index_count * CTF_PAGE_SIZE;
+    out->page_capacity  = c->page_pool_size;
+
+    out->entry_bytes    = c->h.entry_count * CTF_ENTRY_SIZE;
+    out->total_bytes    = out->table_bytes + out->l1_bytes + out->page_bytes;
+}
+
+uint32_t ctf_resident_bytes(const ctf_reader_t *c)
+{
+    ctf_resident_t info;
+
+    if (c == NULL)
+    {
+        return 0u;
+    }
+    ctf_resident_info(c, &info);
+    return info.total_bytes;
+}
+
+const ctf_table_t *ctf_find_table(const ctf_reader_t *c, uint32_t tag)
+{
+    uint32_t i;
+
+    if ((c == NULL) || (c->table_ready == 0u))
+    {
+        return NULL;
+    }
+    for (i = 0u; i < c->table_count; i++)
+    {
+        if (c->tables[i].tag == tag)
+        {
+            return &c->tables[i];
+        }
+    }
+    return NULL;
+}
+
 void ctf_close(ctf_reader_t *c)
 {
     if (c == NULL)
@@ -274,9 +466,13 @@ void ctf_close(ctf_reader_t *c)
         (void)f_close(&c->f);
     }
     blkcache_flush(&c->cache);
-    c->open       = 0u;
-    c->l1_ready   = 0u;
-    c->page_ready = 0u;
+    c->open           = 0u;
+    c->l1_ready       = 0u;
+    c->page_ready     = 0u;
+    c->page_all_ready = 0u;
+    c->page_bytes     = 0u;
+    c->table_ready    = 0u;
+    c->table_count    = 0u;
 }
 
 int ctf_is_open(const ctf_reader_t *c)
@@ -356,11 +552,28 @@ ctf_result_t ctf_find_unicode(ctf_reader_t *c, uint32_t cp, ctf_entry_t *out)
         return CTF_NOT_FOUND;
     }
 
-    /* Step 2 - page record, served from a one-entry cache. */
+    /* Step 2 - page record.  Three sources, cheapest first: the single-entry
+     * cache (consecutive text usually shares a page), the resident page table,
+     * and only then the card. */
     if ((c->page_ready != 0u) &&
         (c->page_plane == plane) &&
         (c->page_no == page_no))
     {
+        pg = &c->page;
+    }
+    else if (c->page_all_ready != 0u)
+    {
+        /* page_pointers_ok() proved at load time that this offset lands inside
+         * the pool, so the subtraction cannot wrap and no bound check is left
+         * to do here. */
+        uint32_t at = (l1.page_offset - c->h.page_index_offset) +
+                      (page_no * CTF_PAGE_SIZE);
+
+        ctf_page_parse(c->page_pool + at, &c->page);
+        c->page_plane = plane;
+        c->page_no    = page_no;
+        c->page_ready = 1u;
+        c->page_ram_hits++;
         pg = &c->page;
     }
     else
@@ -376,6 +589,7 @@ ctf_result_t ctf_find_unicode(ctf_reader_t *c, uint32_t cp, ctf_entry_t *out)
         c->page_plane = plane;
         c->page_no    = page_no;
         c->page_ready = 1u;
+        c->page_sd_reads++;
         pg = &c->page;
     }
 
@@ -486,4 +700,15 @@ void ctf_stats(const ctf_reader_t *c,
     if (lookups)    { *lookups    = c->lookups; }
     if (not_found)  { *not_found  = c->not_found; }
     if (io_errors)  { *io_errors  = c->io_errors; }
+}
+
+void ctf_page_stats(const ctf_reader_t *c,
+                    uint32_t *ram_hits, uint32_t *sd_reads)
+{
+    if (c == NULL)
+    {
+        return;
+    }
+    if (ram_hits)  { *ram_hits = c->page_ram_hits; }
+    if (sd_reads)  { *sd_reads = c->page_sd_reads; }
 }

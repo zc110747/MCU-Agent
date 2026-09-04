@@ -475,6 +475,56 @@ box mismatches = 0
 
 > 本轮目标（CTF 生成 + NOT_FOUND 零开销 + 英文数字正常显示）已全部达成并通过实机验证。
 
+### 8.14 索引前部常驻 RAM（resident index，本轮新增）
+
+**需求（用户原话）**：使用 ctf-ttf 字库时，初始化 sd 卡完成后，先把 ctf 中多级映射中第一部分
+关于 ttf 信息存储地址的偏移映射搬运到 ram 里缓存，确定占用空间多少，如果满足第一层级就一直
+保存在 ram 中，增加效率。
+
+**落点**：`ctf_load_resident()` 在 `ctf_open()` 之后、`ctf_verify_ttf()` 之前调用（固件侧
+`lvgl_font_engine_init()` 的调用顺序一致）。
+
+**常驻三层（不加载 entry 表、不加载 TTF）**：
+- ① TTF 表目录（table index）：`N×12 B`，鸿蒙 SC/TC 实测 `N=11`（132 B），上限
+  `CTF_TABLE_RESIDENT_MAX=64`（768 B）；`ctf_find_table(tag)` 后续可按名查 glyf/loca/cmap/hmtx 偏移。
+- ② L1 平面表（已在 `ctf_open()` 搬，2 KB）。
+- ③ 页表（page table）：`page_index_count × 40 B`。**仅当整张页表能放进页池才全常驻**
+  （all-or-nothing），否则退化走块缓存、绝不部分常驻（部分常驻要在每个 lookup 加分支判断，得不偿失）。
+
+**占用核算（实测）**：鸿蒙 SC/TC 均为 `256 页 × 40 B = 10240 B` 页表 + L1 2048 B + 表目录 ~132 B
+≈ **12.4 KB**。固件预留页池 `CTF_PAGE_POOL_PAGES=288 × 40 = 11520 B`（11.25 KB），留余量给含少量
+增补平面页的字体；相对 AXI-SRAM 剩余 ~200 KB 是划算交易。
+
+**安全**：`page_pointers_ok()` 在加载时一次性校验所有非空平面的 `page_offset` 落在池内且整段 run
+不越界，使查找第二跳的 `page_offset - page_index_offset` 减法**永不溢出**，无需每查一次做边界判断。
+
+**效率证据（可观测）**：
+- `ctf_find_unicode()` Step 2 三源优先级：单条页缓存 → **常驻页表 RAM 命中**（`page_ram_hits++`）
+  → 卡路径（`page_sd_reads++`）。
+- 页表常驻后，**缺字判定（bit 测试）完全在 RAM 完成，lookup 第二跳零 `f_read`**。boot banner 打印
+  `pages resident: 10240 B of a 11520 B pool -> NOT_FOUND costs 0 SD reads`；运行时 `page from RAM`
+  非零、`page from card 0`。
+
+**新增接口 / 统计**：`ctf_load_resident()`、`ctf_resident_info()`、`ctf_resident_bytes()`、
+`ctf_find_table()`、`ctf_page_stats()`；`ctf_resident_t` 报告 table/L1/page 三段字节数与
+`page_resident` 标志；`lv_font_provider.c::log_resident()` 启动打印占用；`app_main.c::log_ctf_stats()`
+运行时打印 `page from RAM / from card`。
+
+**主机端验收（`tools/host_test`，PC 编译固件真实源码）**：新增 `[2c]` 等价性测试——常驻页表路径与
+降级走卡路径对 `0..0xFFFF` 全表查找结果（rc/glyph_id/advance/empty）逐字一致；并断言常驻路径
+`page_ram_hits>0` 且 `page_sd_reads==0`。**7 字体全部通过（SC 88 项 + TC×6 各 42 项 = 340 项全绿）**。
+
+**构建基线（本轮双构，0 warning）**：
+| 配置 | FLASH | RAM_D1 | 说明 |
+|------|------:|-------:|------|
+| Debug   | 341896 B (16.30%) | 332152 B (63.35%) | 较 CTF v1 基线 RAM +~13 KB |
+| Release | 345996 B (16.50%) | 332160 B (63.35%) | 页池 11.5 KB + `ctf_resident_t`/统计字段 |
+
+> 实机验证已通过：烧录 `build-debug/lvgl_oled.elf`（**Verified OK**），COM19（ST-Link VCP）抓取启动 banner 确认
+> `index in RAM 12420 B = tables 132 + L1 2048 + pages 10240`、`pages resident: 10240 B of a 11520 B pool -> NOT_FOUND costs 0 SD reads`；
+> CTF probe 中 `U+1F600` / `U+0F8FF` 等缺字 SD 列 = 0，证明缺字判定零 SD 访问。主机端 `[2c]` 等价性 7 字体 340 项全绿，
+> 双构均 0 warning，端到端闭环完成。
+
 ---
 
 ## 9. 日志系统重构：PRINT_LOG + TX 中断驱动（2026-09-03）
