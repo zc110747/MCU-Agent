@@ -14,6 +14,7 @@ import time
 
 try:
     import serial
+    from serial.tools import list_ports
 except ImportError:
     sys.exit("pyserial is required:  pip install pyserial")
 
@@ -21,12 +22,28 @@ except ImportError:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", required=True, help="e.g. COM19")
+    ap.add_argument("--port", default="auto",
+                    help="COM port, e.g. COM19; 'auto' enumerates the ST-Link VCP")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--seconds", type=float, default=20.0,
                     help="how long to keep the port open")
     ap.add_argument("--out", default="serial_capture.txt")
     args = ap.parse_args()
+
+    # "auto" traverses the actual serial ports and picks the ST-Link VCP,
+    # instead of relying on a hardcoded COM number (which changes with USB enumeration).
+    if args.port.lower() == "auto":
+        ports = list(list_ports.comports())
+        cand = [p for p in ports if p.description and
+                ("STLink" in p.description or "STMicroelectronics" in p.description
+                 or "Virtual COM" in p.description)]
+        if not cand:
+            cand = ports
+        if not cand:
+            print("no serial ports found; pass --port explicitly", file=sys.stderr)
+            return 1
+        args.port = cand[0].device
+        print(f"auto-selected port: {args.port} ({cand[0].description})")
 
     chunks = []
     try:

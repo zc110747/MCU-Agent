@@ -1,299 +1,49 @@
 /**
   ******************************************************************************
   * @file    app_ui.c
-  * @brief   LVGL screen for the 240x240 ST7789 panel.
+  * @brief   UI orchestrator: page array, boot/loading gate, page rotation.
   *
-  *  Layout (all coordinates in pixels, origin top-left)
+  *  Pages themselves live in their own files (ui_page_*.c).  This module only
+  *  owns the page array, the 5 s auto-rotation between the two content pages,
+  *  and the boot sequence:
   *
-  *      0   ┌───────────────────────────────┐
-  *          │  STM32H743 信息面板           │  28 px header
-  *     28   ├───────────────────────────────┤
-  *          │          20:34:48             │  32 px clock
-  *          │     2026-08-05  星期三        │  16 px date
-  *     98   ├───────────────────────────────┤
-  *          │  SD卡容量            FAT32    │
-  *          │  可用 12.3 GB / 29.7 GB       │
-  *          │  ▓▓▓▓▓▓▓░░░░░░░░░░░░░  58%    │
-  *    156   ├───────────────────────────────┤
-  *          │  主频  480 MHz         HSE    │
-  *          │  运行  00:12:34               │
- *          │  字库  鸿蒙TTF         LSE     │  16 px
- *          │  缓存  命中 512 / 读卡 96     │  12 px
- *    240   └───────────────────────────────┘
- *
- *  Every label is created once; the refresh timer only rewrites the text, so
- *  LVGL redraws just the dirty rectangles and the SPI traffic stays low.
- ******************************************************************************
+  *    1. Build the info + font pages off-screen so their labels enqueue the
+  *       TTF glyph preload.
+  *    2. Build and show the boot/loading page.
+  *    3. A 50 ms timer fills the progress bar.  It is gated on BOTH a minimum
+  *       2 s dwell and (for the TTF engine) the preload queue draining, then it
+  *       loads page 0, pins its glyphs (epoch bump) and starts the rotation.
+  *       For the GBK engine nothing is preloaded, so the bar simply animates
+  *       across the mandatory 2 s.
+  ******************************************************************************
   */
 #include "app_ui.h"
-#include "lvgl.h"
-#include "lv_font_gbk.h"
-#include "lv_font_harmony.h"
+#include "log.h"
+#include "ui_common.h"
+#include "ui_page_info.h"
+#include "ui_page_font.h"
+#include "ui_page_boot.h"
 #include "lv_font_provider.h"
-#include "lv_port_fs.h"
-#include "drv_rtc.h"
-#include "drv_sdio.h"
-#include "drv_oled_text.h"
-#include <stdio.h>
+#include "lvgl.h"
+#include "lvgl_font.h"
+#include "main.h"
 
-/* No label names a concrete font: everything goes through the provider, so the
- * engine switch in lv_font_cfg.h is the only place that has to be edited (or
- * the only CMake variable that has to be flipped). */
-#define UI_FONT(px)     lv_font_provider_get((px))
-
-/* ---- Geometry --------------------------------------------------------------*/
-#define UI_W                240
-#define UI_H                240
-#define UI_PAD              8
-
-#define HDR_H               28
-#define CLOCK_Y             34
-#define DATE_Y              74
-#define SEP1_Y              98
-#define SD_HEAD_Y           104
-#define SD_VAL_Y            124
-#define SD_BAR_Y            146
-#define SD_BAR_H            8
-#define SEP2_Y              160
-#define INFO1_Y             166
-#define INFO2_Y             186
-#define INFO3_Y             206
-#define INFO4_Y             226
-
-/* ---- Palette ---------------------------------------------------------------*/
-#define COL_BG              0x000000
-#define COL_HDR             0x0A3D62
-#define COL_HDR_TXT         0xFFD966
-#define COL_CLOCK           0x00E5FF
-#define COL_DATE            0xFFFFFF
-#define COL_LABEL           0x8A8A8A
-#define COL_VALUE           0x40E070
-#define COL_ACCENT          0xFFA000
-#define COL_BAR_BG          0x2A2A2A
-#define COL_SEP             0x243447
-#define COL_DIM             0x606060
-#define COL_ERR             0xFF4040
-
-/* SD capacity is re-read every N refresh ticks (tick = 1 s). */
-#define SD_REFRESH_PERIOD   30U
-
-typedef struct
-{
-    lv_obj_t *clock;
-    lv_obj_t *date;
-    lv_obj_t *sd_head;
-    lv_obj_t *sd_fs;
-    lv_obj_t *sd_val;
-    lv_obj_t *sd_bar;
-    lv_obj_t *sd_pct;
-    lv_obj_t *freq;
-    lv_obj_t *clksrc;
-    lv_obj_t *uptime;
-    lv_obj_t *fontinfo;
-    lv_obj_t *cache;
-} ui_handles_t;
-
-static ui_handles_t s_ui;
-static uint32_t     s_sd_countdown = 0U;   /* 0 -> query on the next tick */
-static uint32_t     s_uptime_sec   = 0U;
-static uint8_t      s_built        = 0U;
-
-/* ---- Page auto-rotation (5 s) + font-latency probe ---------------------- */
+/* Page auto-rotation (5 s) + boot gate. */
 #define PAGE_SWITCH_MS    5000U
 #define PAGE_COUNT        2U
+#define BOOT_MIN_MS       2000U
+
 static lv_obj_t   *s_pages[PAGE_COUNT];
 static uint8_t     s_cur_page       = 0U;
 static uint8_t     s_switch_pending = 0U;
 
-/*----------------------------------------------------------------------------
- *  Small helpers
- *--------------------------------------------------------------------------*/
+/* Boot / preload gating. */
+static uint32_t    s_boot_t0;        /* HAL_GetTick() at boot-page show   */
+static uint32_t    s_boot_pending0;  /* preload queue depth captured at build */
 
-/**
-  * @brief  Plain label: transparent background, no padding, fixed position.
-  */
-static lv_obj_t *mk_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
-                          const lv_font_t *font, uint32_t color,
-                          const char *text)
-{
-    lv_obj_t *lbl = lv_label_create(parent);
-
-    lv_obj_set_style_text_font(lbl, font, LV_PART_MAIN);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(color), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(lbl, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(lbl, 0, LV_PART_MAIN);
-    lv_label_set_text(lbl, text);
-    lv_obj_set_pos(lbl, x, y);
-
-    return lbl;
-}
-
-/**
-  * @brief  Same, but horizontally centred on the screen.
-  */
-static lv_obj_t *mk_label_center(lv_obj_t *parent, lv_coord_t y,
-                                 const lv_font_t *font, uint32_t color,
-                                 const char *text)
-{
-    lv_obj_t *lbl = mk_label(parent, 0, y, font, color, text);
-
-    /* Full-width label + centred text keeps the position stable when the
-     * string length changes (e.g. 9:05 -> 10:05), which avoids repainting a
-     * shifting box every second. */
-    lv_obj_set_width(lbl, UI_W);
-    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_pos(lbl, 0, y);
-
-    return lbl;
-}
-
-/**
-  * @brief  1 px horizontal rule.
-  */
-static void mk_separator(lv_obj_t *parent, lv_coord_t y)
-{
-    lv_obj_t *ln = lv_obj_create(parent);
-
-    lv_obj_remove_style_all(ln);
-    lv_obj_set_size(ln, UI_W - (2 * UI_PAD), 1);
-    lv_obj_set_pos(ln, UI_PAD, y);
-    lv_obj_set_style_bg_color(ln, lv_color_hex(COL_SEP), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ln, LV_OPA_COVER, LV_PART_MAIN);
-}
-
-/**
-  * @brief  Right-align a label against the screen edge without a layout pass.
-  */
-static void align_right(lv_obj_t *lbl, lv_coord_t y)
-{
-    lv_obj_set_width(lbl, UI_W - (2 * UI_PAD));
-    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    lv_obj_set_pos(lbl, UI_PAD, y);
-}
-
-/*----------------------------------------------------------------------------
- *  Data refresh
- *--------------------------------------------------------------------------*/
-
-static void refresh_clock(void)
-{
-    rtc_datetime_t dt;
-
-    if (drv_rtc_get(&dt) != RT_OK)
-    {
-        lv_label_set_text(s_ui.clock, "--:--:--");
-        lv_label_set_text(s_ui.date, "RTC 未启动");
-        return;
-    }
-
-    lv_label_set_text_fmt(s_ui.clock, "%02d:%02d:%02d",
-                          (int)dt.hour, (int)dt.minute, (int)dt.second);
-
-    lv_label_set_text_fmt(s_ui.date, "%04d-%02d-%02d  %s",
-                          (int)dt.year, (int)dt.month, (int)dt.day,
-                          drv_rtc_weekday_cn(dt.weekday));
-}
-
-static void refresh_sd(void)
-{
-    sd_info_t info;
-    char      used_str[16];
-    char      total_str[16];
-    uint32_t  pct;
-
-    if (drv_sd_query_info(&info) != RT_OK)
-    {
-        lv_label_set_text(s_ui.sd_val, "读取失败");
-        lv_obj_set_style_text_color(s_ui.sd_val, lv_color_hex(COL_ERR),
-                                    LV_PART_MAIN);
-        lv_label_set_text(s_ui.sd_fs, "--");
-        lv_bar_set_value(s_ui.sd_bar, 0, LV_ANIM_OFF);
-        lv_label_set_text(s_ui.sd_pct, "--%");
-        return;
-    }
-
-    lv_obj_set_style_text_color(s_ui.sd_val, lv_color_hex(COL_VALUE),
-                                LV_PART_MAIN);
-
-    drv_sd_format_size(info.fs_total_bytes - info.fs_free_bytes,
-                       used_str, sizeof(used_str));
-    drv_sd_format_size(info.fs_total_bytes, total_str, sizeof(total_str));
-
-    /* Scale down before the division so a 2 TB card cannot overflow. */
-    pct = 0U;
-    if (info.fs_total_bytes != 0U)
-    {
-        pct = (uint32_t)(((info.fs_total_bytes - info.fs_free_bytes) / 1024U) *
-                         100U / (info.fs_total_bytes / 1024U));
-        if (pct > 100U)
-        {
-            pct = 100U;
-        }
-    }
-
-    lv_label_set_text_fmt(s_ui.sd_val, "已用 %s / %s", used_str, total_str);
-    lv_label_set_text_fmt(s_ui.sd_fs, "%s %s",
-                          drv_sd_card_name(info.card_type),
-                          drv_sd_fs_name(info.fs_type));
-    lv_bar_set_value(s_ui.sd_bar, (int32_t)pct, LV_ANIM_OFF);
-    lv_label_set_text_fmt(s_ui.sd_pct, "%d%%", (int)pct);
-}
-
-static void refresh_runtime(void)
-{
-    uint32_t hits = 0U;
-    uint32_t miss = 0U;
-
-    lv_label_set_text_fmt(s_ui.uptime, "运行  %02d:%02d:%02d",
-                          (int)(s_uptime_sec / 3600U),
-                          (int)((s_uptime_sec / 60U) % 60U),
-                          (int)(s_uptime_sec % 60U));
-
-    /* Both engines count "glyph served from RAM" vs "glyph that reached the
-     * card"; which one is live decides whose counters we show. */
-    if (lv_font_provider_engine() == FONT_ENGINE_HARMONYOS)
-    {
-        lv_font_harmony_stats(&hits, &miss);
-    }
-    else
-    {
-        lv_font_gbk_cache_stats(&hits, &miss);
-    }
-
-    lv_label_set_text_fmt(s_ui.cache, "缓存  命中 %lu / 读卡 %lu",
-                          (unsigned long)hits, (unsigned long)miss);
-}
-
-/**
-  * @brief  1 Hz refresh timer.
-  */
-static void ui_tick_cb(lv_timer_t *timer)
-{
-    LV_UNUSED(timer);
-
-    s_uptime_sec++;
-
-    refresh_clock();
-    refresh_runtime();
-
-    if (s_sd_countdown == 0U)
-    {
-        refresh_sd();
-        s_sd_countdown = SD_REFRESH_PERIOD;
-    }
-    else
-    {
-        s_sd_countdown--;
-    }
-}
-
-/*----------------------------------------------------------------------------
- *  Public API
- *--------------------------------------------------------------------------*/
-
-/*----------------------------------------------------------------------------
- *  Page 2: font-engine status (Chinese) - used to eyeball glyph latency
- *--------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
+/* Small helpers                                                              */
+/*----------------------------------------------------------------------------*/
 
 static void dwt_ensure_enabled(void)
 {
@@ -305,40 +55,53 @@ static void dwt_ensure_enabled(void)
     }
 }
 
-static void build_page_font(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);   /* top-level screen */
-    lv_obj_t *hdr;
-
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
-
-    hdr = lv_obj_create(scr);
-    lv_obj_remove_style_all(hdr);
-    lv_obj_set_size(hdr, UI_W, HDR_H);
-    lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x0A5C3D), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
-    (void)mk_label_center(hdr, 6, UI_FONT(16), COL_HDR_TXT, "鸿蒙字体引擎");
-
-    (void)mk_label(scr, UI_PAD, 44,  UI_FONT(16), COL_LABEL, "渲染链路  CTF 索引 + TTF");
-    (void)mk_label(scr, UI_PAD, 70,  UI_FONT(16), COL_LABEL, "默认字体  HarmonyOS SC");
-    (void)mk_label(scr, UI_PAD, 96,  UI_FONT(16), COL_LABEL, "支持字号  12/16/24/32");
-    (void)mk_label(scr, UI_PAD, 122, UI_FONT(16), COL_LABEL, "缺字处理  回退 Montserrat");
-    (void)mk_label(scr, UI_PAD, 148, UI_FONT(16), COL_VALUE, "本页用途  评估栅格化时延");
-    (void)mk_label(scr, UI_PAD, 174, UI_FONT(16), COL_VALUE, "切换节奏  每 5 秒自动翻页");
-    (void)mk_label(scr, UI_PAD, 200, UI_FONT(12), COL_DIM,   "冷启动首帧最慢 之后命中缓存");
-
-    s_pages[1] = scr;
-}
-
 static void page_switch_cb(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
     s_cur_page ^= 1U;
     s_switch_pending = 1U;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Boot warm-up                                                               */
+/* -------------------------------------------------------------------------- */
+
+/* A screen's first ever LVGL render does ~190 ms of one-time work (style
+ * value computation, label layout, draw-task build) on top of the steady-state
+ * repaint.  That is exactly the "first load is ~200 ms slower than the second"
+ * the user reported.  Rendering every content page once at boot - with the
+ * display flush suppressed so nothing reaches the panel - moves that cost to
+ * the boot screen and leaves each real first switch warm. */
+static void dummy_flush_cb(lv_disp_drv_t *drv,
+                           const lv_area_t *area, lv_color_t *color_p)
+{
+    LV_UNUSED(area);
+    LV_UNUSED(color_p);
+    lv_disp_flush_ready(drv);
+}
+
+static void ui_warmup_pages(void)
+{
+    lv_disp_t        *disp = lv_disp_get_default();
+    lv_disp_drv_t    *drv  = (disp != NULL) ? disp->driver : NULL;
+    void (*orig)(lv_disp_drv_t *, const lv_area_t *, lv_color_t *) = NULL;
+    uint8_t           i;
+
+    if (drv == NULL)
+    {
+        return;
+    }
+
+    orig       = drv->flush_cb;
+    drv->flush_cb = dummy_flush_cb;     /* swallow the framebuffer push */
+
+    for (i = 0u; i < PAGE_COUNT; i++)
+    {
+        lv_scr_load(s_pages[i]);
+        (void)lv_timer_handler();        /* first paint, hidden */
+    }
+
+    drv->flush_cb = orig;
 }
 
 uint8_t app_ui_take_switch(lv_obj_t **out_screen, int *out_index)
@@ -351,176 +114,103 @@ uint8_t app_ui_take_switch(lv_obj_t **out_screen, int *out_index)
             *out_index = (int)s_cur_page;
         }
         s_switch_pending = 0U;
+        /* The new page is now on screen: pin its glyphs and let the old page's
+         * fall out of the LRU cache under pressure. */
+        lv_font_provider_on_page_shown();
         return 1U;
     }
     return 0U;
 }
 
-void app_ui_create(void)
+/*----------------------------------------------------------------------------*/
+/* Boot gate                                                                  */
+/*----------------------------------------------------------------------------*/
+
+static void boot_timer_cb(lv_timer_t *timer)
 {
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_t *hdr;
-    uint32_t  mask;
+    uint32_t elapsed   = HAL_GetTick() - s_boot_t0;
+    uint32_t time_pct  = (elapsed * 100u) / BOOT_MIN_MS;
+    uint32_t pending   = lv_font_provider_preload_pending();
+    uint32_t drain_pct;
+    uint32_t bar;
 
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
-
-    /* ---- Header ----------------------------------------------------------*/
-    hdr = lv_obj_create(scr);
-    lv_obj_remove_style_all(hdr);
-    lv_obj_set_size(hdr, UI_W, HDR_H);
-    lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(COL_HDR), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
-
-    (void)mk_label_center(hdr, 6, UI_FONT(16), COL_HDR_TXT,
-                          "STM32H743 信息面板");
-
-    /* ---- Clock -----------------------------------------------------------*/
-    s_ui.clock = mk_label_center(scr, CLOCK_Y, UI_FONT(32), COL_CLOCK,
-                                 "--:--:--");
-    s_ui.date  = mk_label_center(scr, DATE_Y, UI_FONT(16), COL_DATE,
-                                 "---------");
-
-    mk_separator(scr, SEP1_Y);
-
-    /* ---- SD card ---------------------------------------------------------*/
-    s_ui.sd_head = mk_label(scr, UI_PAD, SD_HEAD_Y, UI_FONT(16),
-                            COL_LABEL, "SD卡容量");
-    s_ui.sd_fs   = mk_label(scr, 0, SD_HEAD_Y, UI_FONT(16), COL_DIM, "--");
-    align_right(s_ui.sd_fs, SD_HEAD_Y);
-
-    s_ui.sd_val = mk_label(scr, UI_PAD, SD_VAL_Y, UI_FONT(16),
-                           COL_VALUE, "读取中...");
-
-    s_ui.sd_bar = lv_bar_create(scr);
-    lv_obj_remove_style_all(s_ui.sd_bar);
-    lv_obj_set_size(s_ui.sd_bar, UI_W - (2 * UI_PAD) - 40, SD_BAR_H);
-    lv_obj_set_pos(s_ui.sd_bar, UI_PAD, SD_BAR_Y);
-    lv_bar_set_range(s_ui.sd_bar, 0, 100);
-    lv_bar_set_value(s_ui.sd_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_ui.sd_bar, lv_color_hex(COL_BAR_BG),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_ui.sd_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_ui.sd_bar, 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_ui.sd_bar, lv_color_hex(COL_ACCENT),
-                              LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_ui.sd_bar, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(s_ui.sd_bar, 2, LV_PART_INDICATOR);
-
-    s_ui.sd_pct = mk_label(scr, 0, SD_BAR_Y - 3, UI_FONT(12),
-                           COL_ACCENT, "--%");
-    align_right(s_ui.sd_pct, SD_BAR_Y - 3);
-
-    mk_separator(scr, SEP2_Y);
-
-    /* ---- Board info ------------------------------------------------------*/
-    s_ui.freq = mk_label(scr, UI_PAD, INFO1_Y, UI_FONT(16), COL_LABEL, "");
-    lv_label_set_text_fmt(s_ui.freq, "主频  %d MHz",
-                          (int)(HAL_RCC_GetSysClockFreq() / 1000000U));
-
-    s_ui.clksrc = mk_label(scr, 0, INFO1_Y, UI_FONT(16), COL_DIM, "");
-    if (g_clock_source == CLOCK_SRC_HSE_XTAL)
+    if (time_pct > 100u)
     {
-        lv_label_set_text(s_ui.clksrc, "HSE 25M");
+        time_pct = 100u;
+    }
+
+    if (s_boot_pending0 == 0u)
+    {
+        /* GBK (or fallback): no preload to wait for - the bar tracks the
+         * mandatory 2 s dwell. */
+        drain_pct = 100u;
     }
     else
     {
-        lv_obj_set_style_text_color(s_ui.clksrc, lv_color_hex(COL_ERR),
-                                    LV_PART_MAIN);
-        lv_label_set_text(s_ui.clksrc, "HSI 备用");
+        uint32_t done = (s_boot_pending0 > pending) ? (s_boot_pending0 - pending)
+                                                    : 0u;
+        drain_pct = (uint32_t)((done * 100u) / s_boot_pending0);
+        if (drain_pct > 100u)
+        {
+            drain_pct = 100u;
+        }
     }
-    align_right(s_ui.clksrc, INFO1_Y);
 
-    s_ui.uptime = mk_label(scr, UI_PAD, INFO2_Y, UI_FONT(16),
-                           COL_LABEL, "运行  00:00:00");
+    /* The bar reaches 100 % only when BOTH the 2 s dwell and (for TTF) the
+     * preload have completed - whichever is the slower. */
+    bar = (time_pct < drain_pct) ? time_pct : drain_pct;
+    ui_page_boot_set((uint8_t)bar);
 
-    /* Font source line doubles as an RTC clock-source readout. */
-    s_ui.fontinfo = mk_label(scr, UI_PAD, INFO3_Y, UI_FONT(16),
-                             COL_LABEL, "");
-    mask = lcd_driver_font_status();
-    lv_label_set_text_fmt(s_ui.fontinfo, "字库  %s  时基 %s",
-                          lv_font_provider_name(),
-                          (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE"
-                                                                  : "LSI");
-    if (mask == 0U)
+    if ((time_pct >= 100u) && (drain_pct >= 100u))
     {
-        lv_obj_set_style_text_color(s_ui.fontinfo, lv_color_hex(COL_ERR),
-                                    LV_PART_MAIN);
+        /* Fonts are warm (or the engine never needed them): show page 0 and
+         * pin its glyphs, then start the periodic rotation. */
+        PRINT_LOG("[BOOT] done: pending0=%lu pending=%lu elapsed=%lu engine=%d\r\n",
+                  (unsigned long)s_boot_pending0, (unsigned long)pending,
+                  (unsigned long)elapsed, (int)lv_font_provider_engine());
+        lv_scr_load(s_pages[0]);
+        lv_font_provider_on_page_shown();
+        s_cur_page = 0U;
+        (void)lv_timer_create(page_switch_cb, PAGE_SWITCH_MS, NULL);
+        lv_timer_del(timer);
     }
-
-    s_ui.cache = mk_label(scr, UI_PAD, INFO4_Y, UI_FONT(12),
-                          COL_DIM, "缓存  命中 0 / 读卡 0");
-
-    s_built        = 1U;
-    s_uptime_sec   = 0U;
-    s_sd_countdown = 0U;
-
-    /* First paint with real values, then hand over to the timer. */
-    refresh_clock();
-    refresh_runtime();
-
-    (void)lv_timer_create(ui_tick_cb, 1000, NULL);
-
-    /* Second screen + 5 s auto-rotate between the two pages.  DWT is
-     * enabled so the main loop can measure the Chinese rasterisation
-     * cost of each switch (cold first paint vs. warm cache hit). */
-    dwt_ensure_enabled();
-    s_pages[0] = lv_scr_act();
-    build_page_font();
-    (void)lv_timer_create(page_switch_cb, PAGE_SWITCH_MS, NULL);
 }
 
-void app_ui_show_fault(const char *line1, const char *line2, const char *line3)
+/*----------------------------------------------------------------------------*/
+/* Public API                                                                 */
+/*----------------------------------------------------------------------------*/
+
+void app_ui_create(void)
 {
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_t *hdr;
+    /* DWT is enabled so the main loop can measure the Chinese rasterisation
+     * cost of each switch (cold first paint vs. warm cache hit). */
+    dwt_ensure_enabled();
 
-    lv_obj_clean(scr);
-    s_built = 0U;
+    /* Build the two rotating pages off-screen first so their labels enqueue
+     * the glyph preload; the boot page waits for that queue to drain. */
+    s_pages[0] = ui_page_info_build();
+    PRINT_LOG("[BOOT] after info build: pending=%lu\r\n",
+              (unsigned long)lv_font_provider_preload_pending());
+    s_pages[1] = ui_page_font_build();
+    PRINT_LOG("[BOOT] after font build: pending=%lu\r\n",
+              (unsigned long)lv_font_provider_preload_pending());
+    s_boot_pending0 = lv_font_provider_preload_pending();
 
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    /* Render each content page once (display flush suppressed) so the first
+     * real screen switch only re-paints already-warm objects.  This removes the
+     * ~190 ms first-paint penalty the user saw on the font page. */
+    ui_warmup_pages();
 
-    hdr = lv_obj_create(scr);
-    lv_obj_remove_style_all(hdr);
-    lv_obj_set_size(hdr, UI_W, HDR_H);
-    lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x7A1010), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_t *boot = ui_page_boot_build();
+    lv_scr_load(boot);
+    ui_page_boot_set_status((lv_font_provider_engine() == FONT_ENGINE_CTF)
+                                ? "字库预加载中..." : "系统启动中...");
 
-    /* ASCII only from here down - the Chinese glyphs live on the card that
-     * just failed to come up. */
-    (void)mk_label_center(hdr, 6, UI_FONT(16), 0xFFFFFF, "SD / FONT ERROR");
-
-    (void)mk_label(scr, UI_PAD, 50,  UI_FONT(16), 0xFFD966,
-                   (line1 != NULL) ? line1 : "");
-    (void)mk_label(scr, UI_PAD, 74,  UI_FONT(16), 0xFFFFFF,
-                   (line2 != NULL) ? line2 : "");
-    (void)mk_label(scr, UI_PAD, 98,  UI_FONT(16), 0xFFFFFF,
-                   (line3 != NULL) ? line3 : "");
-
-    (void)mk_label(scr, UI_PAD, 140, UI_FONT(12), 0x80D0FF,
-                   "Expected on the card:");
-    (void)mk_label(scr, UI_PAD, 158, UI_FONT(12), 0xB0B0B0,
-                   "1:/SYSTEM/FONT/UNIGBK.BIN");
-    (void)mk_label(scr, UI_PAD, 174, UI_FONT(12), 0xB0B0B0,
-                   "1:/SYSTEM/FONT/GBK12.FON");
-    (void)mk_label(scr, UI_PAD, 190, UI_FONT(12), 0xB0B0B0,
-                   "1:/SYSTEM/FONT/GBK16.FON");
-    (void)mk_label(scr, UI_PAD, 206, UI_FONT(12), 0xB0B0B0,
-                   "1:/SYSTEM/FONT/GBK24.FON");
-    (void)mk_label(scr, UI_PAD, 222, UI_FONT(12), 0xB0B0B0,
-                   "1:/SYSTEM/FONT/GBK32.FON");
+    s_boot_t0 = HAL_GetTick();
+    (void)lv_timer_create(boot_timer_cb, 50, NULL);
 }
 
 void app_ui_request_sd_refresh(void)
 {
-    if (s_built != 0U)
-    {
-        s_sd_countdown = 0U;
-    }
+    ui_page_info_request_sd_refresh();
 }

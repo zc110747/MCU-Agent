@@ -159,12 +159,20 @@ set(PROJECT_SRCS
   Bsp/font/blkcache.c
   Bsp/font/ttf_reader.c
   Bsp/font/ctf_reader.c
+  # BSP: LRU glyph cache (160 KB, RAM_D2) + TTF glyph preload
+  Bsp/font/glyph_cache.c
   # BSP: CTF font engine (Phase 6 stb adapter + Phase 7 LVGL backend)
   Bsp/font/stb_adapter.c
   Bsp/font/lvgl_font.c
   # Demo application
   Application/app_main.c
   Application/app_ui.c
+  # UI pages (each page in its own file; shared primitives in ui_common)
+  Application/ui_common.c
+  Application/ui_page_info.c
+  Application/ui_page_font.c
+  Application/ui_page_boot.c
+  Application/ui_page_fault.c
   # FatFs (dispatch + core + unicode + system + our disk interface)
   third_party/FatFs/diskio.c
   third_party/FatFs/ff.c

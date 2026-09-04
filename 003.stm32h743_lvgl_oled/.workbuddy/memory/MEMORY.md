@@ -16,7 +16,7 @@
 - 构建用 cmake + ninja；仿真用 ST-Link + openocd + cortex-debug。
 
 ## 调试环境（已实测可用）
-- **ST-Link 自带虚拟串口 = COM19（本机会话实测；历史曾为 COM6，端口随 USB 枚举可能变化）**，VCP 接在 PA9/PA10(USART1)，115200 8N1 可直接看 printf。
+- **ST-Link 自带虚拟串口（VCP）= USART1(PA9/PA10, 115200 8N1)，可直接看 printf。串口号不固定**（本次实测为 COM19，历史上出现过 COM6），**禁止在记忆/脚本里硬编码固定值**：抓 banner 前用 pyserial `serial.tools.list_ports.comports()` 遍历枚举实际端口，按 "STLink" / "STM" 描述或用户确认选定，再传给 `serial_capture.py --port`。
 - openocd 可执行：`/d/Software/openocd/bin/openocd`（PATH 里直接 `openocd` 亦可；记忆里 `D:\software\ST\...` 路径已失效）。
 - SVD 已复制进工程 `debug/STM32H743.svd`（源自 STM32CubeIDE 插件目录），launch.json 用相对路径引用。
 - `.vscode/launch.json` 两个配置：`Debug (OpenOCD + ST-Link)`（build→flash→停 main）与 `Attach (no reflash)`（附加运行中目标）。

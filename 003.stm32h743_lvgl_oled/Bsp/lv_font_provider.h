@@ -70,6 +70,30 @@ const lv_font_t *lv_font_provider_get(uint16_t size);
   */
 const lv_font_t *lv_font_provider_default(void);
 
+/**
+  * @brief  Pixel size a CTF/TTF font was built at, or 0 for non-TTF fonts.
+  *         Lets the UI decide whether a label should be glyph-preloaded.
+  */
+uint16_t lv_font_provider_px_of(const lv_font_t *f);
+
+/**
+  * @brief  Notify the font layer that a new page became visible, so it can
+  *         re-pin the current page's glyphs and let the previous page's fall
+  *         out of the cache under LRU pressure.
+  */
+void lv_font_provider_on_page_shown(void);
+
+/**
+  * @brief  Preload the text of an LVGL label (TTF engines only; ignored otherwise).
+  */
+void lv_font_provider_preload_label(const lv_obj_t *lbl);
+
+/**
+  * @brief  Glyphs still queued for asynchronous rasterisation.
+  * @retval 0 for non-TTF engines (GBK / HarmonyOS), or when the queue drained.
+  */
+uint32_t lv_font_provider_preload_pending(void);
+
 #ifdef __cplusplus
 }
 #endif

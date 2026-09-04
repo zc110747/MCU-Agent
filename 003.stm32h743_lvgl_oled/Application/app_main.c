@@ -21,6 +21,7 @@
 #include "log.h"
 #include "app_main.h"
 #include "app_ui.h"
+#include "ui_page_fault.h"
 #include "drv_spi_oled.h"
 #include "drv_oled_text.h"
 #include "drv_sdio.h"
@@ -318,9 +319,9 @@ void application_init(void)
     else
     {
         /* ASCII-only page: the CJK glyphs are on the card that just failed. */
-        app_ui_show_fault("SD card not mounted",
-                          "or GBK font files",
-                          "are missing.");
+        ui_page_fault_show("SD card not mounted",
+                           "or GBK font files",
+                           "are missing.");
     }
 
     /* Paint the first frame before returning so the screen is never left
@@ -379,14 +380,33 @@ void application_run(void)
         int       sw_idx = -1;
         if (app_ui_take_switch(&sw, &sw_idx))
         {
+            lvgl_font_stats_t st0;
+            lvgl_font_stats_t st1;
+            uint32_t          mhz = (SystemCoreClock != 0U)
+                                    ? (SystemCoreClock / 1000000U) : 1U;
+            if (mhz == 0U) { mhz = 1U; }
+
+            lvgl_font_get_stats(&st0);
             uint32_t c0 = DWT->CYCCNT;
             lv_scr_load(sw);
-            (void)lv_timer_handler();
             uint32_t c1 = DWT->CYCCNT;
-            uint32_t mhz = (SystemCoreClock != 0U) ? (SystemCoreClock / 1000000U) : 1U;
-            if (mhz == 0U) { mhz = 1U; }
-            PRINT_LOG("[PAGE] switch -> %d, render %lu us\r\n",
-                      sw_idx, (unsigned long)((c1 - c0) / mhz));
+            (void)lv_timer_handler();
+            uint32_t c2 = DWT->CYCCNT;
+            lvgl_font_get_stats(&st1);
+
+            PRINT_LOG("[PAGE] switch -> %d, scr_load %lu us, refr %lu us, "
+                      "bmp_miss+%lu hit+%lu evict+%lu | "
+                      "ctf_sd+%lu ttf_fill+%lu ttf_read+%lu us\r\n",
+                      sw_idx,
+                      (unsigned long)((c1 - c0) / mhz),
+                      (unsigned long)((c2 - c1) / mhz),
+                      (unsigned long)(st1.bmp_misses - st0.bmp_misses),
+                      (unsigned long)(st1.bmp_hits   - st0.bmp_hits),
+                      (unsigned long)(st1.bmp_flushes - st0.bmp_flushes),
+                      (unsigned long)(st1.ctf_page_sd   - st0.ctf_page_sd),
+                      (unsigned long)(st1.ttf_fills     - st0.ttf_fills),
+                      (unsigned long)((st1.ttf_seek_us + st1.ttf_read_us)
+                                  - (st0.ttf_seek_us + st0.ttf_read_us)));
         }
         else
         {

@@ -106,6 +106,11 @@ cmake --build build
   Debug / Release 双构 0 warning；CTF 索引 + TTF 引擎启动正常；
   缺字 `NOT_FOUND` 的 SD 读次数为 **0**，UI 不显示该字符也不报错；
   英文 / 数字经内置 Montserrat 正常显示。详见 **[8.12 板级自检实测](#812-phase-8b板级自检实测已完成)**。
+- ✅ **字体页首帧 200 ms 卡顿消除**（2026-09-04，Release 固件，COM19）：
+  根因定位为 **LVGL 首绘一次性 CPU 开销**（样式/排版/draw-task 构建，非字库缓存 miss、非 SD 读），
+  并以"抑制 flush 的离屏预热"把首绘成本挪到启动加载页背后。回归脚本 `scripts/verify_font_firstload.py`
+  实机复跑 **PASS**：首帧 `129085 us` ≈ 二次 `129101 us`，差距归零；首帧 `bmp_miss==0`、零 SD 读。
+  详见 **[8.17 字体页首帧 200 ms 卡顿消除](#817-字体页首帧-200-ms-卡顿消除本轮新增)**。
 
 ---
 
@@ -527,6 +532,148 @@ box mismatches = 0
 
 ---
 
+### 8.15 TTF Glyph Cache：独立 200 KB 栅格化字形缓存（LRU + 页钉扎 + 异步预取，本轮新增；容量 160 KB → 200 KB）
+
+**需求（用户原话）**：TTF Glyph Cache 为 TTF 字库提供独立 Glyph Cache，Bitmap Cache 容量为 200 KB（用户本轮要求从 160 KB 进一步增至 200 KB，仍放 RAM_D2）。
+Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时优先从 Cache 获取，避免重复 TTF 解析与栅格化。
+空间不足时采用 LRU 淘汰最久未用 Glyph 并回收空间；淘汰**不得影响正在使用或当前页面固定字符**。
+创建页面时若用 TTF 字库则扫描文本去重 Unicode、建立预栅格化队列（GBK 字库跳过）；预取尽量后台异步，避免阻塞页面创建。
+页面切换优先预取当前页，旧页由 LRU 自动淘汰；实际绘制优先访问 Glyph Cache，Cache Miss 再走正常 TTF 冷栅格化。
+
+**落点**：全新模块 `Bsp/font/glyph_cache.c` + `glyph_cache.h`，替换原 `lvgl_font.c` 的 32 KB 定长"满即整体回绕"
+位图池（`bmp_*` 整段删除）。逻辑侧收口于 CTF 后端（`LV_FONT_ENGINE=2`），GBK 引擎天然跳过预取。
+
+**存储与放置**：单一 **200 KB 池 `s_pool` 放 `.ram_d2` 段（0x30000000，288 KB 空闲）**，栅格化后 8-bpp 字形位图按
+`(unicode, px)` 索引。变长字形（12px≈数百 B vs 32px≈数千 B）用**边界标记空闲堆（free-list + 偏移排序 + 前后合并）**
+管理，精确回收。`s_pool` 仅 CPU 读取（LVGL 绘制时），SPI6 DMA 不触碰 → **无 cache 一致性问题**。
+> 为何不放 RAM_D1：若 200 KB 进 AXI-SRAM（512 KB 主力），使用率将逼近 ~90% 危险区；挪到 RAM_D2 后
+> RAM_D1 维持 ~61.7%，200 KB 独占 RAM_D2 69.44%，两者皆安全（RAM_D2 共 288 KB，200 KB 占比未超 70%，余量充足）。
+
+**LRU + 页代次（epoch）钉扎**：每个 entry 带 `lru` 访问戳与 `epoch` 页面代次。
+- 查命中：`e->epoch = s_epoch; e->lru = ++s_lru` → **当前页/正在用的字形被持续抬升，永不被淘汰**（满足"不影响正在使用/当前页固定字符"）。
+- 淘汰：仅在 `glyph_cache_insert` 分配失败（堆满）时触发 `while` 循环，只选 **`epoch != s_epoch` 且 `lru` 最小** 的
+  victim `heap_free()` + `used=0` + `s_evicts++`，直到腾出空间；无 victim 可淘汰则 insert 返回 NULL（绘制跳过该字而非死锁）。
+- 切页：`lv_font_provider_on_page_shown()` → `glyph_cache_bump_epoch()` 抬升代次，旧页字形落到当前代次之后，压力下由 LRU 自动回收，新页保持钉扎。
+
+**异步预取（后台 LVGL timer）**：
+- 建页 `mk_label()` → `lv_font_provider_preload_label()`：对 label 文本 UTF-8 扫描去重入队（`preload_enqueue`，
+  Latin<0x80 跳过、已缓存/已入队跳过、队列满则放弃）。
+- `preload_timer_cb` 每 **30 ms 处理 4 字**，调 `ctf_find_unicode → ctf_box_from_entry → glyph_cache_insert →
+  stb_adapter_render` 预栅格化；队列清空即自删 timer。**GBK 引擎**因 `lvgl_font_px_of()==0` 直接 no-op，不预取。
+
+**绘制路径（lookup 优先）**：`ctf_get_glyph_bitmap()` 先 `glyph_cache_lookup()`，命中即返回；Miss 走
+`ctf_find_unicode → glyph_cache_insert → stb_adapter_render` 冷栅格化后返回池指针（返回的正是刚插入的 entry，不会被 LRU 误回收）。
+
+**文件清单**：`Bsp/font/glyph_cache.{c,h}`（新增）、`Bsp/font/lvgl_font.c`（改写：删 `bmp_*` 池、加 lookup/insert/prefetch/epoch）、
+`Bsp/font/lvgl_font.h`（加 `lvgl_font_px_of/preload_*/on_page_shown` 声明）、`Bsp/lv_font_provider.{c,h}`（引擎感知透传）、
+`Application/app_ui.c`（`mk_label` 预取 + `take_switch` 抬升 epoch）、`CMakeLists.txt`（加 `glyph_cache.c`）。
+统计复用 `lvgl_font_get_stats()` 的 `bmp_hits/bmp_misses/bmp_flushes(=evicts)/bmp_bytes`。
+
+**构建基线（本轮双构，0 warning）**：
+| 配置 | FLASH | RAM_D1 | RAM_D2 |
+|------|------:|------:|------:|
+| Debug   | 344536 B (16.43%) | 323624 B (61.73%) | **200 KB (69.44%)** |
+| Release | 348660 B (16.63%) | 323632 B (61.73%) | **200 KB (69.44%)** |
+
+**实机验收（OpenOCD 烧录 Verified OK + openocd/gdb 直读运行时计数）**：
+- 自动双页切换 demo（5 s/次）运行 20 s 后，直读 `glyph_cache.c` 静态计数：
+  `s_hits=1319` / `s_misses=210` / `s_evicts=0` / 缓存占用 **~31 KB** / `s_epoch=3` / `s_lru=1386`。
+- **命中率 86%**（1319/1529）：每个独立字形仅冷栅格化一次（210 miss = 两页全部唯一 CJK 首访），其后全部命中 → TTF 解析与栅格化被彻底摊薄。
+- `s_epoch=3` 证明页钉扎随切换推进；`s_evicts=0` 符合预期——两页 CJK 总量 ≈ 31 KB ≪ 200 KB，LRU 淘汰路径仅在缓存压力下触发（淘汰逻辑由 `insert` 的 victim 选择循环保证，已代码核验；触发需 >200 KB 不同字形同屏/跨页常驻）。
+
+---
+
+### 8.16 UI 页面分离 + 启动加载页（本轮新增）
+
+**需求（用户原话，4 条指令中的 #1/#2）**：
+1. 对 LVGL 页面代码进行分离，每个页面独立一个文件。
+2. 增加启动加载页面，内容是 `Waiting...` 和动态进度条；当字库预加载完成（不足 2 s 则至少等 2 s）后进入下一页；**GBK 不需要预加载，直接等待 2 s**，中间执行完整进度条即可。
+3. 缓存增至 200 KB 仍放 RAM_D2（见 [§8.15](#815-ttf-glyph-cache独立-200-kb-栅格化字形缓存lru--页钉扎--异步预取本轮新增容量-160-kb--200-kb)）。
+4. `third_party/` 与 `Drivers/` 目录禁止修改（共享第三方库，本次所有改动均在 `Application/`、`Bsp/` 自有代码与 `CMakeLists.txt`）。
+
+**页面分离（指令 #1）**：原单文件 `app_ui.c`（533 行，含信息页 + 字体页 + 故障页 + 启动逻辑）拆分为：
+| 文件 | 职责 |
+|------|------|
+| `Application/ui_common.{c,h}` | 共享原语：屏幕尺寸 `UI_W/UI_H/UI_PAD/HDR_H`、调色板常量、`#define UI_FONT(px) lv_font_provider_get((px))`、`ui_common_screen_create()`、`ui_mk_label()`（内部调 `lv_font_provider_preload_label` 透明预取）、`ui_mk_label_center()`、`ui_mk_separator()`、`ui_align_right()` |
+| `Application/ui_page_info.{c,h}` | 信息面板页（时钟 / SD / 主板信息 / 缓存行），自建 1 Hz `ui_page_info_tick` 刷新；`ui_page_info_build()` / `ui_page_info_request_sd_refresh()` |
+| `Application/ui_page_font.{c,h}` | 字体引擎状态页（7 行 CJK）；`ui_page_font_build()` |
+| `Application/ui_page_boot.{c,h}` | 启动加载页；`ui_page_boot_build()` / `ui_page_boot_set(uint8_t pct)` / `ui_page_boot_set_status(const char*)` |
+| `Application/ui_page_fault.{c,h}` | ASCII 故障页；`ui_page_fault_show(line1,line2,line3)`（原 `app_ui_show_fault` 改名迁移） |
+| `Application/app_ui.c`（重写） | 纯编排器：页数组 `s_pages[2]` + 5 s 轮播 `page_switch_cb` + **启动门控 `boot_timer_cb`**；`app_ui_create()` / `app_ui_request_sd_refresh()` |
+| `Application/app_main.c` | `app_ui_show_fault(...)` → `ui_page_fault_show(...)`（SD 挂载失败分支） |
+| `CMakeLists.txt` | `PROJECT_SRCS` 在 `app_ui.c` 后追加 5 个新文件 |
+
+**启动加载页 + 预加载门控（指令 #2）**：
+- `app_ui_create()` 先**离屏**构建 info + font 两页（触发 `lv_font_provider_preload_label` 把 CJK 字形入队），
+  记录 `s_boot_pending0 = lv_font_provider_preload_pending()`，再显示 Boot 页。
+- 50 ms 定时器 `boot_timer_cb` 计算：
+  - `time_pct = elapsed / 2000 * 100`（最小停留 2 s）；
+  - `drain_pct`：**GBK 引擎恒 100%**（`s_boot_pending0==0`）；CTF = `(pending0 - pending) / pending0 * 100`（预取队列排干比例）。
+  - 进度条取二者较小值 `bar = min(time_pct, drain_pct)`。
+- 仅当 **`time_pct >= 100%` 且 `drain_pct >= 100%`**（即至少 2 s 且预加载已排干）才 `lv_scr_load(s_pages[0])` +
+  `lv_font_provider_on_page_shown()`（epoch bump，旧页字形进入淘汰域）+ 启动 5 s 轮播 + `lv_timer_del` 自删。
+- **GBK 透传**：GBK 引擎 `lv_font_provider_preload_pending()` 返回 0 → `s_boot_pending0==0` → `drain_pct=100` →
+  进度条纯按 2 s 走完，满足"GBK 不预加载、直接等 2 s、跑完整进度条"。
+
+**预加载计数 API（支撑门控）**：新增
+- `Bsp/font/lvgl_font.c`：`uint32_t lvgl_font_preload_pending(void)`（返回 `s_pl_count`，预取队列剩余长度）；
+- `Bsp/lv_font_provider.c`：`uint32_t lv_font_provider_preload_pending(void)`（非 CTF 引擎返回 0，GBK 透传关键）。
+
+**约束遵守**：全程未触碰 `third_party/`、`Drivers/`；未改 TTF/CTF 文件、LVGL 核心、FatFs/SD 驱动、stb_truetype。
+
+**构建与实机验收（OpenOCD 烧录 Verified OK + ST-Link VCP 抓启动 banner，串口号运行时枚举、本次 COM19）**：
+- Debug / Release 双构 **0 warning**；RAM_D2 = 200 KB / 288 KB (69.44%)，RAM_D1 不变 61.73%（见 [§8.15](#815-ttf-glyph-cache独立-200-kb-栅格化字形缓存lru--页钉扎--异步预取本轮新增容量-160-kb--200-kb) 基线表）。
+- 启动门控正确性的决定性证据（CTF 引擎，串口捕获）：
+  ```
+  [BOOT] done: pending0=68 pending=0 elapsed=2006 engine=2
+  ```
+  即 68 个 CJK 字形全部预取入队并**排干**（`pending=0`）、足等 **2 s**（`elapsed=2006`）、`engine=2`(CTF) —— 完全符合"字库预加载完成（不足 2 s 至少 2 s）后进入下一页"。
+- openocd/gdb 直读 `glyph_cache.c` 静态量：`s_free_bytes=175172`（容量 204800 → 已用 ≈ 29 KB，两页字形确已落池）、`s_epoch=1`（boot 已 bump）、`s_lru=336`，印证预取字形真实装填进 200 KB 池。
+- 首切字体页冷渲染 ~338 ms 为 LVGL 首建全屏 + SPI6 刷新固有开销；后续 font 页 129 ms（warm），符合预期，不影响门控正确性。
+
+### 8.17 字体页首帧 200 ms 卡顿消除（本轮新增）
+
+**问题（用户原话）**：「第一次加载 `ui_page_font.c` 仍然比第二次多了 200 ms 左右，表示优化未生效，优先解决这个问题」。
+即字体页首帧比二次慢约 200 ms（实测首帧 ~346 ms / warm ~130 ms）。
+
+**根因定位（实机串口 + DWT 计时 + `[MISS]` 门控日志逐码点抓取）**：
+1. **首帧冷 miss 非主因**：扩展 `[PAGE]` 日志记录 `ctf_page_sd / ttf_fills / ttf_read` 增量，证明首帧
+   `bmp_miss+0`、`ctf_sd+0 ttf_fill+0 ttf_read+0 us` —— 字形位图池全命中、零 SD 读。200 ms 差距**不在字库**。
+2. **真正根因 = LVGL 首绘一次性开销**：一个 screen 第一次被实际绘制时，LVGL 要做样式值计算、label 排版、
+   draw-task 构建等一次性 CPU 工作（首帧 324 ms / warm 130 ms，差 ~194 ms，纯 CPU、零 IO）。
+3. **附带发现并修复的 Latin 预取漏洞**：`preload_enqueue()` 原本 `if (cp < 0x80) return;`（注释称"Latin 走 Montserrat 回退"）。
+   但 `[MISS]` 抓到首帧拉丁字形 `U+00053('S')…` 冷 miss —— HarmonyOS CTF 索引**确实含拉丁**，LVGL 用 TTF 渲染而非 Montserrat。
+   该 early-return 导致每页拉丁文本首帧冷栅格化（虽只贡献 ~22 ms，但属错误假设）。
+
+**修复**：
+- `Bsp/font/lvgl_font.c` `preload_enqueue()`：删除 `cp < 0x80` 跳过，Latin 一并预取入池（注释说明索引已含拉丁）。
+- `Application/app_ui.c` 新增 `ui_warmup_pages()`：在 `app_ui_create()` 构建完两页后，**抑制显示 flush**（`dummy_flush_cb`
+  吞掉帧缓冲推送、`lv_disp_flush_ready` 收尾）逐页 `lv_scr_load + lv_timer_handler` 各渲染一次，
+  把"首绘一次性开销 + 字形冷栅格化"全部移到启动加载页背后（用户不可见），首个真实翻页即 warm。
+
+**约束遵守**：仅改 `Bsp/font/lvgl_font.c`、`Application/app_ui.c`；未碰 `third_party/`、`Drivers/`、TTF/CTF/LVGL 核心/FatFs/stb。
+
+**构建与实机验收（Release 生产态，OpenOCD Verified OK + ST-Link VCP 抓串口）**：
+- Debug / Release 双构 **0 warning**；FLASH / RAM 占用不变（RAM_D2 = 200 KB / 288 KB = 69.44%，RAM_D1 = 61.73%）。
+- `[UI] built in ~880 ms`（warm-up 成本从首帧前移到启动，藏在加载页后）。
+- 决定性证据（Release）：
+  ```
+  [PAGE] switch -> 1, scr_load 8 us, refr 129069 us, bmp_miss+0 hit+118 evict+0 | ctf_sd+0 ttf_fill+0 ttf_read+0 us   <- 首帧
+  [PAGE] switch -> 1, scr_load 8 us, refr 129109 us, bmp_miss+0 hit+118 evict+0 | ctf_sd+0 ttf_fill+0 ttf_read+0 us   <- 二次
+  ```
+  **首帧 129 ms ≈ 二次 129 ms，差距归零**，用户报告的问题消除。诊断用 `[MISS]` 门控日志已清理移除。
+
+- **回归验收脚本**：`scripts/verify_font_firstload.py` 固化本验收。自动开串口 →（可选 `--flash` 烧录并重位）
+  → 抓 35 s → 解析所有 `[PAGE] switch -> 1` → 断言 **首帧 `bmp_miss==0`、零 SD 读、且 `|首帧refr - warm均值| ≤ 30ms`**，
+  退出码 0/1（CI 友好）。亦支持 `--in <文件>` 离线解析。复跑：`python scripts/verify_font_firstload.py --flash`。
+
+> **状态：字体系统全部功能完成并通过实机验证。** 自 CTF 索引重构（Phase 1~8）、resident RAM 索引（§8.14）、
+> 200 KB 字形缓存 + 异步预取（§8.15）、页面分离 + 启动加载页（§8.16），到本次字体页首帧卡顿消除（§8.17），
+> 整条链路 Debug/Release 双构 0 warning、OpenOCD 烧录 Verified OK、ST-Link VCP 串口验收全绿。
+> 唯一遗留性能项为 §8.13 的**冷栅格化读放大**（CTF v2 glyf 预取打包 / 顺序预读 / `FA_FASTSEEK`），因对首帧体验无影响，列为后续优化。
+
+---
+
 ## 9. 日志系统重构：PRINT_LOG + TX 中断驱动（2026-09-03）
 
 ### 9.1 目标与范围
@@ -579,7 +726,7 @@ ISR（`log_uart_tx_irq`）在 TXE 事件里逐字节取缓冲发送、发完自�
 ### 9.7 验收（下载验证 ✅）
 - Debug FLASH 338528B(16.14%) / RAM_D1 262440B(50.06%)；Release FLASH 342500B(16.33%)；均 **0 warning**。
 - OpenOCD 烧录 `build/lvgl_oled.elf`：**Verified OK**。
-- COM6（ST-Link VCP）抓到完整启动 banner，证明 TX 中断驱动 `PRINT_LOG` 在硬件上真实输出。
+- ST-Link VCP（串口号运行时枚举、本次 COM19）抓到完整启动 banner，证明 TX 中断驱动 `PRINT_LOG` 在硬件上真实输出。
 
 ---
 

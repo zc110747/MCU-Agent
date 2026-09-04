@@ -161,4 +161,28 @@ void lvgl_font_reset_stats(void);
 /** Drop cached glyph bitmaps; the next draw re-rasterises them. */
 void lvgl_font_flush_bitmaps(void);
 
+/*---------------------------------------------------------------------------*/
+/* Glyph preload + page pinning                                               */
+/*---------------------------------------------------------------------------*/
+
+/** @return the pixel size a CTF/TTF font was built at, or 0 if @p f is not one
+  *  (e.g. a GBK or Montserrat font) - used to decide whether to preload. */
+uint16_t lvgl_font_px_of(const lv_font_t *f);
+
+/** Scan @p text, dedupe its CJK code points, and queue the missing ones for
+  *  asynchronous rasterisation into the glyph cache.  No-op for non-TTF engines
+  *  (caller should not invoke it, but it is safe if it does). */
+void lvgl_font_preload_text(const char *text, uint16_t px);
+
+/** Convenience: preload the text of an LVGL label at its current font size. */
+void lvgl_font_preload_label(const lv_obj_t *lbl);
+
+/** @return number of code points still queued for asynchronous rasterisation
+  *         (0 when the engine is not CTF/TTF or the queue has drained). */
+uint32_t lvgl_font_preload_pending(void);
+
+/** Call when a page becomes visible: bumps the glyph-cache epoch so the old
+  *  page's glyphs become LRU-evictable while the new page stays pinned. */
+void lvgl_font_on_page_shown(void);
+
 #endif /* __LVGL_FONT_H */

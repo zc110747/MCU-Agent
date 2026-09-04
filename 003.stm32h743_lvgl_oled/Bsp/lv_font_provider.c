@@ -301,3 +301,37 @@ const lv_font_t *lv_font_provider_default(void)
 {
     return lv_font_provider_get(16u);
 }
+
+uint16_t lv_font_provider_px_of(const lv_font_t *f)
+{
+    if (s_engine == FONT_ENGINE_CTF)
+    {
+        return lvgl_font_px_of(f);
+    }
+    return 0u;   /* GBK / HarmonyOS engines have no glyph cache to preload */
+}
+
+void lv_font_provider_on_page_shown(void)
+{
+    if (s_engine == FONT_ENGINE_CTF)
+    {
+        lvgl_font_on_page_shown();
+    }
+}
+
+void lv_font_provider_preload_label(const lv_obj_t *lbl)
+{
+    if (s_engine == FONT_ENGINE_CTF)
+    {
+        lvgl_font_preload_label(lbl);
+    }
+}
+
+uint32_t lv_font_provider_preload_pending(void)
+{
+    if (s_engine != FONT_ENGINE_CTF)
+    {
+        return 0U;
+    }
+    return lvgl_font_preload_pending();
+}
