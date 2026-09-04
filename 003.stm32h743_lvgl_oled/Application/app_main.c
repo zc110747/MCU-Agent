@@ -18,7 +18,7 @@
  *  the HarmonyOS engine feeds the code point straight to the .ttf rasteriser.
  ******************************************************************************
  */
-#include "log.h"
+#include "bsp_log.h"
 #include "app_main.h"
 #include "app_ui.h"
 #include "ui_page_fault.h"

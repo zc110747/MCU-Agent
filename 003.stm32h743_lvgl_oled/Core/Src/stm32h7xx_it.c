@@ -6,7 +6,7 @@
   */
 #include "main.h"
 #include "stm32h7xx_it.h"
-#include "log.h"
+#include "bsp_log.h"
 
 /******************************************************************************/
 /*           Cortex-M7 Processor Interruption and Exception Handlers          */

@@ -1,6 +1,6 @@
 /**
   ******************************************************************************
-  * @file    log.c
+  * @file    bsp_log.c
   * @brief   Crash-safe formatted logging for the bare-metal STM32H743 build.
   *
   *   printf_log() is a drop-in replacement for printf() that formats into a
@@ -17,7 +17,7 @@
   *   - Only UART_IT_TXE is ever enabled; RX and error interrupts stay off.
   ******************************************************************************
   */
-#include "log.h"
+#include "bsp_log.h"
 #include "main.h"
 #include <stdio.h>
 #include <string.h>

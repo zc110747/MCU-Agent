@@ -4,7 +4,7 @@
   * @brief   Font engine selection - see lv_font_cfg.h for the switch itself.
   ******************************************************************************
   */
-#include "log.h"
+#include "bsp_log.h"
 #include "lv_font_provider.h"
 #include "lv_font_gbk.h"
 #include "lv_font_harmony.h"

@@ -18,7 +18,7 @@
   ******************************************************************************
   */
 #include "app_ui.h"
-#include "log.h"
+#include "bsp_log.h"
 #include "ui_common.h"
 #include "ui_page_info.h"
 #include "ui_page_font.h"

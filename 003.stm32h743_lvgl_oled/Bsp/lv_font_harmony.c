@@ -22,7 +22,7 @@
   *  mode turns one measurement into a few dozen seek+1-byte-read pairs.
   ******************************************************************************
   */
-#include "log.h"
+#include "bsp_log.h"
 #include "lv_font_harmony.h"
 #include "lv_font_gbk.h"
 #include "ff.h"

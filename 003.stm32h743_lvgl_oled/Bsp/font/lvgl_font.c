@@ -22,7 +22,7 @@
   ******************************************************************************
   */
 #include "lvgl_font.h"
-#include "log.h"
+#include "bsp_log.h"
 
 /* The Latin fallback is compiled-in Montserrat.  Without it, English and digits
  * would disappear whenever the SD card is missing. */

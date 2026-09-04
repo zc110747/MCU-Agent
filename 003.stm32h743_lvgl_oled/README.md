@@ -678,7 +678,7 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 
 ### 9.1 目标与范围
 - 全工程裸 `printf(` 调用替换为 `PRINT_LOG(...)`，参数 / 格式与原 `printf` 完全一致。
-- 参考 101 工程的 logger 风格，实现**裸机版**（无 RTOS）日志接管：`Bsp/log.h` + `Bsp/log.c`。
+- 参考 101 工程的 logger 风格，实现**裸机版**（无 RTOS）日志接管：`Bsp/bsp_log.h` + `Bsp/bsp_log.c`。
 - **FreeRTOS 移除结论**：经核查本工程**自有源码完全裸机**，无任何 `FreeRTOS`/`vTask`/`semphr`
   调用（命中均在 `third_party/`），`CMakeLists.txt` 也未编译内核 —— 无对应代码可删。
 
@@ -698,16 +698,16 @@ ISR（`log_uart_tx_irq`）在 TXE 事件里逐字节取缓冲发送、发完自�
 
 ### 9.4 接线点
 - `Core/Src/stm32h7xx_it.c`：原 `USART1_IRQHandler` 走 `Default_Handler`，新增
-  `USART1_IRQHandler() ─► log_uart_tx_irq()`，并 `#include "log.h"`。
+  `USART1_IRQHandler() ─► log_uart_tx_irq()`，并 `#include "bsp_log.h"`。
 - `Core/Src/main.c`：`MX_USART1_UART_Init()` 之后调用 `log_uart_init()`（幂等使能 USART1 NVIC）。
-- `CMakeLists.txt`：注册 `Bsp/log.c`。
+- `CMakeLists.txt`：注册 `Bsp/bsp_log.c`。
 
 ### 9.5 替换位置清单（58 处 `printf`→`PRINT_LOG`）
 | 文件 | 替换数 | 说明 |
 |------|------:|------|
-| `Application/app_main.c` | 41 | 首行加 `#include "log.h"` |
-| `Bsp/lv_font_harmony.c` | 10 | 首行加 `#include "log.h"`；`snprintf` 保留 |
-| `Bsp/lv_font_provider.c` | 7 | 首行加 `#include "log.h"`；`snprintf` 保留 |
+| `Application/app_main.c` | 41 | 首行加 `#include "bsp_log.h"` |
+| `Bsp/lv_font_harmony.c` | 10 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
+| `Bsp/lv_font_provider.c` | 7 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
 
 残余 `printf(` 全为注释 / `snprintf` 子串 / 新 `printf_log` 函数名，无真实调用。
 

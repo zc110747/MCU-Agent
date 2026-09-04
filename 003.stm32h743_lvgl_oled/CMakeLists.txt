@@ -147,7 +147,7 @@ set(PROJECT_SRCS
   Bsp/drv_rtc.c
   Bsp/disk_interface.c
   # BSP: crash-safe formatted logger (PRINT_LOG -> uart_write on USART1)
-  Bsp/log.c
+  Bsp/bsp_log.c
   # BSP: LVGL glue - display flush, cached FatFs driver, font engines
   Bsp/lv_port_disp.c
   Bsp/lv_port_fs.c

@@ -20,7 +20,7 @@
   */
 #include "main.h"
 #include "app_main.h"
-#include "log.h"
+#include "bsp_log.h"
 
 /* Peripheral handles --------------------------------------------------------*/
 SPI_HandleTypeDef  hspi6;
