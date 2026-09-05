@@ -8,11 +8,13 @@
  * Everything is non-blocking: the loop below just pumps four independent
  * queues. Nothing in it waits for a byte, a DMA transfer or a USB packet.
  *
- * Default: 115200 8N1, no flow control. The host changes the format with the
- * standard SET_LINE_CODING control request, and selects RTS/CTS hardware flow
- * control with the standard SET_CONTROL_LINE_STATE RTS signal (see
- * usb_bridge.c for the polarity). There is no in-band command channel: every
- * byte on the wire is forwarded transparently.
+ * Default (disconnected): 115200 8N1, no flow control, CTS/RTS bits off. The
+ * host changes the format with the standard SET_LINE_CODING control request.
+ * Hardware RTS/CTS flow control is CONNECTION-GATED: it is armed (CTSE on,
+ * RTS driven) only while the USB CDC port is open (host DTR asserted via
+ * SET_CONTROL_LINE_STATE) and disarmed on close, which also reverts the UART to
+ * the 115200/8N1/none default. There is no in-band command channel: every byte
+ * on the wire is forwarded transparently (see usb_bridge.c / uart_bridge.c).
  * -------------------------------------------------------------------------*/
 
 #include <stdint.h>
@@ -89,7 +91,8 @@ int main(void) {
     usb_bridge_service();           /* CDC OUT -> UART ring, UART ring -> IN */
     uart_rx_service();              /* circular DMA RX buffer -> ring        */
     uart_tx_service();              /* ring -> DMA TX (or wait for CTS)      */
-    uart_flow_service();            /* keep the RTS output honest            */
+    uart_flow_service();            /* keep the RTS output honest (if armed) */
+    uart_bridge_connection_service(); /* arm/disarm flow control on port open/close */
 
     led_service();
   }

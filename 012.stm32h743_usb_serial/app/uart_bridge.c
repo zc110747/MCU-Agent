@@ -65,7 +65,8 @@ static volatile bool     s_tx_pending;    /* TX finished / error               *
 static uint32_t          s_rx_last_check; /* last time we looked (ms)          */
 static bool              s_rts_asserted;
 static bool              s_host_rts_ready = true;  /* host RTS from SET_CONTROL_LINE_STATE */
-static bool              s_host_dtr       = true;  /* host DTR from SET_CONTROL_LINE_STATE */
+static bool              s_host_dtr       = false; /* boot = disconnected; DTR arms flow  */
+static bool              s_flow_applied   = false; /* current CTSE/RTS armed state         */
 static uint8_t           s_rx_data_mask;  /* valid data bits in a RX byte      */
 
 /* ---------------------------------------------------------------------------
@@ -89,8 +90,9 @@ static void dma_buf_invalidate(void *addr, uint32_t len) {
  * Flow control helpers
  * -------------------------------------------------------------------------*/
 bool uart_bridge_cts_asserted(void) {
-  /* CTS is active low: low = peer ready to receive. Hardware flow control is
-   * done by the USART (CTSE always on), but this read is handy for diagnostics. */
+  /* CTS is active low: low = peer ready to receive. TX gating by the USART
+   * (CTSE) only happens while flow control is armed (port open); this read is
+   * still handy for diagnostics at any time. */
   return HAL_GPIO_ReadPin(UART4_CTS_PORT, UART4_CTS_PIN) == GPIO_PIN_RESET;
 }
 
@@ -135,14 +137,18 @@ static void uart_gpio_init(void) {
    * alternate function: HwFlowCtl is CTS-only, so the USART never drives RTS,
    * and a GPIO write via BSRR reaches the pin. We use software RTS (not the
    * hardware RTS feature) because we want RTS to track our 16 KB RX ring, not
-   * the USART's 1-byte TDR. */
+   * the USART's 1-byte TDR. It is armed only while the port is open; at boot
+   * (and on disconnect) the pin is held inactive (high) so we do not falsely
+   * invite the peer to send. */
   g.Pin       = UART4_RTS_PIN;
   g.Mode      = GPIO_MODE_OUTPUT_PP;
   g.Pull      = GPIO_NOPULL;
   g.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
   g.Alternate = 0u;
   HAL_GPIO_Init(UART4_RTS_PORT, &g);
-  HAL_GPIO_WritePin(UART4_RTS_PORT, UART4_RTS_PIN, GPIO_PIN_RESET);  /* ready */
+  /* RTS starts inactive (high): flow control is disarmed at boot and the pin
+   * is only driven when the port is open (see uart_bridge_connection_service). */
+  HAL_GPIO_WritePin(UART4_RTS_PORT, UART4_RTS_PIN, GPIO_PIN_SET);
 }
 
 void HAL_UART_MspInit(UART_HandleTypeDef *huart) {
@@ -227,13 +233,18 @@ static int uart_hw_apply(const uart_cfg_t *cfg) {
                          : (cfg->parity == 2u) ? UART_PARITY_EVEN
                          :                       UART_PARITY_NONE;
 
-  /* Hardware flow control is ALWAYS on: the USART samples CTS (PB0) in
-   * hardware and halts TX the instant the peer deasserts it, resuming on its
-   * own. This is peer-controlled and therefore transparent - a peer that does
-   * not implement flow control leaves CTS floating, and PULLDOWN reads it as
-   * "ready", so its TX is never gated. RTS stays under software control (below)
-   * because we want it to track the 16 KB RX ring, not the 1-byte TDR. */
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_CTS;
+  /* Hardware flow control is CONNECTION-GATED: armed only while the USB CDC
+   * port is open (host DTR asserted), disarmed on disconnect. When armed, CTSE
+   * lets the USART sample CTS (PB0) in hardware and halt TX the instant the
+   * peer deasserts it, resuming on its own - peer-controlled and therefore
+   * transparent. A peer that does not implement flow control leaves CTS
+   * floating; PULLDOWN reads that as "ready", so its TX is never gated. When
+   * disarmed (s_host_dtr false) CTSE is cleared and the peer can never gate our
+   * TX. RTS stays under software control (below) because we want it to track
+   * the 16 KB RX ring, not the USART's 1-byte TDR. Set it explicitly here (not
+   * just in uart_bridge_init) so a reconfig can never silently inherit a
+   * different HwFlowCtl value. */
+  huart4.Init.HwFlowCtl = s_host_dtr ? UART_HWCONTROL_CTS : UART_HWCONTROL_NONE;
 
   st = HAL_UART_Init(&huart4);
   if (st != HAL_OK) {
@@ -263,7 +274,7 @@ static int uart_hw_apply(const uart_cfg_t *cfg) {
   __HAL_UART_CLEAR_IDLEFLAG(&huart4);
   rb_unlock(p);
 
-  rts_set(true);                           /* RTS asserted (ready) by default */
+  rts_set(s_host_dtr);                     /* RTS armed only while connected */
   return 0;
 }
 
@@ -278,7 +289,10 @@ void uart_bridge_init(void) {
   huart4.Init.StopBits               = UART_STOPBITS_1;
   huart4.Init.Parity                 = UART_PARITY_NONE;
   huart4.Init.Mode                   = UART_MODE_TX_RX;
-  huart4.Init.HwFlowCtl              = UART_HWCONTROL_CTS;
+  /* Flow control starts DISARMED: it is armed in uart_bridge_connection_service
+   * only after the host opens the port (DTR asserted). uart_hw_apply() decides
+   * the real HwFlowCtl value from s_host_dtr, so this is just the boot default. */
+  huart4.Init.HwFlowCtl              = UART_HWCONTROL_NONE;
   huart4.Init.OverSampling           = UART_OVERSAMPLING_16;
   huart4.Init.ClockPrescaler         = UART_PRESCALER_DIV1;
   huart4.Init.OneBitSampling         = UART_ONE_BIT_SAMPLE_DISABLE;
@@ -413,6 +427,11 @@ void uart_tx_service(void) {
  * RTS output follows the RX ring headroom and the host RTS signal
  * -------------------------------------------------------------------------*/
 void uart_flow_service(void) {
+  /* RTS is only meaningful while flow control is armed (port open). When
+   * disarmed keep the pin inactive (high) so we never falsely invite the peer
+   * to send data we cannot forward. */
+  if (!s_flow_applied) { rts_set(false); return; }
+
   uint32_t free_b = rb_free(&g_uart_rx_rb);
   uint32_t cap    = rb_capacity(&g_uart_rx_rb);
 
@@ -431,6 +450,27 @@ void uart_flow_service(void) {
     rts_set(desired);
     if (!desired) g_uart_stats.rts_off++;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Arm / disarm CTS/RTS flow control on host port open / close.
+ *
+ * Called from the main loop (never from an interrupt). The host DTR signal is
+ * the only reliable "port open" indication - Windows usbser.sys does not
+ * re-forward RTS after open - so we arm flow control when DTR is asserted and
+ * disarm it when DTR is dropped. On disconnect we also revert the UART to its
+ * default 115200 / 8N1 / no-parity so the next session always starts clean.
+ * -------------------------------------------------------------------------*/
+void uart_bridge_connection_service(void) {
+  bool want = s_host_dtr;                  /* port open => flow control armed */
+  if (want == s_flow_applied) return;      /* no change since last time       */
+
+  if (!want) {
+    /* Disconnect: revert to the documented default and drop flow control. */
+    g_uart_cfg = *cfg_defaults();
+  }
+  (void) uart_hw_apply(&g_uart_cfg);       /* re-applies HwFlowCtl + RTS from s_host_dtr */
+  s_flow_applied = want;
 }
 
 /* ---------------------------------------------------------------------------

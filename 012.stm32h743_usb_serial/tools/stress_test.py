@@ -19,12 +19,16 @@ automatically:
     SET_LINE_CODING       -> baud / data bits / parity / stop bits (live).
     SET_CONTROL_LINE_STATE-> host DTR / RTS (standard modem-control signals).
 
-Hardware RTS/CTS flow control is ALWAYS enabled inside the USART (CTSE); the
-peer gates our TX by driving CTS. Our own RTS output is driven in software
-from the host RTS signal ANDed with the RX-ring headroom, so the 16 KB ring is
-also protected. DTR has no physical pin on UART4 (no DTR/DSR) and is observed
-only - it never gates the data path. Because this is all standard signal
-pass-through, single-RTS / single-DTR / dual-RTS-DTR hosts all work with no
+Hardware RTS/CTS flow control is CONNECTION-GATED: it is armed (CTSE set,
+RTS software-driven) only while the USB CDC port is open - signalled by the
+host DTR via SET_CONTROL_LINE_STATE - and reverted to off (UART_HWCONTROL_NONE,
+UART back to 115200/8N1/none) on disconnect. While armed, the peer gates our
+TX by driving CTS. Our own RTS output is driven in software from the host RTS
+signal ANDed with the RX-ring headroom, so the 16 KB ring is also protected.
+DTR has no physical pin on UART4 (no DTR/DSR) and is observed only - it never
+gates the data path (it merely arms/disarms flow control). Because this is all
+standard signal pass-through, single-RTS / single-DTR / dual-RTS-DTR hosts all
+work with no
 firmware mode switch.
 
 This tool therefore verifies the bridge with byte-exact round trips. Flow

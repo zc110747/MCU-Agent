@@ -15,10 +15,10 @@ D-Cache 保持开启且**不使用 MPU 划区**。PA0/PA1 短接即可自回环�
 | USB | FS Device，PA11/PA12（rhport 0），时钟源 HSI48 + CRS SOF 自动 trim |
 | UART4 TX | PA0 (AF8) |
 | UART4 RX | PA1 (AF8) —— **与 PA0 硬件短接，用于回环压测** |
-| UART4 CTS | PB0 (输入，内部上拉) |
-| UART4 RTS | PB14 (软件推挽输出) |
+| UART4 CTS | PB0 (AF8 + 内部下拉 PULLDOWN；流控仅在端口打开时使能) |
+| UART4 RTS | PB14 (软件推挽输出；流控仅在端口打开时驱动) |
 | LED | PG7 |
-| 默认参数 | 115200 / 8N1，无流控 |
+| 默认参数 | 断开：115200 / 8N1 / 无校验、流控关闭；USB 端口打开(DTR)时使能 CTS/RTS 流控 |
 
 > `rhport 1`（USB HS）不可用：PB14 已被 UART4_RTS 占用。
 
@@ -97,8 +97,9 @@ USB CDC TX ◄── uart→usb ring (16384) ◄── UART4 RX DMA ◄── PA
 ### 4.3 UART TX：环形缓冲 + 按需启动 DMA
 
 DMA1_Stream1，normal 模式，1024 字节缓冲。主循环发现 DMA 空闲且 ring 非空即启动一批；
-完成中断里置 pending，下一轮继续。**TX 的 CTS 门控完全由 USART 硬件完成（CTSE 常开）：
-对端拉高 CTS 时移位寄存器自动暂停发送、恢复时自动继续，无软件轮询、无丢字节、无 EXTI。**
+完成中断里置 pending，下一轮继续。**TX 的 CTS 门控完全由 USART 硬件完成（CTSE 仅在 USB 端口
+打开时使能，连接门控）：对端拉高 CTS 时移位寄存器自动暂停发送、恢复时自动继续，无软件轮询、
+无丢字节、无 EXTI。断开时 CTSE 清除，对端无法门控我们的 TX。**
 
 ### 4.4 USB 侧：低延迟与吞吐兼顾
 
@@ -141,9 +142,10 @@ DMA1_Stream1，normal 模式，1024 字节缓冲。主循环发现 DMA 空闲且
 
 ### 5.1 标准信号透传（RTS / DTR / CTS）
 
-- **CTS (PB0)**：UART4 硬件流控输入。**USART 在硬件内采样它，对端拉高 CTS 的瞬间即暂停 TX、
-  自行恢复**——这是对端控制的，因此天然透明：对端不实现流控时让它悬空，PULLDOWN 把它读作
-  「就绪」，其 TX 永不被门控。**无需任何主机开关**，CTSE 在 USART 层面常开。
+- **CTS (PB0)**：UART4 硬件流控输入（AF8 + PULLDOWN）。**USART 在硬件内采样它，对端拉高 CTS 的
+  瞬间即暂停 TX、自行恢复**——这是对端控制的，因此天然透明：对端不实现流控时让它悬空，PULLDOWN
+  把它读作「就绪」，其 TX 永不被门控。**CTSE 仅在 USB 端口打开（主机 DTR 置位）时使能；断开时
+  清除，对端无法门控我们的 TX**，故「流控开关」由连接状态而非主机 RTS 控制（Windows 不转发 RTS）。
 - **RTS (PB14)**：软件 GPIO 推挽输出。主机 RTS 信号（来自 `SET_CONTROL_LINE_STATE`）**直通**到
   该引脚——即我们发给 UART 对端的「我可以收更多」信号；再与接收环余量相与（`uart_flow_service`）
   一起保护 16 KB 接收环。这是发往对端的 RTS，不是固件模式开关。
@@ -157,9 +159,11 @@ DMA1_Stream1，normal 模式，1024 字节缓冲。主循环发现 DMA 空闲且
 
 由于 Windows 自带的 `usbser.sys` 在端口打开后**不会把 RTS 状态变化转发给设备**（仅 DTR 会触发
 `tud_cdc_line_state_cb`，见「已知限制」第 4 条），而 UART4 又**没有 DTR 引脚**，所以「由主机 RTS/DTR
-切换来开关流控」在 Windows 上位机**不可行**。正确的、也是唯一的做法是**流控自管理**：
+切换来开关流控」在 Windows 上位机**不可行**。正确的、也是唯一的做法是**流控自管理 + 连接门控**：
+即把 CTS/RTS 流控位与 USB 端口的「打开/关闭」绑定——主机 DTR 置位（端口打开）时使能 CTSE 并按
+接收环余量驱动 RTS；主机 DTR 撤除（断开）时清除 CTSE/RTS，并把 UART 还原为默认 115200/8N1/无校验。
 
-- 对端用 CTS（PB0）硬件门控我们的 TX——USART 始终采样 CTSE；
+- 对端用 CTS（PB0）硬件门控我们的 TX——**USART 仅在端口打开（DTR）时采样 CTSE**，断开即清除；
 - 固件用 RTS（PB14）按 16 KB 接收环余量 + 主机 RTS 驱动，保护接收环不被对端灌爆。
 
 这就天然覆盖了单 RTS / 单 DTR / 双 RTS-DTR 三种情况，无需任何固件模式开关，也不依赖主机的
@@ -205,7 +209,7 @@ python tools/stress_test.py paced --size 500 --gap 500 --total 10000
 ### 6.2 流控验证（`tools/flow_hw_probe.py`，用户真机自测）
 
 **硬件流控（CTS/DTR 开启模式）无法用 PA0↔PA1 自回环验证**——回环没有「对端」去驱动 CTS。
-固件侧已将 CTSE 常开、RTS 按接收环余量驱动，逻辑已由代码评审确认（见 §5.2）；**真机流控
+固件侧已在 USB 端口打开时使能 CTSE、RTS 按接收环余量驱动，逻辑已由代码评审确认（见 §5.2）；**真机流控
 请由用户在有对端的硬件上验证**：
 
 ```bash
@@ -362,7 +366,7 @@ DMA 缓冲就地掩蔽（8 数据位时掩码为 0xFF，跳过该步骤，不影
 RTS(PB14) 原本配为 `GPIO_MODE_AF_PP` + AF8，但 `HwFlowCtl` 当时为 `UART_HWCONTROL_NONE`，
 **USART 并不驱动 RTS**；而复用模式下 `HAL_GPIO_WritePin` 写 BSRR 对引脚无效。
 结果 PB14 高阻悬空，短接的 PB0 靠内部上拉读成高电平（未就绪），
-软件变量 `RTSO` 却显示已断言 —— 门控模式一帧都不通。现改为 CTSE 常开 + RTS 软件 GPIO，
+软件变量 `RTSO` 却显示已断言 —— 门控模式一帧都不通。现改为 CTSE 连接门控（端口打开时使能）+ RTS 软件 GPIO，
 硬件 CTS 门控在硅内完成，不再依赖 RTS 引脚是否被 USART 驱动。
 
 **修复**：RTS 改为 `GPIO_MODE_OUTPUT_PP` 由软件按接收环余量驱动（硬件 RTS 只跟踪 1 字节 RDR
@@ -410,8 +414,8 @@ data = self.ser.read(n if n else 1)            # 对
 ## 9. 已知限制
 
 1. **配置只走标准 CDC，无第二通道**。固件是透明桥，配置仅由 `SET_LINE_CODING` /
-   `SET_CONTROL_LINE_STATE` 完成，没有 AT 命令、也没有 EP0 vendor 请求。流控是硬件 CTSE 常开
-   + 固件按接收环余量驱动 RTS 的**自管理**设计，不存在「门控时命令进不来」的死锁。
+   `SET_CONTROL_LINE_STATE` 完成，没有 AT 命令、也没有 EP0 vendor 请求。流控是**连接门控**（端口打开时
+   使能 CTSE + 固件按接收环余量驱动 RTS）的**自管理**设计，断开自动还原为 115200/8N1/无校验，不存在「门控时命令进不来」的死锁。
 2. **7 数据位模式无法承载任意二进制**（每个字节的 MSB 在线路上不存在），
    只能用 7 位安全的可打印 ASCII 验证，`tools` 中对应 ASCII 往返检查。
 3. **rhport 1（USB HS）不可用**，PB14 已被 UART4_RTS 占用。

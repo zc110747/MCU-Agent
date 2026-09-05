@@ -23,11 +23,13 @@
  *                                     data". It is ANDed with the RX-ring
  *                                     headroom so we also protect the 16 KB ring.
  *                              DTR -> observed only; UART4 has no DTR/DSR pins.
- *                            Hardware CTS flow control (TX gated by the peer's
- *                            CTS on PB0) is ALWAYS on at the USART level and
- *                            needs no host switch - a peer that does not drive
- *                            CTS simply leaves it floating (PULLDOWN = ready),
- *                            so its TX is never gated.
+ *                            Hardware CTS/RTS flow control is CONNECTION-GATED:
+ *                            it is armed (CTSE on, RTS driven) only while the
+ *                            port is open (host DTR asserted) and disarmed on
+ *                            close, reverting the UART to 115200/8N1/none. A
+ *                            peer that does not drive CTS leaves it floating
+ *                            (PULLDOWN = ready), so its TX is never gated while
+ *                            armed. See uart_bridge.c for the details.
  *
  * This is fully transparent for all three host cases: single RTS, single DTR,
  * and dual RTS/DTR all just work, because they are standard signal pass-through
@@ -159,12 +161,15 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const *p_line_coding)
  *           can accept data". Combined with the RX-ring headroom in
  *           uart_flow_service it also protects our 16 KB ring.
  *   - DTR -> observed only; UART4 has no DTR/DSR pins.
- * Hardware CTS flow control (TX gated by the peer's CTS on PB0) is ALWAYS on
- * at the USART level and needs no host switch - a peer that doesn't drive CTS
- * simply leaves it floating (PULLDOWN = ready) so its TX is never gated. This
- * is fully transparent for all three host cases:
- *   single RTS  -> RTS pin follows host RTS
- *   single DTR  -> DTR observed, RTS pin keeps its state
+ * Hardware CTS/RTS flow control is CONNECTION-GATED: it is armed (CTSE on, RTS
+ * driven) only while the port is open and disarmed on close, reverting the
+ * UART to 115200/8N1/none. "Port open" is detected from DTR because that is the
+ * only modem signal Windows usbser.sys forwards reliably; uart_bridge_line_state
+ * records DTR/RTS here and uart_bridge_connection_service (main loop) applies the
+ * arm/disarm. While armed, a peer that doesn't drive CTS leaves it floating
+ * (PULLDOWN = ready) so its TX is never gated. This is fully transparent:
+ *   single RTS  -> RTS pin follows host RTS (while armed)
+ *   single DTR  -> DTR arms/disarms flow control; observed for stats too
  *   dual RTS/DTR-> both applied
  * DTR never gates the data path: a transparent bridge delivers bytes regardless. */
 void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {

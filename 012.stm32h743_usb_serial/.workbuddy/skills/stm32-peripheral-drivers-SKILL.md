@@ -453,9 +453,15 @@ latency ≈ 0.31 ms 固定开销（USB 轮询 + 固件搬运 + PC 读）
 **推论**：
 - 「由主机 RTS/DTR 切换来开关流控」在 Windows 上位机**不可行**——RTS 到不了固件。
 - UART4 本身**没有 DTR/DSR 引脚**，DTR 只能「观测」、不能门控数据通路。
-- 因此：**流控必须是固件自管理的**——CTSE 在 USART 层面常开（对端 CTS 硬件门控 TX），
-  我们自己的 RTS（PB14）由软件按接收环余量驱动。这天然覆盖单 RTS / 单 DTR / 双 RTS-DTR
-  三种主机情况，无需任何固件模式开关，也不依赖主机是否转发 RTS。
+- 因此：**流控必须是固件自管理 + 连接门控的**——把 CTS/RTS 流控位与 USB 端口的「打开/关闭」绑定：
+  - 主机 DTR 置位（端口打开）→ `HwFlowCtl = UART_HWCONTROL_CTS`（CTSE 使能，对端 CTS 硬件门控 TX），
+    自己的 RTS（PB14）由软件按接收环余量 + 主机 RTS 驱动。
+  - 主机 DTR 撤除（断开）→ `HwFlowCtl = UART_HWCONTROL_NONE`（CTSE 清除）且把 UART 还原为
+    默认 115200/8N1/无校验，RTS 引脚置为无效（高）。
+  - 实现上：`tud_cdc_line_state_cb` 只记录 DTR/RTS 到主循环变量；主循环调用一个
+    `connection_service()` 比较「期望流控态」与「已应用态」，变化时才 `HAL_UART_Init` 重配。
+    不要在该回调里直接 `HAL_UART_Init`（它运行在 `tud_task()` 主循环上下文，但重配应集中、去抖）。
+  这天然覆盖单 RTS / 单 DTR / 双 RTS-DTR 三种主机情况，无需任何固件模式开关，也不依赖主机是否转发 RTS。
 
 **后果 / 验证提示**：
 - 回环流控脚本（PB0 短接 PB14）的「去断言 RTS → TX 门控」在 Windows 上**不会门控**
