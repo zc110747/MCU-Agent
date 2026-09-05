@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure",
+      "type": "shell",
+      "command": "cmake --preset debug",
+      "group": "none",
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake --build --preset debug",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "cmake -E rm -rf build",
+      "group": "none",
+      "problemMatcher": [],
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "flash",
+      "type": "shell",
+      "command": "cmake --build --preset release --target flash",
+      "group": "none",
+      "problemMatcher": ["$gcc"],
+      "options": { "cwd": "${workspaceFolder}" }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (ST-Link / OpenOCD)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "device": "STM32H743ZI",
+      "executable": "${workspaceFolder}/build/debug/h743_usb_serial.elf",
+      "configFiles": ["${workspaceFolder}/openocd/stm32h743_stlink.cfg"],
+      "svdFile": "${workspaceFolder}/STM32H743.svd",
+      "cwd": "${workspaceFolder}",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build",
+      "preRestartCommands": [
+        "monitor reset halt",
+        "load",
+        "monitor reset init"
+      ],
+      "liveWatch": {
+        "enabled": true,
+        "samplesPerSecond": 4
+      },
+      "rttConfig": {
+        "enabled": false
+      }
+    },
+    {
+      "name": "Attach (no download)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "openocd",
+      "device": "STM32H743ZI",
+      "executable": "${workspaceFolder}/build/debug/h743_usb_serial.elf",
+      "configFiles": ["${workspaceFolder}/openocd/stm32h743_stlink.cfg"],
+      "svdFile": "${workspaceFolder}/STM32H743.svd",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
