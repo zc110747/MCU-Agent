@@ -170,11 +170,13 @@ esp_err_t jtag_init(void)
     };
     gpio_config(&tdi_conf);
 
-    /* TDO: input only */
+    /* TDO: input only. Pull-up enabled so a floating / disconnected /
+     * unpowered-target TDO reads as all-1s (distinct from all-0s which
+     * means the line is actively driven low or shorted to GND). */
     gpio_config_t tdo_conf = {
         .pin_bit_mask = 1uL << TDO_GPIO,
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
@@ -540,6 +542,16 @@ esp_err_t jtag_connect(void)
     idcode = jtag_read_idcode();
 
     ESP_LOGI(TAG, "JTAG connect self-test: IDCODE=0x%08" PRIX32, idcode);
+    if (idcode == 0x00000000u || idcode == 0xFFFFFFFFu) {
+        if (idcode == 0x00000000u) {
+            ESP_LOGE(TAG, "TDO reads 0 in all 32 bits: line driven low "
+                          "(short to GND or target actively driving 0)");
+        } else {
+            ESP_LOGE(TAG, "TDO reads 1 in all 32 bits: target not driving "
+                          "(unpowered / TAP in reset / TDO wire open)");
+        }
+        return ESP_ERR_NOT_FOUND;
+    }
     return ESP_OK;
 }
 
