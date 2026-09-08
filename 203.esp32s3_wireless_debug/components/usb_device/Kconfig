@@ -1,0 +1,48 @@
+menu "Debug Probe USB Configuration"
+
+config DEBUG_PROBE_USB_VID
+    hex "USB Vendor ID"
+    default 0x303A
+
+config DEBUG_PROBE_USB_PID
+    hex "USB Product ID"
+    default 0x8502
+
+config DEBUG_PROBE_USB_MANUFACTURER
+    string "USB Manufacturer string"
+    default "ESP32-S3 Debug Probe"
+
+config DEBUG_PROBE_USB_PRODUCT
+    string "USB Product string"
+    default "ESP32-S3 CMSIS-DAP Debug Probe"
+    help
+        Host tools (Keil / OpenOCD / pyOCD) match CMSIS-DAP devices by the
+        "CMSIS-DAP" substring in this string or in the interface string.
+
+endmenu
+
+menu "Debug Probe General Configuration"
+
+config DEBUG_PROBE_LOG_LEVEL
+    int "Debug probe log level (0=ERROR..5=VERBOSE)"
+    default 3
+    help
+        Applied to probe component log tags at boot.
+
+config DEBUG_ENABLE_USB
+    bool "Enable USB CMSIS-DAP interface"
+    default y
+
+config DEBUG_ENABLE_UART
+    bool "Enable UART bridge (V4 feature, reserved)"
+    default n
+
+config DEBUG_ENABLE_WIFI
+    bool "Enable Wi-Fi debug server (V2 feature, reserved)"
+    default n
+
+config DEBUG_PROBE_SELFTEST
+    bool "Run debug self-test at boot (connect + identify target)"
+    default n
+
+endmenu

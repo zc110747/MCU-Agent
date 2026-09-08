@@ -1,0 +1,37 @@
+menu "JTAG Engine Configuration"
+
+config DEBUG_TDI_GPIO
+    int "TDI GPIO number"
+    default 7
+    range 0 48
+    help
+        GPIO connected to the target TDI pin. TCK/TMS are shared with the
+        SWD engine (SWCLK/SWDIO) and are configured there.
+
+config DEBUG_TDO_GPIO
+    int "TDO GPIO number"
+    default 8
+    range 0 48
+    help
+        GPIO connected to the target TDO pin.
+
+config DEBUG_NTRST_GPIO
+    int "nTRST GPIO number (-1 = not connected)"
+    default 9
+    range -1 48
+    help
+        GPIO connected to the target nTRST pin. Set to -1 if not wired.
+        Driven open-drain (never pushed high), internal pull-up enabled.
+
+config DEBUG_JTAG_DEFAULT_CLOCK_HZ
+    int "Default JTAG clock (Hz)"
+    default 1000000
+
+config DEBUG_JTAG_MAX_CLOCK_HZ
+    int "Maximum JTAG clock (Hz)"
+    default 4000000
+    help
+        Soft cap applied by DAP_SWJ_Clock. Bit-banged JTAG on ESP32-S3 has
+        been verified up to this frequency; raise only after testing.
+
+endmenu

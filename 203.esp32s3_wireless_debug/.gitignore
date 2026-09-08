@@ -1,0 +1,8 @@
+# Build output
+build/
+
+# Vendored third-party components (shared across ESP32 projects, not in git)
+third_party/
+
+# IDF managed components cache
+managed_components/
