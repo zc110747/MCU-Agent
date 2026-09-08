@@ -1,0 +1,36 @@
+menu "SWD Engine Configuration"
+
+config DEBUG_SWDIO_GPIO
+    int "SWDIO GPIO number"
+    default 5
+    range 0 48
+    help
+        GPIO connected to the target SWDIO pin (core board header J1).
+
+config DEBUG_SWCLK_GPIO
+    int "SWCLK GPIO number"
+    default 4
+    range 0 48
+    help
+        GPIO connected to the target SWCLK pin (core board header J1).
+
+config DEBUG_NRESET_GPIO
+    int "nRESET GPIO number (-1 = not connected)"
+    default 6
+    range -1 48
+    help
+        GPIO connected to the target nRESET pin. Set to -1 if not wired.
+        Driven open-drain (never pushed high), internal pull-up enabled.
+
+config DEBUG_SWD_DEFAULT_CLOCK_HZ
+    int "Default SWD clock (Hz)"
+    default 1000000
+
+config DEBUG_SWD_MAX_CLOCK_HZ
+    int "Maximum SWD clock (Hz)"
+    default 4000000
+    help
+        Soft cap applied by DAP_SWJ_Clock. Bit-banged SWD on ESP32-S3 has
+        been verified up to this frequency; raise only after testing.
+
+endmenu
