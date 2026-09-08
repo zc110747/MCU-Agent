@@ -4,7 +4,7 @@ REM Usage:  build.bat            (incremental build)
 REM          build.bat clean     (clean then build)
 REM          build.bat <idf arg> (forwarded to idf.py build)
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0."
 call "%~dp0env.bat"
 
 echo ==^> Building project: esp32s3_debug_probe

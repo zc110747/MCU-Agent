@@ -132,7 +132,14 @@ static jtag_dev_t s_dev = {
 
 #define PIN_TMS_SET()  pin_high(TMS_GPIO)
 #define PIN_TMS_CLR()  pin_low(TMS_GPIO)
-#define PIN_TDI_OUT(v) pin_out(TDI_GPIO, (v))
+/* MUST mask to bit 0. pin_out() takes a bool, and C promotes ANY nonzero value
+ * to true - so passing a whole shift register (as jtag_sequence() does with
+ * i_val, and as ARM's reference does with `ir` / `val`) would drive TDI high
+ * whenever the remaining bits are nonzero, ignoring the actual LSB. That bug
+ * made every OpenOCD JTAG DPACC scan fail with "Invalid ACK (4)": IR=0x0A was
+ * shifted out as 0b1111 (BYPASS). IDCODE discovery survived it only because
+ * OpenOCD shifts an all-zero TDI pattern there. */
+#define PIN_TDI_OUT(v) pin_out(TDI_GPIO, (((v) & 1U) != 0U))
 
 /* ------------------------------------------------------------------ */
 /* GPIO init                                                           */
@@ -311,7 +318,7 @@ void jtag_sequence(uint32_t info, const uint8_t *tdi, uint8_t *tdo)
         i_val = *tdi++;
         o_val = 0U;
         for (k = 8U; k && n; k--, n--) {
-            JTAG_CYCLE_TDIO(i_val, bit);
+            JTAG_CYCLE_TDIO(i_val & 1U, bit);   /* mask: TDI is bit 0 only */
             i_val >>= 1;
             o_val >>= 1;
             o_val |= bit << 7;
@@ -323,7 +330,20 @@ void jtag_sequence(uint32_t info, const uint8_t *tdi, uint8_t *tdo)
     }
 }
 
-/* JTAG Set IR */
+/* JTAG Set IR — verbatim port of ARM CMSIS-DAP JTAG_DP.c JTAG_IR_Function().
+ *
+ * CRITICAL TIMING (this was the JTAG FAULT root cause): while the TAP is in
+ * Shift-IR the chain advances on EVERY TCK rising edge, including the edge that
+ * leaves Shift-IR. The LAST bit must therefore be clocked with TMS already high
+ * (that single edge both shifts the bit and performs Shift-IR -> Exit1-IR). The
+ * previous implementation shifted every bit with TMS=0 and then issued an extra
+ * TCK for "Exit1-IR", injecting one surplus shift so the whole IR ended up off
+ * by one position (DPACC 0x0A became an undefined instruction -> the DAP fell
+ * back to BYPASS and every DPACC/APACC access returned FAULT).
+ *
+ * Bit order: LSB-first (`ir >>= 1`), as the ARM JTAG-DP captures it.
+ * Chain order: [ir_before bypass][selected IR][ir_after bypass]; bits shifted
+ * first travel deepest, so index 0 (nearest TDO) has ir_before == 0. */
 void jtag_ir(uint32_t ir)
 {
     uint32_t n;
@@ -335,17 +355,17 @@ void jtag_ir(uint32_t ir)
     JTAG_CYCLE_TCK();            /* Capture-IR */
     JTAG_CYCLE_TCK();            /* Shift-IR */
 
-    PIN_TDI_OUT(1U);
+    PIN_TDI_OUT(1U);             /* bypass TAPs receive all-1s (BYPASS) */
     for (n = s_dev.ir_before[s_dev.index]; n; n--) {
         JTAG_CYCLE_TCK();        /* Bypass before data */
     }
-    for (n = s_dev.ir_length[s_dev.index] - 1U; n; n--) {
-        JTAG_CYCLE_TDI(ir);      /* Set IR bits (except last) */
+    for (n = (uint32_t)s_dev.ir_length[s_dev.index] - 1U; n; n--) {
+        JTAG_CYCLE_TDI(ir & 1U); /* Set IR bits (except last) */
         ir >>= 1;
     }
     n = s_dev.ir_after[s_dev.index];
     if (n) {
-        JTAG_CYCLE_TDI(ir);      /* Set last IR bit */
+        JTAG_CYCLE_TDI(ir & 1U); /* Set last IR bit */
         PIN_TDI_OUT(1U);
         for (--n; n; n--) {
             JTAG_CYCLE_TCK();    /* Bypass after data */
@@ -354,8 +374,9 @@ void jtag_ir(uint32_t ir)
         JTAG_CYCLE_TCK();        /* Bypass & Exit1-IR */
     } else {
         PIN_TMS_SET();
-        JTAG_CYCLE_TDI(ir);      /* Set last IR bit & Exit1-IR */
+        JTAG_CYCLE_TDI(ir & 1U); /* Set last IR bit & Exit1-IR */
     }
+
     JTAG_CYCLE_TCK();            /* Update-IR */
     PIN_TMS_CLR();
     JTAG_CYCLE_TCK();            /* Idle */
@@ -366,7 +387,10 @@ void jtag_ir(uint32_t ir)
  * returns ACK[2:0] (DAP_TRANSFER_OK/WAIT/FAULT/...). */
 uint8_t jtag_transfer(uint32_t request, uint32_t *data)
 {
-    uint32_t ack, bit, val, n;
+    uint32_t ack;
+    uint32_t bit = 0U;
+    uint32_t val = 0U;
+    uint32_t n;
 
     PIN_TMS_SET();
     JTAG_CYCLE_TCK();            /* Select-DR-Scan */
@@ -374,18 +398,24 @@ uint8_t jtag_transfer(uint32_t request, uint32_t *data)
     JTAG_CYCLE_TCK();            /* Capture-DR */
     JTAG_CYCLE_TCK();            /* Shift-DR */
 
+    /* Bypass the TAPs nearer TDO. These `index` clocks serve double duty: they
+     * position our 35-bit field for the write direction AND flush the nearer-TDO
+     * TAPs' captured bits off TDO, so no extra read deskew is needed afterwards
+     * (this is why the ARM reference has none - the old `after`-based deskew in
+     * this file was pure corruption). */
     for (n = s_dev.index; n; n--) {
         JTAG_CYCLE_TCK();        /* Bypass before data */
     }
 
-    JTAG_CYCLE_TDIO(request >> 1, bit);   /* Set RnW, Get ACK.0 */
+    JTAG_CYCLE_TDIO((request >> 1) & 1U, bit);   /* Set RnW, Get ACK.0 */
     ack  = bit << 1;
-    JTAG_CYCLE_TDIO(request >> 2, bit);   /* Set A2,  Get ACK.1 */
+    JTAG_CYCLE_TDIO((request >> 2) & 1U, bit);   /* Set A2,  Get ACK.1 */
     ack |= bit << 0;
-    JTAG_CYCLE_TDIO(request >> 3, bit);   /* Set A3,  Get ACK.2 */
+    JTAG_CYCLE_TDIO((request >> 3) & 1U, bit);   /* Set A3,  Get ACK.2 */
     ack |= bit << 2;
 
-    if (ack != JTAG_TRANSFER_OK) {         /* exit on error */
+    if (ack != JTAG_TRANSFER_OK) {
+        /* Exit on error */
         PIN_TMS_SET();
         JTAG_CYCLE_TCK();        /* Exit1-DR */
         goto exit;
@@ -395,21 +425,21 @@ uint8_t jtag_transfer(uint32_t request, uint32_t *data)
         /* Read Transfer */
         val = 0U;
         for (n = 31U; n; n--) {
-            JTAG_CYCLE_TDO(bit);  /* Get D0..D30 */
+            JTAG_CYCLE_TDO(bit); /* Get D0..D30 */
             val  |= bit << 31;
             val >>= 1;
         }
-        n = s_dev.count - s_dev.index - 1U;
+        n = (uint32_t)s_dev.count - (uint32_t)s_dev.index - 1U;
         if (n) {
-            JTAG_CYCLE_TDO(bit);  /* Get D31 */
+            JTAG_CYCLE_TDO(bit); /* Get D31 */
             for (--n; n; n--) {
-                JTAG_CYCLE_TCK();  /* Bypass after data */
+                JTAG_CYCLE_TCK();/* Bypass after data */
             }
             PIN_TMS_SET();
-            JTAG_CYCLE_TCK();      /* Bypass & Exit1-DR */
+            JTAG_CYCLE_TCK();    /* Bypass & Exit1-DR */
         } else {
             PIN_TMS_SET();
-            JTAG_CYCLE_TDO(bit);   /* Get D31 & Exit1-DR */
+            JTAG_CYCLE_TDO(bit); /* Get D31 & Exit1-DR */
         }
         val |= bit << 31;
         if (data) { *data = val; }
@@ -417,20 +447,20 @@ uint8_t jtag_transfer(uint32_t request, uint32_t *data)
         /* Write Transfer */
         val = data ? *data : 0U;
         for (n = 31U; n; n--) {
-            JTAG_CYCLE_TDI(val);   /* Set D0..D30 */
+            JTAG_CYCLE_TDI(val & 1U);   /* Set D0..D30 */
             val >>= 1;
         }
-        n = s_dev.count - s_dev.index - 1U;
+        n = (uint32_t)s_dev.count - (uint32_t)s_dev.index - 1U;
         if (n) {
-            JTAG_CYCLE_TDI(val);   /* Set D31 */
+            JTAG_CYCLE_TDI(val & 1U);   /* Set D31 */
             for (--n; n; n--) {
-                JTAG_CYCLE_TCK();  /* Bypass after data */
+                JTAG_CYCLE_TCK();       /* Bypass after data */
             }
             PIN_TMS_SET();
-            JTAG_CYCLE_TCK();      /* Bypass & Exit1-DR */
+            JTAG_CYCLE_TCK();           /* Bypass & Exit1-DR */
         } else {
             PIN_TMS_SET();
-            JTAG_CYCLE_TDI(val);   /* Set D31 & Exit1-DR */
+            JTAG_CYCLE_TDI(val & 1U);   /* Set D31 & Exit1-DR */
         }
     }
 
@@ -451,7 +481,9 @@ exit:
 /* JTAG Read IDCODE register of the selected TAP */
 uint32_t jtag_read_idcode(void)
 {
-    uint32_t bit, val, n;
+    uint32_t bit = 0U;
+    uint32_t val;
+    uint32_t n;
 
     PIN_TMS_SET();
     JTAG_CYCLE_TCK();            /* Select-DR-Scan */
@@ -459,13 +491,15 @@ uint32_t jtag_read_idcode(void)
     JTAG_CYCLE_TCK();            /* Capture-DR */
     JTAG_CYCLE_TCK();            /* Shift-DR */
 
+    /* Flush the TAPs nearer TDO; afterwards TDO presents our IDCODE LSB-first,
+     * so no deskew is required (verbatim ARM JTAG_ReadIDCode behaviour). */
     for (n = s_dev.index; n; n--) {
         JTAG_CYCLE_TCK();        /* Bypass before data */
     }
 
     val = 0U;
     for (n = 31U; n; n--) {
-        JTAG_CYCLE_TDO(bit);      /* Get D0..D30 */
+        JTAG_CYCLE_TDO(bit);     /* Get D0..D30 */
         val  |= bit << 31;
         val >>= 1;
     }
@@ -476,10 +510,13 @@ uint32_t jtag_read_idcode(void)
     JTAG_CYCLE_TCK();            /* Update-DR */
     PIN_TMS_CLR();
     JTAG_CYCLE_TCK();            /* Idle */
+
     return val;
 }
 
-/* JTAG Write ABORT register (DPACC, A2=A3=0, write) */
+/* JTAG Write ABORT register. NOTE: the caller must have selected the dedicated
+ * JTAG_IR_ABORT (0x08) instruction first - the ARM JTAG-DP has a separate ABORT
+ * scan chain, it is NOT written through DPACC. Verbatim port of the reference. */
 void jtag_write_abort(uint32_t data)
 {
     uint32_t n;
@@ -500,20 +537,20 @@ void jtag_write_abort(uint32_t data)
     JTAG_CYCLE_TCK();            /* Set A3=0 */
 
     for (n = 31U; n; n--) {
-        JTAG_CYCLE_TDI(data);    /* Set D0..D30 */
+        JTAG_CYCLE_TDI(data & 1U);   /* Set D0..D30 */
         data >>= 1;
     }
-    n = s_dev.count - s_dev.index - 1U;
+    n = (uint32_t)s_dev.count - (uint32_t)s_dev.index - 1U;
     if (n) {
-        JTAG_CYCLE_TDI(data);    /* Set D31 */
+        JTAG_CYCLE_TDI(data & 1U);   /* Set D31 */
         for (--n; n; n--) {
-            JTAG_CYCLE_TCK();    /* Bypass after data */
+            JTAG_CYCLE_TCK();        /* Bypass after data */
         }
         PIN_TMS_SET();
-        JTAG_CYCLE_TCK();        /* Bypass & Exit1-DR */
+        JTAG_CYCLE_TCK();            /* Bypass & Exit1-DR */
     } else {
         PIN_TMS_SET();
-        JTAG_CYCLE_TDI(data);    /* Set D31 & Exit1-DR */
+        JTAG_CYCLE_TDI(data & 1U);   /* Set D31 & Exit1-DR */
     }
 
     JTAG_CYCLE_TCK();            /* Update-DR */

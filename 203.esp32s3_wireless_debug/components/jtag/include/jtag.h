@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 /* JTAG IR values (ARM ADIv5) */
+#define JTAG_IR_ABORT   0x08U
 #define JTAG_IR_DPACC   0x0AU
 #define JTAG_IR_APACC   0x0BU
 #define JTAG_IR_IDCODE  0x0EU

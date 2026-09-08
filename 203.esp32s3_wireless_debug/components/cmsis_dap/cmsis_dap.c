@@ -148,13 +148,26 @@ static uint32_t dap_connect(const uint8_t *request, uint8_t *response)
         return (1u << 16) | 1u;
     }
     if (port == DAP_PORT_JTAG) {
-        /* Pure JTAG bring-up (no SWD<->JTAG switching): nRESET pulse ->
-         * JTAG line reset (Test-Logic-Reset) -> read IDCODE as self-test.
-         * Conservative clock for flying-wire; host re-programs via SWJ_Clock. */
+        /* JTAG bring-up. A previous SWD session may have left the SWJ-DP in
+         * SWD mode; in that case send the SWD->JTAG switch (0xE73E) on the
+         * shared SWDIO/TMS + SWCLK/TCK pins. If the DP is already in JTAG mode
+         * (power-on default, or left so by a prior disconnect) sending 0xE73E
+         * would corrupt the JTAG TAP state machine, so only send it when we
+         * were actually in SWD before. */
+        uint8_t prev_port = s_dap.debug_port;
         s_dap.debug_port = DAP_PORT_JTAG;
         s_dap.jtag_index = 0;
         jtag_set_idle();
         jtag_set_clock(100000u);
+        if (prev_port == DAP_PORT_SWD) {
+            swd_set_idle();
+            swd_set_clock(100000u);
+            swd_line_reset();     /* >=50 idle cycles, SWDIO high */
+            swd_swd_to_jtag();    /* 0xE73E LSB-first */
+            swd_line_reset();     /* >=50 idle cycles */
+        }
+        jtag_line_reset();       /* TLR -> Idle, valid in JTAG mode */
+        jtag_configure(1, (const uint8_t[]){4});  /* single TAP, IR=4 (ARM JTAG-DP) */
         esp_err_t c = jtag_connect();
         ESP_LOGI(TAG, "Connect: JTAG port, jtag_connect=%s",
                  c == ESP_OK ? "OK" : "FAIL");
@@ -170,6 +183,12 @@ static uint32_t dap_connect(const uint8_t *request, uint8_t *response)
 static uint32_t dap_disconnect(uint8_t *response)
 {
     s_dap.debug_port = DAP_PORT_DISABLED;
+    /* Leave the DP in JTAG mode (this probe's default). A following SWD
+     * connect sends the JTAG->SWD switch sequence to re-select SWD, so no
+     * explicit mode is "sticky" across sessions. */
+    swd_set_idle();
+    swd_line_reset();
+    swd_swd_to_jtag();
     swd_set_idle();
     jtag_set_idle();
     response[0] = DAP_OK;
@@ -199,12 +218,13 @@ static uint32_t dap_swj_pins(const uint8_t *request, uint8_t *response)
     uint32_t wait = (uint32_t)request[2] | ((uint32_t)request[3] << 8) |
                     ((uint32_t)request[4] << 16) | ((uint32_t)request[5] << 24);
 
-    /* SWCLK/TCK (bit0), SWDIO/TMS (bit1), TDI (bit2), nTRST (bit5), nRESET (bit7) */
+    /* CMSIS-DAP SWJ_Pins bit map: SWCLK/TCK(bit0), SWDIO/TMS(bit1),
+     * TDI(bit2), TDO(bit3), nTRST(bit4), nRESET(bit5) */
     if (select & (1u << 0)) { swd_pin_swclk((value >> 0) & 1u); }       /* SWCLK / TCK */
     if (select & (1u << 1)) { swd_pin_swdio((value >> 1) & 1u); }       /* SWDIO / TMS */
     if (select & (1u << 2)) { jtag_pin_tdi((value >> 2) & 1u); }        /* TDI */
-    if (select & (1u << 5)) { jtag_pin_ntrst_assert(((value >> 5) & 1u) == 0); } /* nTRST, active low */
-    if (select & (1u << 7)) { swd_reset_assert(((value >> 7) & 1u) == 0); }       /* nRESET, active low */
+    if (select & (1u << 4)) { jtag_pin_ntrst_assert(((value >> 4) & 1u) == 0); } /* nTRST, active low */
+    if (select & (1u << 5)) { swd_reset_assert(((value >> 5) & 1u) == 0); }       /* nRESET, active low */
 
     if (wait != 0) {
         if (wait > 3000000u) {
@@ -225,8 +245,8 @@ static uint32_t dap_swj_pins(const uint8_t *request, uint8_t *response)
                   ((uint32_t)swd_pin_swdio_in() << 1) |
                   ((uint32_t)jtag_pin_tdi_in() << 2) |
                   ((uint32_t)jtag_pin_tdo_in() << 3) |
-                  ((uint32_t)(jtag_ntrst_read() ? 0u : 1u) << 5) |
-                  ((uint32_t)(swd_nreset_read() ? 0u : 1u) << 7);
+                  ((uint32_t)(jtag_ntrst_read() ? 0u : 1u) << 4) |
+                  ((uint32_t)(swd_nreset_read() ? 0u : 1u) << 5);
     response[0] = (uint8_t)in;
     return (6u << 16) | 1u;
 }
@@ -950,6 +970,7 @@ static uint32_t dap_jtag_write_abort(const uint8_t *request, uint8_t *response)
     jtag_set_device_index(index);
     uint32_t data = (uint32_t)request[1] | ((uint32_t)request[2] << 8) |
                     ((uint32_t)request[3] << 16) | ((uint32_t)request[4] << 24);
+    jtag_ir(JTAG_IR_ABORT);      /* ABORT has its own IR (0x08), not DPACC */
     jtag_write_abort(data);
     *response = DAP_OK;
     return 1u;

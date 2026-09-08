@@ -5,7 +5,7 @@ REM          flash.bat COM21       (explicit port)
 REM          flash.bat COM21 921600 (port + baud)
 REM Port list is printed to console; chosen port goes to idf.py flash.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0."
 call "%~dp0env.bat"
 
 set "ARG_PORT=%~1"

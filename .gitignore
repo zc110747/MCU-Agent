@@ -8,7 +8,6 @@
 *.obj
 *.bin
 *.elf
-*.txt
 
 # Precompiled Headers
 *.gch

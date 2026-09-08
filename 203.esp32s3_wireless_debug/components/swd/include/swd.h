@@ -87,6 +87,15 @@ esp_err_t swd_line_reset(void);
 esp_err_t swd_jtag_to_swd(void);
 
 /**
+ * @brief 16-bit SWD-to-JTAG magic sequence 0xE73E (LSB first).
+ *        SWDIO/TMS and SWCLK/TCK are the same pins, so this can be emitted
+ *        by the SWD engine to return a DP left in SWD mode back to JTAG.
+ *        Callers wrap it with swd_line_reset() (>=50 idle cycles) on both
+ *        sides.
+ */
+esp_err_t swd_swd_to_jtag(void);
+
+/**
  * @brief Raw SWD transfer. Mirrors ARM's SWD_Transfer() semantics.
  *
  * @param request DAP_TRANSFER-style request byte (bit0 APnDP, bit1 RnW,

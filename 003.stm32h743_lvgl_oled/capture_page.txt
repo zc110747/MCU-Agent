@@ -1,0 +1,4 @@
+[PAGE] swiC[PAGE] switch -> 1, render 237225 us
+[PAGE] switch -> 0, render 127387 us
+[PAGE] switch -> 1, render 237245 us
+

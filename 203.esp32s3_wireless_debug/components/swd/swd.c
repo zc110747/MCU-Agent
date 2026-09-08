@@ -274,6 +274,19 @@ esp_err_t swd_jtag_to_swd(void)
     return ESP_OK;
 }
 
+esp_err_t swd_swd_to_jtag(void)
+{
+    /* SWD -> JTAG switch sequence 0xE73E (LSB-first). SWDIO/TMS and
+     * SWCLK/TCK share the same physical pins, so emitting this on the SWD
+     * engine cleanly returns a DP that a previous SWD session left in SWD
+     * mode back to JTAG mode. Typically wrapped by swd_line_reset() on both
+     * sides (>=50 idle cycles with SWDIO high) by the caller. */
+    static const uint8_t seq[2] = { 0x3E, 0xE7 };  /* 0xE73E LSB-first */
+    pin_output_en(SWDIO_GPIO, true);
+    swd_swj_sequence(16, seq);
+    return ESP_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Core transfer (mirrors ARM SW_DP.c SWD_Transfer)                    */
 /* ------------------------------------------------------------------ */
