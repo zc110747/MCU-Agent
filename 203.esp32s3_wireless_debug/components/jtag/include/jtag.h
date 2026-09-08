@@ -39,6 +39,8 @@ extern "C" {
 #define JTAG_TRANSFER_WAIT   0x02u
 #define JTAG_TRANSFER_FAULT  0x04u
 #define JTAG_TRANSFER_ERROR  0x08u
+/* Same bit position as DAP_TRANSFER_MISMATCH (0x10) in the DAP response */
+#define JTAG_TRANSFER_MISMATCH 0x10u
 
 /* Max TAPs supported in a single JTAG chain (matches ARM DAP_JTAG_DEV_CNT). */
 #define JTAG_TAP_MAX 8

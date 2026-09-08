@@ -561,6 +561,10 @@ end:
     return (uint32_t)(response - response_head);
 }
 
+/* DAP_JTAG_TransferBlock (0x18) - defined below; forward declaration for
+ * the JTAG branch of dap_transfer_block() */
+static uint32_t dap_jtag_transfer_block(const uint8_t *request, uint8_t *response);
+
 static uint32_t dap_transfer_block(const uint8_t *request, uint8_t *response)
 {
     uint32_t num;

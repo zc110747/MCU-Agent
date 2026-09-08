@@ -2,7 +2,7 @@
 REM ESP-IDF v6.1 environment for native Windows cmd (mirrors env.sh)
 REM Keep this file pure ASCII (no Chinese) to avoid GBK console parsing issues.
 set "IDF_TOOLS_PATH=C:/Espressif/tools"
-set "IDF_PATH=D:/data/agent-tools/esp32/v6.1/esp-idf"
+set "IDF_PATH=C:/esp/v6.1/esp-idf"
 set "ESP_ROM_ELF_DIR=C:/Espressif/tools/esp-rom-elfs/20241011/"
 set "IDF_PYTHON_ENV_PATH=C:/Espressif/tools/python/v6.1/venv"
 set "IDF_CCACHE_ENABLE=1"

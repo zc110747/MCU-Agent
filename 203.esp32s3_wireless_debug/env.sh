@@ -1,6 +1,6 @@
 # ESP-IDF v6.1 environment for Git Bash (manual activation; activate.py fails under MSYS)
 export IDF_TOOLS_PATH='C:/Espressif/tools'
-export IDF_PATH='D:/data/agent-tools/esp32/v6.1/esp-idf'
+export IDF_PATH='C:/esp/v6.1/esp-idf'
 export ESP_ROM_ELF_DIR='C:/Espressif/tools/esp-rom-elfs/20241011/'
 export IDF_PYTHON_ENV_PATH='C:/Espressif/tools/python/v6.1/venv'
 export IDF_CCACHE_ENABLE=1

@@ -3787,6 +3787,21 @@ CONFIG_WL_SECTOR_SIZE=4096
 # end of Wear Levelling
 
 #
+# JTAG Engine Configuration
+#
+# default:
+CONFIG_DEBUG_TDI_GPIO=7
+# default:
+CONFIG_DEBUG_TDO_GPIO=8
+# default:
+CONFIG_DEBUG_NTRST_GPIO=9
+# default:
+CONFIG_DEBUG_JTAG_DEFAULT_CLOCK_HZ=1000000
+# default:
+CONFIG_DEBUG_JTAG_MAX_CLOCK_HZ=4000000
+# end of JTAG Engine Configuration
+
+#
 # SWD Engine Configuration
 #
 # default:
