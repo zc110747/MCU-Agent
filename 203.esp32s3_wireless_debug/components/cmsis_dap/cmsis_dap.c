@@ -608,7 +608,8 @@ static uint32_t dap_jtag_sequence(const uint8_t *request, uint8_t *response)
     uint32_t count;
 
     *response++ = DAP_OK;            /* status byte; advance past it */
-    request++;                       /* skip command id */
+    /* NOTE: dispatcher already passes request+1 (past the command ID),
+     * so the first byte here is sequence_count. Do NOT skip again. */
     sequence_count = *request++;
     while (sequence_count--) {
         uint32_t sequence_info = *request++;
