@@ -43,9 +43,14 @@ extern "C" {
 #define DP_CDBGRSTACK        (1uL << 26)
 #define DP_STICKYERR         (1uL << 5)
 
-/* Request byte builder: addr is A[3:2] value (0,1,2,3) */
+/* Request byte builder: addr8 is the DP/AP byte address (0x00/0x04/0x08/0x0C).
+ * A[3:2] lives in the address bits 3,2 and maps directly to request bits 3,2
+ * (A3=bit3, A2=bit2), so the field is (addr8 & 0x0Cu). The previous form
+ * ((addr8 >> 2) & 0x0Cu) always collapsed to 0, silently forcing every DP
+ * access to the IDCODE/ABORT register (0x00) and breaking CTRLSTAT/SELECT/
+ * RDBUFF - which is why only IDCODE reads ever worked over SWD. */
 #define SWD_REQ(addr8, ap, read) \
-    (uint8_t)((ap) | ((read) ? 0x02u : 0x00u) | (((addr8) >> 2) & 0x0Cu))
+    (uint8_t)((ap) | ((read) ? 0x02u : 0x00u) | ((addr8) & 0x0Cu))
 
 /**
  * @brief Configure SWD GPIOs (safe idle state). Call once at boot.
@@ -115,6 +120,7 @@ void swd_swdio_output(bool enable);
 
 /* nRESET control: open-drain, asserted = driven low */
 esp_err_t swd_reset_assert(bool asserted);
+esp_err_t swd_reset_pulse(void);   /* assert ~100ms then release */
 bool swd_nreset_read(void);
 
 /* Raw pin control for DAP_SWJ_Pins */

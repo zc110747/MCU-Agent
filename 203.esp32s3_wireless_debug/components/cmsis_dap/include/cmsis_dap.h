@@ -1,6 +1,6 @@
 /**
  * @file cmsis_dap.h
- * @brief CMSIS-DAP v1 command processor (SWD port only).
+ * @brief CMSIS-DAP v1 command processor (SWD + JTAG ports).
  */
 #pragma once
 
@@ -31,6 +31,12 @@ extern "C" {
 #define ID_DAP_SWJ_Clock           0x11u
 #define ID_DAP_SWJ_Sequence        0x12u
 #define ID_DAP_SWD_Configure       0x13u
+#define ID_DAP_JTAG_Sequence       0x14u
+#define ID_DAP_JTAG_Configure      0x15u
+#define ID_DAP_JTAG_IDCODE         0x16u
+#define ID_DAP_JTAG_Transfer       0x17u
+#define ID_DAP_JTAG_TransferBlock  0x18u
+#define ID_DAP_JTAG_WriteAbort     0x19u
 #define ID_DAP_SWD_Sequence        0x1Du
 #define ID_DAP_QueueCommands       0x7Eu
 #define ID_DAP_ExecuteCommands     0x7Fu

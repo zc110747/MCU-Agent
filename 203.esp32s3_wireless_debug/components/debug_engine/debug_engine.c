@@ -10,6 +10,7 @@
 #include "freertos/semphr.h"
 #include "esp_rom_sys.h"
 #include "swd.h"
+#include "jtag.h"
 #include "esp_log.h"
 
 static const char *TAG = "debug";
@@ -25,7 +26,11 @@ esp_err_t debug_init(void)
             return ESP_ERR_NO_MEM;
         }
     }
-    return swd_init();
+    esp_err_t err = swd_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    return jtag_init();
 }
 
 esp_err_t debug_engine_lock(uint32_t timeout_ms)

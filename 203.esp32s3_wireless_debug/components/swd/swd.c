@@ -206,6 +206,7 @@ void swd_set_idle_cycles(uint8_t n)
 /* ------------------------------------------------------------------ */
 esp_err_t swd_swj_sequence(uint32_t count_bits, const uint8_t *data)
 {
+    pin_output_en(SWDIO_GPIO, true);   /* drive SWDIO throughout the sequence */
     uint32_t val = 0;
     uint32_t n = 0;
     while (count_bits--) {
@@ -377,6 +378,8 @@ uint8_t swd_transfer(uint8_t request, uint32_t *data)
     }
 
     /* Protocol error / no response: back off data phase */
+    ESP_LOGD(TAG, "transfer: illegal ACK=0x%x (req=0x%02x) - target not in SWD mode / no link",
+             (unsigned)(ack ? ack : SWD_ACK_NO_RESPONSE), request);
     for (n = s_turnaround + 33u; n; n--) {
         SW_CLOCK_CYCLE();
     }
@@ -456,6 +459,21 @@ bool swd_nreset_read(void)
 #endif
 }
 
+/* Assert nRESET for ~100ms then release. Used at connect time ("connect
+ * under reset") so the target returns to its boot-ROM SWD-enabled state
+ * even if a previously loaded application remapped PA13/PA14. No-op if
+ * nRESET is not wired (GPIO < 0). */
+esp_err_t swd_reset_pulse(void)
+{
+#if NRESET_GPIO >= 0
+    swd_reset_assert(true);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    swd_reset_assert(false);
+    vTaskDelay(pdMS_TO_TICKS(100));
+#endif
+    return ESP_OK;
+}
+
 void swd_pin_swclk(bool high)
 {
     if (high) { pin_high(SWCLK_GPIO); } else { pin_low(SWCLK_GPIO); }
@@ -485,10 +503,16 @@ esp_err_t swd_connect(void)
     uint32_t dpidr = 0;
     swd_set_idle();
 
+    /* Bring the target to a clean post-reset state where the boot ROM has
+     * the SWD port enabled (covers apps that remap PA13/PA14). */
+    swd_reset_pulse();
+    swd_set_idle();
+
     /* Switch from (possible) JTAG: line reset, magic, line reset */
     swd_line_reset();
     swd_jtag_to_swd();
     swd_line_reset();
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     /* First DP read after line reset must return a valid IDCODE */
     uint32_t parity_probe = 0;

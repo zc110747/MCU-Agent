@@ -33,11 +33,19 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id,
     (void)itf;
     (void)report_id;
 
-    /* Interrupt OUT endpoint data arrives with report_type INVALID */
-    if (report_type == HID_REPORT_TYPE_INVALID && bufsize > 0) {
+    /* TinyUSB delivers host->device data via this callback for both
+     * interrupt OUT (report_type = OUTPUT/INVALID) and SET_REPORT control
+     * (report_type = FEATURE). Do NOT gate on a specific report_type,
+     * otherwise interrupt-OUT commands get silently dropped and the host
+     * sees no response (e.g. OpenOCD "CMD_INFO failed"). */
+    ESP_LOGI(TAG, "SET_REPORT type=%u id=%u len=%u b0=%02X b1=%02X",
+             (unsigned)report_type, (unsigned)report_id, (unsigned)bufsize,
+             buffer ? buffer[0] : 0, buffer ? buffer[1] : 0);
+    if (bufsize > 0 && buffer != NULL) {
         usb_dap_msg_t msg = { .len = 0 };
         msg.len = (bufsize > USB_DAP_PACKET_SIZE) ? USB_DAP_PACKET_SIZE : bufsize;
         memcpy(msg.data, buffer, msg.len);
+        ESP_LOGI(TAG, "HID OUT cmd=0x%02X len=%u", buffer[0], (unsigned)msg.len);
         if (s_rx_queue) {
             xQueueSend(s_rx_queue, &msg, 0);
         }
@@ -55,6 +63,7 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id,
 void tud_hid_report_complete_cb(uint8_t itf, uint8_t const *report, uint16_t len)
 {
     (void)itf; (void)report; (void)len;
+    ESP_LOGI(TAG, "RESP complete itf=%u len=%u", (unsigned)itf, (unsigned)len);
     if (s_tx_done) {
         xSemaphoreGive(s_tx_done);
     }
@@ -81,25 +90,33 @@ QueueHandle_t usb_device_rx_queue(void)
 
 esp_err_t usb_device_send_response(const uint8_t *data, size_t len)
 {
-    if (data == NULL || len == 0) {
+    if (data == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (len > USB_DAP_PACKET_SIZE) {
-        len = USB_DAP_PACKET_SIZE;
-    }
     if (!tud_connected()) {
+        ESP_LOGW(TAG, "RESP: not connected");
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Wait until the previous IN report has been consumed, then send.
-     * The complete callback releases the semaphore each time. */
+    ESP_LOGI(TAG, "RESP payload=%u b0=%02X b1=%02X b2=%02X",
+             (unsigned)len, data[0], data[1], data[2]);
+
+    /* CMSIS-DAP v1 host tools (OpenOCD / Keil) read a FULL 64-byte report per
+     * command and use response[1] as the payload length. Sending a short
+     * packet makes the host block until its read timeout -> "CMD_INFO failed".
+     * Always transmit the full packet; the caller's buffer is zero-padded to
+     * USB_DAP_PACKET_SIZE so trailing bytes are 0. This mirrors the reference
+     * STM32H7 implementation: tud_hid_report(0, resp_buf, DAP_PACKET_SIZE). */
     for (;;) {
-        if (tud_hid_report(0, data, len)) {
+        if (tud_hid_report(0, data, USB_DAP_PACKET_SIZE)) {
+            ESP_LOGI(TAG, "RESP sent ok (full %u)", (unsigned)USB_DAP_PACKET_SIZE);
             return ESP_OK;
         }
+        ESP_LOGW(TAG, "RESP tud_hid_report busy, retry");
         if (xSemaphoreTake(s_tx_done, pdMS_TO_TICKS(100)) != pdTRUE) {
             /* still busy - retry; host may have stalled the endpoint */
             if (!tud_ready()) {
+                ESP_LOGW(TAG, "RESP abort: not ready");
                 return ESP_ERR_INVALID_STATE;
             }
         }

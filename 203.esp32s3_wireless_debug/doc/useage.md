@@ -19,6 +19,25 @@ SWD 引擎采用 GPIO 寄存器级位带时序，所有引脚在 Kconfig 可配�
 > 避开已占用引脚：USB OTG D-/D+ = GPIO19/20、UART0 日志(CH340) = GPIO43/44、
 > RGB LED = GPIO48、BOOT = GPIO0。SWD 引脚不应与这些冲突。
 
+### 1.1 JTAG 引脚分配（新增，TCK/TMS 与 SWD 复用同一物理引脚）
+
+JTAG 模式为**纯 JTAG**，不做 SWD↔JTAG 切换。TCK/TMS 直接复用 SWD 的 SWCLK/SWDIO，
+只需再引出 TDI/TDO/nTRST 三个引脚（默认 GPIO7/8/9，Kconfig `DEBUG_TDI_GPIO` /
+`DEBUG_TDO_GPIO` / `DEBUG_NTRST_GPIO` 可改）：
+
+| JTAG 信号 | ESP32-S3 GPIO | 复用说明 |
+|-----------|---------------|----------|
+| TCK       | **GPIO4**     | 复用 SWCLK（探针输出时钟） |
+| TMS       | **GPIO5**     | 复用 SWDIO（探针 TAP 状态机驱动） |
+| TDI       | **GPIO7**     | 新增，探针→目标，空闲高（bypass=1） |
+| TDO       | **GPIO8**     | 新增，目标→探针，只读输入 |
+| nTRST     | **GPIO9**     | 新增，开漏，拉低=复位 JTAG 链（未接可设 -1） |
+| nRESET    | **GPIO6**     | 复用 SWD 的 nRESET（系统复位，非 JTAG 链复位） |
+
+> ⚠️ **同一时刻仅启用一种协议**：`DAP_Connect` 选 SWD(1) 或 JTAG(2)。两种模式共享 TCK/TMS 引脚，
+> 但 TDI/TDO/nTRST 仅在 JTAG 模式被驱动；SWD 模式下 nRESET 才有效（与 §2 一致）。
+> 飞线（flying-wire）连接时，先用 **100kHz** 握手（`DAP_SWJ_Clock` 下发），成功后再提速。
+
 ---
 
 ## 2. 接线表（探针 → 外部目标 MCU）
@@ -112,14 +131,17 @@ flash.bat COM21 921600    % 指定端口 + 波特率
 ## 6. 分层架构（速查）
 
 ```
-CMSIS-DAP 协议层 (cmsis_dap)        DAP 命令解析 / HID 收发
+CMSIS-DAP 协议层 (cmsis_dap)        DAP 命令解析 / HID 收发 / 双端口(SWD+JTAG)分发
         ↓
 Debug Engine (debug_engine)         Cortex-M：halt/run/step/reset/读写寄存器/内存
-        ↓
-SWD Engine (swd)                    GPIO 位带时序：connect/transfer/reset
+        ↓                     ↘
+SWD Engine (swd)               JTAG Engine (jtag)
+GPIO 位带时序：                 GPIO 位带时序（TCK/TMS 复用 SWD）：
+connect/transfer/reset          ir/transfer/read_idcode/sequence/reset
 ```
-> USB / Wi-Fi / UART 不得直接操作 SWD；所有访问经 debug_engine 互斥锁串行化
-> （为后续 V2 Wi-Fi 预留同一把锁）。
+> USB / Wi-Fi / UART 不得直接操作 SWD/JTAG；所有访问经 debug_engine 互斥锁串行化
+> （为后续 V2 Wi-Fi 预留同一把锁）。JTAG 引擎是 SWD 引擎的**对等层**，共用 TCK/TMS 引脚，
+> 由 `DAP_Connect` 选端口决定走哪条链路。
 
 ---
 
@@ -218,18 +240,97 @@ CMSIS-DAP v1 在设备管理器里**本来**就位于"人体学输入设备"下�
 3. 必要时将固件 VID/PID 改回 Keil 已知 CMSIS-DAP 标准 ID（如 0x0D28/0x0204），或加串口调试日志
    确认固件确实收到并处理了 DAP 命令。
 
-### 7.10 固件侧已修复：OpenOCD `CMD_INFO failed`（2026-09-08）
-曾报 `Error: CMSIS-DAP command CMD_INFO failed.`，根因在**固件协议层**（非驱动）：
-- **`cmsis_dap.c` 的 `ID_DAP_Info` 响应用"数据长度"填了 `response[1]`，但 CMSIS-DAP 规范要求
-  `response[1]` 回显 InfoType**，数据从 `response[2]` 起。OpenOCD 校验 `buf[1] != info_id` 失败。
-  已改为 `response[1] = info_type`（回显），数据落在 `response[2..]`。
-- `dap_info` 的 InfoType case 由 1/2/3/4 改为 ARM 标准 0x00/0x01/0x02/0x03（Vendor/Product/Serial/FW）。
-- `dap_task` 原把 `cmsis_dap_execute` 的编码返回值（高16=请求字节数，低16=响应长度）整段当 `len`
-  传入 `usb_device_send_response`（靠 clamp 到 64 才没崩）；已改为只取低 16 位作为真实响应长度。
-- 响应缓冲 `memset` 清零（保证 Info 字符串隐式 null 终止）。
+### 7.10 固件侧已修复：OpenOCD `CMD_INFO failed`（2026-09-08，最终正确版）
+现象：`Error: CMSIS-DAP command CMD_INFO failed.`（驱动 `hidusb.sys` 已正确的前提下）。
+**根因在固件协议层**，已对照 ARM 官方 `DAP.c` / `DAP.h`（参考工程 `007.stm32h743_cmsis_dap`）修正：
 
-> CMSIS-DAP v1 HID 响应格式：`[cmd(0x00), InfoType(回显), data...]`；字符串类型**不带显式长度**，
-> 靠零填充隐式 null 终止；数值类型（0xF0 能力位 / 0xFF 包大小 / 0xFE 包计数）紧随 byte2。
-> 修复后 `build` 零警告、`flash -p COM21` 已烧录验证。重跑 OpenOCD 应不再报 CMD_INFO failed。
+- **InfoType 键必须为 1-based**：ARM `DAP.h` 定义
+  `DAP_ID_VENDOR=1 / PRODUCT=2 / SER_NUM=3 / FW_VER=4 / CAPABILITIES=0xF0 / PACKET_COUNT=0xFE / PACKET_SIZE=0xFF`。
+  OpenOCD/Keil 发送的正是这些值。原 `dap_info` 用了 0x00/0x01/0x02/0x03（0-based），
+  导致所有字符串查询 `dap_info()` 落到 `default` 返回长度 0，OpenOCD 收到空响应判失败。
+  → 已改回 `case 1/2/3/4`（对齐 ARM `DAP.h`）。
+- **`ID_DAP_Info` 响应 `response[1]` 必须是"数据长度"，不是 InfoType 回显**：
+  ARM `DAP.c` 的 `DAP_Info` 返回 `num`（长度），调用处写 `*response = (uint8_t)num;`，
+  即 `response[1] = length`，`response[2..] = data`。之前误改成回显 InfoType 反而错误。
+  → 已改回 `response[1] = (uint8_t)num`（长度），`response[0]=cmd`，`response[2..]=data`。
+- `dap_task` 取响应长度已从"编码返回值整段"改为只取低 16 位（响应字节数）；响应缓冲 `memset` 清零。
+- 参考工程 `007` 直接用 ARM 官方 `DAP.c`（`third_party/CMSIS-DAP/DAP.c`）接入
+  `DAP_ExecuteCommand`，零改动即通过 OpenOCD——本工程因走 ESP32 SWD 驱动，采用"协议层对齐 ARM、
+  底层 SWD 用自有 `swd.c`"的等价方案。
 
+> 修复后 `build` 零警告（仅 ccache 提示，无害）、`flash -p COM21` 三段 `Hash of data verified` 烧录通过。
+
+### 7.11 COM21 调试日志 + OpenOCD 功能测试（回调可见性）
+ESP_LOG 走 UART0（CH340 = **COM21**），固件已在关键路径加打印，配合 OpenOCD 即可在串口看到完整命令流：
+- **HID 回调边界**（`components/usb_device/usb_device.c` `tud_hid_set_report_cb`）：
+  `HID OUT cmd=0xXX len=N` —— 每个到达的原始 CMSIS-DAP 请求。
+- **命令分发**（`components/cmsis_dap/cmsis_dap.c`）：
+  `>> req cmd=0xXX len=N`（顶层）、`DAP cmd id=0xXX`（每个子命令）、`DAP_Info id=N len=N`。
+- 上电时 `app_main` 还打印 SWD 引脚 / USB VID-PID / 产品名，便于确认固件已起来。
+
+**功能测试步骤**
+1. 用 `flash.bat`（或 `bash ./build.sh && flash.bat`）烧录最新固件到 COM21。
+2. 打开 COM21 串口监视（如 `idf.py monitor -p COM21` 或任意串口工具，115200 8N1），观察上电日志。
+3. 接好目标 MCU 的 SWD 三线（SWDIO=GPIO5 / SWCLK=GPIO4 / nRESET=GPIO6 / GND 共地，见 §2）。
+4. 另开终端跑：`openocd -f interface/cmsis-dap.cfg -f target/stm32h7x.cfg`
+   - 预期：**不再**报 `CMD_INFO failed`；COM21 串口可见连续的 `HID OUT`/`DAP cmd` 日志；
+     OpenOCD 依次完成 Info → Connect(SWD) → SWJ_Pins/Clock → SWD_Configure → Transfer(读 DPIDR) → 连上目标。
+   - 若目标未接，Transfer 会返回 WAIT/NO_RESPONSE（正常），OpenOCD 报 "no device found"，属预期，非固件 bug。
+5. 后续可在 Keil 选 CMSIS-DAP（注意 §7.9 的 VID/PID 白名单提示）。
+
+---
+
+## 8. JTAG 模式（2026-09-08 新增，纯 JTAG，不切换）
+
+JTAG 引擎（`components/jtag/jtag.c`）是 ARM 官方 `JTAG_DP.c` 的逐行移植（寄存器级 GPIO
+位带时序，与 SWD 同一套延迟模型），保证线协议与 OpenOCD/Keil 期望**逐位一致**。
+`CMSIS-DAP v1` 命令 `0x14/0x15/0x16/0x17/0x18/0x19`（JTAG_Sequence/Configure/IDCODE/
+Transfer/TransferBlock/WriteAbort）已完整实现并接入 `cmsis_dAP.c` 分发。
+
+> 注意：标准 OpenOCD/pyOCD 用 **0x17=JTAG_Transfer、0x18=JTAG_TransferBlock**；
+> 参考工程 `007` 把这两个命令号改成了 SWO 命令号（0x17/0x18 在 007 里是 SWO_Transport/SWO_Mode），
+> 那是为了 007 自定义固件；**本工程保持标准命令号**，以确保通用 OpenOCD 兼容。
+
+### 8.1 接线表（探针 → STM32 目标 JTAG）
+
+| 探针 GPIO | JTAG 信号 | STM32 目标      | JTAG 标准脚 |
+|-----------|-----------|-----------------|-------------|
+| GPIO4     | TCK       | PA14            | TCK         |
+| GPIO5     | TMS       | PA13            | TMS         |
+| GPIO7     | TDI       | PA15            | TDI         |
+| GPIO8     | TDO       | PB3             | TDO         |
+| GPIO9     | nTRST     | PB4（可选）      | nTRST       |
+| GPIO6     | nRESET    | NRST            | nRESET      |
+| GND       | GND       | GND             | —           |
+
+> 飞线 / 长线连接请先 100kHz 握手（见 §8.2），成功后再提速到 1MHz。
+> nTRST 若目标未引出，可把 `DEBUG_NTRST_GPIO` 设成 -1（固件不驱动该脚）。
+
+### 8.2 OpenOCD 功能测试（JTAG）
+
+1. 烧录最新固件（`flash.bat` / `bash ./build.sh && flash.bat`）。
+2. COM21 串口监视（115200 8N1）看上电日志与 JTAG 命令流。
+3. 按 §8.1 接好 JTAG 五线 + GND（目标需独立上电）。
+4. 跑 OpenOCD（强制 JTAG transport）：
+   ```bash
+   openocd -f interface/cmsis-dap.cfg -c "transport select jtag" -f target/stm32h7x.cfg
+   ```
+   或写一份 `probe_jtag.cfg`：
+   ```tcl
+   source [find interface/cmsis-dap.cfg]
+   transport select jtag
+   source [find target/stm32h7x.cfg]
+   ```
+   然后 `openocd -f probe_jtag.cfg`。
+5. 预期：COM21 出现 `>> req cmd=0x02`（Connect/JTAG）→ `DAP cmd id=0x15`
+   （JTAG_Configure）→ `id=0x16`（IDCODE，返回 0x... 非零 IDCODE）→ `id=0x17`（Transfer，
+   读 DP IDCODE / 上电 CTRLSTAT）→ 连上目标。若读到的 IDCODE 为 `0x00000000` 或 `0xFFFFFFFF`
+   说明 TDO 未接好或目标未上电。
+
+### 8.3 顺带修复（SWD 也受益）
+
+`components/swd/include/swd.h` 的 `SWD_REQ` 宏地址位构造有 bug：原写法
+`((addr8 >> 2) & 0x0Cu)` 恒为 0，导致除 IDCODE(0x00) 外的所有 DP 寄存器访问（CTRLSTAT/SELECT/
+RDBUFF/ABORT）都错映射到地址 0x00，SWD 下只有 IDCODE 能读成功。已改为 `(addr8 & 0x0Cu)`，
+A[3:2] 正确映射到 request 位 3/2。该修复同时提升 SWD 模式下的 DP/AP 读写正确性。
 
