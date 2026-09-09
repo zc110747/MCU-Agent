@@ -124,11 +124,24 @@ static jtag_dev_t s_dev = {
 #define JTAG_CYCLE_TDI(tdi) \
     do { PIN_TDI_OUT(tdi); JTAG_TCK_LOW(); JTAG_DELAY(); JTAG_TCK_HIGH(); JTAG_DELAY(); } while (0)
 
-#define JTAG_CYCLE_TDO(tdo) \
-    do { JTAG_TCK_LOW(); JTAG_DELAY(); (tdo) = pin_in(TDO_GPIO); JTAG_TCK_HIGH(); JTAG_DELAY(); } while (0)
+#define JTAG_CYCLE_TDO(tdo)                  \
+    do {                                     \
+        JTAG_TCK_LOW();                      \
+        JTAG_DELAY();                        \
+        JTAG_TCK_HIGH();                     \
+        (tdo) = pin_in(TDO_GPIO);            \
+        JTAG_DELAY();                        \
+    } while (0)
 
-#define JTAG_CYCLE_TDIO(tdi, tdo) \
-    do { PIN_TDI_OUT(tdi); JTAG_TCK_LOW(); JTAG_DELAY(); (tdo) = pin_in(TDO_GPIO); JTAG_TCK_HIGH(); JTAG_DELAY(); } while (0)
+#define JTAG_CYCLE_TDIO(tdi, tdo)             \
+    do {                                      \
+        PIN_TDI_OUT(tdi);                     \
+        JTAG_TCK_LOW();                       \
+        JTAG_DELAY();                         \
+        JTAG_TCK_HIGH();                      \
+        (tdo) = pin_in(TDO_GPIO);             \
+        JTAG_DELAY();                        \
+    } while (0)
 
 #define PIN_TMS_SET()  pin_high(TMS_GPIO)
 #define PIN_TMS_CLR()  pin_low(TMS_GPIO)
@@ -481,35 +494,30 @@ exit:
 /* JTAG Read IDCODE register of the selected TAP */
 uint32_t jtag_read_idcode(void)
 {
-    uint32_t bit = 0U;
-    uint32_t val;
-    uint32_t n;
+    uint32_t val = 0;
+    uint32_t bit;
 
     PIN_TMS_SET();
-    JTAG_CYCLE_TCK();            /* Select-DR-Scan */
+    JTAG_CYCLE_TCK();        // Select-DR-Scan
+
     PIN_TMS_CLR();
-    JTAG_CYCLE_TCK();            /* Capture-DR */
-    JTAG_CYCLE_TCK();            /* Shift-DR */
+    JTAG_CYCLE_TCK();        // Capture-DR
+    JTAG_CYCLE_TCK();        // Shift-DR
 
-    /* Flush the TAPs nearer TDO; afterwards TDO presents our IDCODE LSB-first,
-     * so no deskew is required (verbatim ARM JTAG_ReadIDCode behaviour). */
-    for (n = s_dev.index; n; n--) {
-        JTAG_CYCLE_TCK();        /* Bypass before data */
+    for (int i = 0; i < 31; i++) {
+        JTAG_CYCLE_TDO(bit);
+        val |= ((uint32_t)bit << i);
     }
 
-    val = 0U;
-    for (n = 31U; n; n--) {
-        JTAG_CYCLE_TDO(bit);     /* Get D0..D30 */
-        val  |= bit << 31;
-        val >>= 1;
-    }
     PIN_TMS_SET();
-    JTAG_CYCLE_TDO(bit);         /* Get D31 & Exit1-DR */
-    val |= bit << 31;
 
-    JTAG_CYCLE_TCK();            /* Update-DR */
+    JTAG_CYCLE_TDO(bit);     // D31 + Exit1-DR
+    val |= ((uint32_t)bit << 31);
+
+    JTAG_CYCLE_TCK();        // Update-DR
+
     PIN_TMS_CLR();
-    JTAG_CYCLE_TCK();            /* Idle */
+    JTAG_CYCLE_TCK();        // Run-Test/Idle
 
     return val;
 }

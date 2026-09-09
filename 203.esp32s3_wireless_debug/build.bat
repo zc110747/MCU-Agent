@@ -20,3 +20,5 @@ if errorlevel 1 (
 )
 echo ==^> Build complete: build/esp32s3_debug_probe.bin
 endlocal
+
+PAUSE
