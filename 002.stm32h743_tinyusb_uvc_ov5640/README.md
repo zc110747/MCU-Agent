@@ -7,7 +7,7 @@
 - 芯片：STM32H743ZIT6（鹿小班开发板）
 - 摄像头：OV5640（DVP 接口，SCCB/I2C4 配置）
 - 软件栈：TinyUSB（device, UVC class）+ STM32 HAL
-- 构建：arm-none-eabi-gcc + CMake（≥ 3.20）+ OpenOCD（ST-Link）
+- 构建：arm-none-eabi-gcc + CMake（≥ 3.20）+ OpenOCD（ST-Link）；另提供 Keil MDK-ARM（UV4 / ARMCLANG）工程，见 §4B
 
 ---
 
@@ -233,6 +233,7 @@ stm32_tinyusb/
 - [x] DCMI 像素数据正确（参考驱动移植 + 极性修正）
 - [x] USB UVC 实时显示图像
 - [x] 剧烈变化拼接（tearing）修复 —— 消隐期相位锁存 + 三缓冲，A/B 验证通过
+- [x] Keil MDK-ARM（UV4 / ARMCLANG V6.14）零错误零警告构建（排除 syscalls.c）
 - [ ] 最终帧率（吞吐）测试
 
 ---

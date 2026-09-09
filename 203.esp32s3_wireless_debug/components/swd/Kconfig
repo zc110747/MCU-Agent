@@ -24,7 +24,19 @@ config DEBUG_NRESET_GPIO
 
 config DEBUG_SWD_DEFAULT_CLOCK_HZ
     int "Default SWD clock (Hz)"
-    default 1000000
+    default 100000
+    help
+        Stage-1 bring-up clock. Fix stability at 100 kHz first (connect under
+        reset, DPIDR, CTRLSTAT, MEM-AP, DHCSR), then raise step by step
+        (400k / 1M / 2M / 5M). Never sacrifice 100k/400k stability for speed.
+
+config DEBUG_SWD_TRACE
+    bool "Enable SWD connect/diagnostic trace logs"
+    default n
+    help
+        When enabled, logs the SWD clock, JTAG->SWD switch, DPIDR, CTRLSTAT,
+        AP IDR and per-stage connect results. Never affects the bit-level
+        hot path (swd_transfer stays IRAM + log-free).
 
 config DEBUG_SWD_MAX_CLOCK_HZ
     int "Maximum SWD clock (Hz)"

@@ -12,15 +12,33 @@
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include "stm32h7xx_hal.h"
 
-/* Provided by the linker script */
-extern uint8_t _end;   /* start of the heap             */
+/* The newlib/sys headers <sys/stat.h> / <sys/types.h> are not provided by the
+ * Keil ARMCLANG bare-metal runtime. _fstat() only needs a character-device
+ * mode, so a minimal local definition keeps this file portable across both
+ * the GCC/newlib and the Keil toolchains. */
+#ifndef S_IFCHR
+#define S_IFCHR 0020000
+#endif
+struct stat { unsigned int st_mode; };
+
+/* Heap base/limit symbols differ between toolchains:
+ *   GCC / newlib  : provided by the GNU ld script (_end, _estack, _Min_Stack_Size)
+ *   Keil / ARMCLANG: provided by the MDK startup + scatter (__HeapBase, __HeapLimit) */
+#if defined(__ARMCC_VERSION) || defined(__CC_ARM)
+extern uint8_t __HeapBase;
+extern uint8_t __HeapLimit;
+#define HEAP_START  (&__HeapBase)
+#define HEAP_LIMIT  (&__HeapLimit)
+#else
+extern uint8_t _end;
 extern uint8_t _estack;
 extern uint32_t _Min_Stack_Size;
+#define HEAP_START  (&_end)
+#define HEAP_LIMIT  ((uint8_t *)(&_estack - _Min_Stack_Size))
+#endif
 
 /* --------------------------------------------------------------------------
  * Heap

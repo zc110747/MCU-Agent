@@ -50,13 +50,18 @@ extern "C" {
 #define MEM_AP_DRW  0x0Cu
 #define MEM_AP_IDR  0xFCu
 
-/* CSW fields (ADIv5) */
-#define CSW_BASE        0x23000000u     /* reserved | MasterType | HPROT */
+/* CSW fields (ADIv5). Size field [2:0]: 000=8-bit, 001=16-bit, 010=32-bit.
+ * (Was previously mis-encoded: 8-bit held 0x2, 32-bit held 0x0, which made
+ * every MEM-AP word access a byte access and broke DHCSR writes.)
+ * AddrInc field [5:4]: single-word accesses use no-increment (0x0),
+ * block accesses use single-increment (0x10). */
+#define CSW_BASE        (0x01000000u | 0x20000000u | 0x02000000u | 0x00000040u) \
+                        /* reserved | MasterType=debug | HPROT | DbgStatus */
 #define CSW_ADDRINC_SINGLE  0x00000000u
 #define CSW_ADDRINC_AUTO    0x00000010u
-#define CSW_SIZE_8          0x00000002u
-#define CSW_SIZE_16         0x00000003u
-#define CSW_SIZE_32         0x00000000u
+#define CSW_SIZE_8          0x00000000u
+#define CSW_SIZE_16         0x00000001u
+#define CSW_SIZE_32         0x00000002u
 
 /* Unified error codes */
 typedef enum {

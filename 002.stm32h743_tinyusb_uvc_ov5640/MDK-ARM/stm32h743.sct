@@ -1,0 +1,53 @@
+; *****************************************************************************
+; * Scatter file for STM32H743ZIT6 UVC project (Keil ARMCLANG)
+; *
+; * Mirrors sys_startup/STM32H743ZITx_FLASH.ld:
+; *   FLASH    2 MB  @ 0x08000000  (RO code / read-only data)
+; *   DTCM    128 KB @ 0x20000000  (.data / .bss / heap / stack, CPU only)
+; *   AXI(D1) 512 KB @ 0x24000000  (camera frame buffers, DMA-reachable)
+; *   SRAM_D2 288 KB @ 0x30000000
+; *   SRAM_D3  64 KB @ 0x38000000
+; *
+; * The camera frame buffers (section ".framebuffer") are pinned to AXI SRAM
+; * (0x24000000) because the DCMI DMA can only reach that region and the MPU
+; * marks it non-cacheable. All other RW/ZI stays in DTCM (fast core memory).
+; *
+; * The C heap is taken from the DTCM region via the __HeapBase / __HeapLimit
+; * symbols that the MDK startup (sys_startup/arm/startup_stm32h743xx.s) exports.
+; * Note: Core/Src/syscalls.c (newlib _sbrk) is GCC-only and is intentionally
+; * excluded from this Keil target; ARMCLANG supplies its own heap management.
+; *****************************************************************************
+
+LR_IROM1 0x08000000 0x00200000
+{
+  ER_IROM1 0x08000000 0x00200000
+  {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+
+  ; Camera frame buffers: explicit placement, never spilled elsewhere.
+  RW_IRAM2 0x24000000 0x00080000
+  {
+    *.o (.framebuffer)
+    *.o (.ram_d1)
+  }
+
+  ; General data / bss / heap / stack -> DTCM (fast).
+  RW_IRAM1 0x20000000 0x00020000
+  {
+    .ANY (+RW +ZI)
+  }
+
+  ; Remaining AXI/SRAM domains (used only if DTCM overflows).
+  RW_IRAM3 0x30000000 0x00048000
+  {
+    .ANY (+RW +ZI)
+  }
+
+  RW_IRAM4 0x38000000 0x00010000
+  {
+    .ANY (+RW +ZI)
+  }
+}
