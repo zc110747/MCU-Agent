@@ -544,29 +544,6 @@ esp_err_t swd_write_dp(uint8_t addr, uint32_t data)
     return (ack == SWD_ACK_OK) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
-esp_err_t IRAM_ATTR swd_read_ap(uint8_t addr, uint32_t *data)
-{
-    /* DAPLink swd_read_ap: select AP0/bank0, then dummy read (the AP read is
-     * posted - the value arrives in the following transfer), then the real
-     * read captures it. */
-    if (swd_write_dp(SWD_DP_ADDR_SELECT, 0u) != ESP_OK) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    uint32_t tmp = 0;
-    uint8_t ack = swd_transfer_retry(SWD_REQ(addr, 1u, 1u), &tmp);  /* dummy */
-    if (ack != SWD_ACK_OK) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    ack = swd_transfer_retry(SWD_REQ(addr, 1u, 1u), &tmp);
-    if (ack != SWD_ACK_OK) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    if (data) {
-        *data = tmp;
-    }
-    return ESP_OK;
-}
-
 esp_err_t IRAM_ATTR swd_write_ap(uint8_t addr, uint32_t data)
 {
     /* DAPLink swd_write_ap: select AP0/bank0, write, flush the posted write
@@ -809,91 +786,153 @@ const char *swd_stage_name(swd_error_stage_t stage)
     }
 }
 
-/**
- * Stages 2-8 of the connect flow, executed with nRESET HELD LOW.
- *
- * Every stage is independently checked and classified into s_last_stage.
- * The DPIDR read (stage 5) is the first checkpoint: while it keeps failing,
- * stages 2-5 are retried with the reset still asserted and no AP/MEM-AP
- * traffic is generated (errors are not allowed to propagate into the AP
- * layer). nRESET is NOT touched here - the caller decides when to release.
- */
+esp_err_t IRAM_ATTR swd_read_ap(uint8_t addr, uint32_t *data)
+{
+    uint32_t value = 0;
+
+    if (swd_write_dp(SWD_DP_ADDR_SELECT, 0u) != ESP_OK) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    uint8_t ack = swd_transfer_retry(
+        SWD_REQ(addr, 1u, 1u), &value);
+
+    if (ack != SWD_ACK_OK) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    ack = swd_transfer_retry(
+        SWD_REQ(SWD_DP_ADDR_RDBUFF, 0u, 1u), &value);
+
+    if (ack != SWD_ACK_OK) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    if (data) {
+        *data = value;
+    }
+
+    return ESP_OK;
+}
+
+
 static esp_err_t swd_bringup_under_reset(uint32_t *dpidr)
 {
-    /* Stages 2-5: line reset -> JTAG->SWD -> line reset -> DPIDR */
+    uint32_t id = 0;
     bool dpidr_ok = false;
-    for (int attempt = 0; attempt < 5 && !dpidr_ok; attempt++) {
-        if (attempt > 0) {
-            /* flush any sticky state from the failed attempt */
-            swd_write_dp(SWD_DP_ADDR_ABORT, DP_DAPABORT);
-            vTaskDelay(pdMS_TO_TICKS(5));
-        }
-        swd_line_reset();                       /* Stage 2 */
-        swd_jtag_to_swd();                      /* Stage 3 */
-        swd_line_reset();                       /* Stage 4 */
-        if (swd_read_idcode(dpidr) == ESP_OK) { /* Stage 5: checkpoint */
-            dpidr_ok = true;
-        } else {
-            *dpidr = 0;
-        }
+
+    if (dpidr) {
+        *dpidr = 0;
     }
+
+    for (int attempt = 0; attempt < 5; attempt++) {
+
+        if (attempt > 0) {
+            swd_write_dp(SWD_DP_ADDR_ABORT, DP_DAPABORT);
+            esp_rom_delay_us(5000);
+        }
+
+        if (swd_line_reset() != ESP_OK) {
+            continue;
+        }
+
+        if (swd_jtag_to_swd() != ESP_OK) {
+            continue;
+        }
+
+        if (swd_line_reset() != ESP_OK) {
+            continue;
+        }
+
+        id = 0;
+
+        if (swd_read_idcode(&id) == ESP_OK &&
+            id != 0u &&
+            id != 0xFFFFFFFFu) {
+            dpidr_ok = true;
+            break;
+        }
+
+        id = 0;
+    }
+
     if (!dpidr_ok) {
         s_last_stage = SWD_ERR_DPIDR;
         return ESP_FAIL;
     }
-    SWD_TRACE("SWD: DPIDR=0x%08" PRIX32, *dpidr);
 
-    /* Stage 6: clear sticky errors */
+    if (dpidr) {
+        *dpidr = id;
+    }
+
+    SWD_TRACE("SWD: DPIDR=0x%08" PRIX32, id);
+
     if (swd_clear_errors() != ESP_OK) {
         s_last_stage = SWD_ERR_ABORT;
         return ESP_FAIL;
     }
 
-    /* Stage 7: DP power-up - request both domains, poll the ACKs */
-    if (swd_write_dp(SWD_DP_ADDR_CTRLSTAT,
-                     DP_CSYSPWRUPREQ | DP_CDBGPWRUPREQ) != ESP_OK) {
+    if (swd_write_dp(
+            SWD_DP_ADDR_ABORT,
+            DP_DAPABORT) != ESP_OK) {
+        s_last_stage = SWD_ERR_ABORT;
+        return ESP_FAIL;
+    }
+
+    if (swd_write_dp(
+            SWD_DP_ADDR_CTRLSTAT,
+            DP_CSYSPWRUPREQ | DP_CDBGPWRUPREQ) != ESP_OK) {
         s_last_stage = SWD_ERR_POWERUP;
         return ESP_FAIL;
     }
+
     bool powered = false;
     uint32_t ctrlstat = 0;
+
     for (int i = 0; i < 100; i++) {
-        if (swd_read_dp(SWD_DP_ADDR_CTRLSTAT, &ctrlstat) != ESP_OK) {
-            break;
+
+        ctrlstat = 0;
+
+        if (swd_read_dp(
+                SWD_DP_ADDR_CTRLSTAT,
+                &ctrlstat) == ESP_OK) {
+
+            if ((ctrlstat &
+                 (DP_CDBGPWRUPACK | DP_CSYSPWRUPACK)) ==
+                (DP_CDBGPWRUPACK | DP_CSYSPWRUPACK)) {
+                powered = true;
+                break;
+            }
         }
-        if ((ctrlstat & (DP_CDBGPWRUPACK | DP_CSYSPWRUPACK)) ==
-            (DP_CDBGPWRUPACK | DP_CSYSPWRUPACK)) {
-            powered = true;
-            break;
-        }
+
         esp_rom_delay_us(1000);
     }
+
     if (!powered) {
-        SWD_TRACE("SWD: CTRLSTAT=0x%08" PRIX32 " (power-up timeout)", ctrlstat);
-        s_last_stage = SWD_ERR_POWERUP;
-        return ESP_FAIL;
-    }
-    SWD_TRACE("SWD: CTRLSTAT=0x%08" PRIX32, ctrlstat);
-
-    /* normal transfer mode + masked lanes, then re-select bank 0 */
-    if (swd_write_dp(SWD_DP_ADDR_CTRLSTAT,
-                     DP_CSYSPWRUPREQ | DP_CDBGPWRUPREQ | DP_TRNNORMAL | DP_MASKLANE) != ESP_OK ||
-        swd_write_dp(SWD_DP_ADDR_SELECT, 0u) != ESP_OK) {
+        SWD_TRACE(
+            "SWD: CTRLSTAT=0x%08" PRIX32,
+            ctrlstat);
         s_last_stage = SWD_ERR_POWERUP;
         return ESP_FAIL;
     }
 
-    /* Stage 8: MEM-AP init + independent AP identification. APSEL=0 is the
-     * STM32H7 Cortex-M7 AHB-AP (OpenOCD stm32h7x.cfg creates cpu0 with
-     * -ap-num 0); AP2 is only the D1-domain aux mem_ap (SWO/TPIU). Reading
-     * the AP IDR distinguishes "DP OK but AP FAIL" from a DP problem. */
-    uint32_t ap_idr = 0;
-    if (swd_write_ap(AP_CSW, CSW_VALUE | CSW_SIZE32) != ESP_OK ||
-        swd_read_ap(AP_IDR, &ap_idr) != ESP_OK) {
-        s_last_stage = SWD_ERR_AP;
+    if (swd_write_dp(
+            SWD_DP_ADDR_CTRLSTAT,
+            DP_CSYSPWRUPREQ |
+            DP_CDBGPWRUPREQ |
+            DP_TRNNORMAL |
+            DP_MASKLANE) != ESP_OK) {
+        s_last_stage = SWD_ERR_POWERUP;
         return ESP_FAIL;
     }
-    SWD_TRACE("SWD: AP0 IDR=0x%08" PRIX32, ap_idr);
+
+    if (swd_write_dp(
+            SWD_DP_ADDR_SELECT,
+            0u) != ESP_OK) {
+        s_last_stage = SWD_ERR_POWERUP;
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 }
 
@@ -901,81 +940,190 @@ esp_err_t swd_connect(void)
 {
     esp_err_t err = ESP_FAIL;
     bool reset_held = false;
-    bool halted_before_release = false;
     uint32_t dpidr = 0;
+    uint32_t ap_idr = 0;
 
     s_last_stage = SWD_STAGE_OK;
+
     swd_set_idle();
 
 #if NRESET_GPIO >= 0
-    /* Stage 1: assert nRESET and HOLD IT LOW for the whole bring-up. With
-     * the core in reset, SW-DP is always functional - even when a running
-     * application has remapped the SWD pins (PA13/PA14). */
-    swd_reset_assert(true);
+
+    if (swd_reset_assert(true) != ESP_OK) {
+        s_last_stage = SWD_ERR_LINE_RESET;
+        return ESP_FAIL;
+    }
+
     reset_held = true;
+
     vTaskDelay(pdMS_TO_TICKS(20));
+
 #endif
 
-    /* Stages 2-8. A failure NEVER proceeds to MEM-AP/DHCSR and NEVER
-     * releases the reset mid-flow: the whole bring-up is re-run with the
-     * reset still asserted. */
     for (int retry = 0; retry < 3; retry++) {
+
         if (retry > 0) {
-            SWD_TRACE("SWD: bring-up retry %d (nRESET still asserted)", retry);
+            SWD_TRACE(
+                "SWD: DP bring-up retry %d",
+                retry);
         }
+
         err = swd_bringup_under_reset(&dpidr);
+
         if (err == ESP_OK) {
             break;
         }
+
+        if (reset_held) {
+            swd_reset_assert(true);
+        }
+
+        esp_rom_delay_us(5000);
     }
+
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SWD CONNECT FAILED: %s",
-                 swd_stage_name(s_last_stage));
+        ESP_LOGE(
+            TAG,
+            "SWD CONNECT FAILED: %s",
+            swd_stage_name(s_last_stage));
+
 #if NRESET_GPIO >= 0
         if (reset_held) {
-            swd_reset_assert(false);    /* leave the board in a sane state */
+            swd_reset_assert(false);
         }
 #endif
+
         return err;
     }
 
-    /* Best-effort halt under reset: on STM32H7 the AHB-AP bus matrix is
-     * still in reset while nRESET is asserted, so MEM-AP/DHCSR access may
-     * not respond here. The authoritative halt happens after the release. */
-    if (swd_halt() == ESP_OK) {
-        halted_before_release = true;
-        SWD_TRACE("SWD: core halted (under reset)");
+#if NRESET_GPIO >= 0
+
+    if (reset_held) {
+
+        err = swd_reset_assert(false);
+
+        if (err != ESP_OK) {
+            s_last_stage = SWD_ERR_HALT;
+            return err;
+        }
+
+        reset_held = false;
+
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    /* Stage 9: release nRESET - only reached after DPIDR+CTRLSTAT+MEM-AP
-     * all succeeded. */
+#endif
+
+    if (swd_write_dp(
+            SWD_DP_ADDR_SELECT,
+            0u) != ESP_OK) {
+        s_last_stage = SWD_ERR_AP;
+        goto connect_fail;
+    }
+
+    if (swd_write_ap(
+            AP_CSW,
+            CSW_VALUE | CSW_SIZE32) != ESP_OK) {
+        s_last_stage = SWD_ERR_AP;
+        goto connect_fail;
+    }
+
+    ap_idr = 0;
+
+    if (swd_read_ap(
+            AP_IDR,
+            &ap_idr) != ESP_OK) {
+        s_last_stage = SWD_ERR_AP;
+        goto connect_fail;
+    }
+
+    SWD_TRACE(
+        "SWD: AP0 IDR=0x%08" PRIX32,
+        ap_idr);
+
+    swd_clear_errors();
+
+    if (swd_write_dp(
+            SWD_DP_ADDR_SELECT,
+            0u) != ESP_OK) {
+        s_last_stage = SWD_ERR_AP;
+        goto connect_fail;
+    }
+
+    if (swd_write_ap(
+            AP_CSW,
+            CSW_VALUE | CSW_SIZE32) != ESP_OK) {
+        s_last_stage = SWD_ERR_AP;
+        goto connect_fail;
+    }
+
+    err = swd_halt();
+
+    if (err != ESP_OK) {
+
+        swd_clear_errors();
+
+        if (swd_write_dp(
+                SWD_DP_ADDR_SELECT,
+                0u) == ESP_OK &&
+            swd_write_ap(
+                AP_CSW,
+                CSW_VALUE | CSW_SIZE32) == ESP_OK) {
+
+            err = swd_halt();
+        }
+    }
+
+    if (err != ESP_OK) {
+
+        s_last_stage = SWD_ERR_HALT;
+
+        swd_clear_errors();
+
+        err = swd_wait_until_halted(500);
+    }
+
+    if (err != ESP_OK) {
+        goto connect_fail;
+    }
+
+    {
+        bool halted = false;
+
+        if (swd_is_halted(&halted) != ESP_OK || !halted) {
+            s_last_stage = SWD_ERR_HALT;
+            goto connect_fail;
+        }
+    }
+
+    s_last_stage = SWD_STAGE_OK;
+
+    ESP_LOGI(
+        TAG,
+        "SWD CONNECT OK: DPIDR=0x%08" PRIX32
+        ", APIDR=0x%08" PRIX32
+        ", halted=1",
+        dpidr,
+        ap_idr);
+
+    return ESP_OK;
+
+connect_fail:
+
+    ESP_LOGE(
+        TAG,
+        "SWD CONNECT FAILED: %s "
+        "(DPIDR=0x%08" PRIX32
+        ", APIDR=0x%08" PRIX32 ")",
+        swd_stage_name(s_last_stage),
+        dpidr,
+        ap_idr);
+
 #if NRESET_GPIO >= 0
     if (reset_held) {
         swd_reset_assert(false);
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 #endif
 
-    /* Stage 10: re-request halt. A halt issued under reset can be consumed
-     * by the reset edge, so C_DEBUGEN|C_HALT is re-sent now that the core
-     * is out of reset. The core runs at most a few cycles before C_HALT
-     * takes effect - safe: nRESET already forced the SWD pins back to their
-     * debug AF state. */
-    swd_clear_errors();
-    err = swd_halt();
-    if (err != ESP_OK) {
-        /* Stage 11: verify S_HALT with a wider window before giving up */
-        s_last_stage = SWD_ERR_HALT;
-        swd_clear_errors();
-        err = swd_wait_until_halted(500);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SWD CONNECT FAILED: %s (DPIDR=0x%08" PRIX32 ")",
-                 swd_stage_name(s_last_stage), dpidr);
-        return err;
-    }
-
-    ESP_LOGI(TAG, "connect: OK (DPIDR=0x%08" PRIX32 ", halted, "
-             "under-reset-halt=%d)", dpidr, halted_before_release);
-    return ESP_OK;
+    return ESP_FAIL;
 }
