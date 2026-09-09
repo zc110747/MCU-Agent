@@ -15,6 +15,7 @@
 
 #include "usb_device.h"
 #include "cmsis_dap.h"
+#include "wifi_dap.h"
 #include "debug_engine.h"
 #include "target.h"
 
@@ -72,6 +73,15 @@ void app_main(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "cmsis_dap_init failed: %s", esp_err_to_name(err));
         return;
+    }
+
+    /* Wireless CMSIS-DAP transport (AP + TCP 50000). Non-fatal: USB keeps
+     * working if WiFi init fails. Reuses cmsis_dap_execute() under the shared
+     * debug_engine lock, so no change to the SWD/JTAG core. */
+    err = wifi_dap_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "wifi_dap_init failed: %s (USB transport still active)",
+                 esp_err_to_name(err));
     }
 
 #if CONFIG_DEBUG_PROBE_SELFTEST

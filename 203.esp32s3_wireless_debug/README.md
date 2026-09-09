@@ -63,7 +63,11 @@ JTAG 模式**不切换** SWD 引脚：TCK/TMS 与 SWCLK/SWDIO 物理复用，
 
 # 3) 连接测试（OpenOCD 通过 CMSIS-DAP HID 识别探针）
 openocd -f interface/cmsis-dap.cfg -f target/stm32h7x.cfg
+#    JTAG 模式需显式指定： -c "transport select jtag"
 ```
+
+> 日常下载 / 仿真用 **SWD**（默认 transport，速度正常）；JTAG 模式仅建议用于 chain / IDCODE 发现、
+> 多 TAP examine、边界扫描——其 flash 下载受 CMSIS-DAP v1 HID 限制明显慢于 SWD（见 §7.2）。
 
 详细的协议层、OpenOCD/Keil 测试命令、排错清单见 **doc/useage.md**。
 
@@ -105,3 +109,42 @@ components/
 main/               app_main 入口 + 整包 whole-archive 链接
 doc/useage.md       详细使用与排错文档
 ```
+
+---
+
+## 7. 已知限制与排错要点
+
+### 7.1 传输路径选型
+- **SWD（推荐）**：flash 下载 / 仿真 / 日常调试走 SWD。SWD 引擎已修复（clock 实测校准、11-stage
+  under-reset connect、Attach/Launch 工作流），下载 / 仿真速度与 ST-Link 同量级（3–5 s）。
+- **JTAG**：用于 chain / IDCODE 发现、多 TAP examine、边界扫描。`Invalid ACK (4)` FAULT 已修复（见 §7.3），
+  但 **flash 下载慢是已知协议限制，暂不处理**（见 §7.2）。
+
+### 7.2 JTAG flash 下载慢（已知限制，暂不处理）
+根因：**CMSIS-DAP v1 over HID** 的 IN 端点靠主机 ~1 kHz 轮询拉取 → 每条 DAP 命令下限延迟 ≈ 1 ms
+（HID 规范硬约束，固件无法绕过）。OpenOCD 的 JTAG 传输每写一个 32 位字就发一条
+`DAP_JTAG_Sequence(0x14)` 并等 ACK，66 KB 镜像 ≈ 1.8 万条命令 ≈ 18 s（实测全程 21.3 s）。
+- **与时钟无关**：4 MHz 已达标，再提速无益。
+- ST-Link 3–5 s 对比：ST-Link 走 bulk / high-throughput 通道 + JTAG 批量传输优化。
+- 可选提速（均未实施）：① 加 CMSIS-DAP v2（WinUSB Bulk，512 B 包，命令率提 3–10 倍）；
+  ② 改用 `DAP_JTAG_Transfer(0x17)` 批量路径（需改 OpenOCD 驱动，固件已支持并验证）。
+- **结论**：日常下载 / 仿真请用 **SWD**；JTAG 仅作链路 / 边界扫描用途。
+
+### 7.3 JTAG `Invalid ACK (4)` FAULT（已修复）
+曾出现"OpenOCD 能发现 TAP、IDCODE 正确，但后续任何 DAP 访问全 FAULT"。最终根因：JTAG 引脚宏
+`PIN_TDI_OUT(v)` 把整字节传进 `bool` 形参 `pin_out()`，C 的非零→true 提升使 TDI 在字节非零时恒高，
+把 DPACC IR(0x0A) 错移成 BYPASS(0x0F)。修复：宏内掩码 `& 1U`
+（`pin_out(TDI_GPIO, (((v) & 1U) != 0U))`）。另按 ARM 官方 `JTAG_DP.c` 逐位修正：Shift-IR 末位须与
+`TMS=1` 同边沿（补一拍即多移一位）、去除多余 `after` deskew、ABORT 改用独立 IR `0x08`。
+注意 OpenOCD 实际只走 `DAP_JTAG_Sequence(0x14)`（非 `DAP_JTAG_Transfer(0x17)`）。
+完整排错方法论见 skill **`stm32-cmsis-dap-probe`**。
+
+### 7.4 调试注意事项
+- **双主机警告**：同一目标不能同时挂 J-Link + 本探针，否则出现确定性坏值（如 DPIDR `0xff4c001b`）；
+  VSCode 调试前先断开 Keil / J-Link 会话。
+- **空 Flash 假故障**：目标板 Flash 为空时 `mdw 0x08000000` 全 `ffffffff` → Cortex-M lockup
+  （`pc=0xfffffffe`），属目标侧现象，非探针缺陷；用 `reset halt` + RAM 写读回环判定探针是否健康。
+- **验收链（逐级排除）**：① HID 直发 `tools/run_jtag_transfer.py`（期望 IDCODE0 = `0x6BA00477`、
+  各次 `ack=1 OK`）；② OpenOCD init（两 TAP 识别 + `Examination succeed` + `Cortex-M7` 检测）；
+  ③ `reset halt`（`halted due to debug-request`）；④ RAM 写读回环 `mww 0x24000000 0xDEADBEEF` +
+  `mww 0x24000004 0x12345678` → `mdw` 读回 `deadbeef 12345678 ...`。

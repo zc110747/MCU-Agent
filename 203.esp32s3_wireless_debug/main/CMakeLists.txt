@@ -1,6 +1,6 @@
 idf_component_register(SRCS "app_main.c"
                        INCLUDE_DIRS "."
-                       REQUIRES usb_device cmsis_dap debug_engine swd target jtag)
+                       REQUIRES usb_device cmsis_dap wifi_dap debug_engine swd target jtag)
 
 # ---------------------------------------------------------------------------
 # Whole-archive linking of all DAP components.
@@ -14,7 +14,7 @@ idf_component_register(SRCS "app_main.c"
 # Wrapping every DAP component archive in --whole-archive forces all object
 # files into the final link unconditionally.
 # ---------------------------------------------------------------------------
-set(DAP_COMPONENTS usb_device cmsis_dap debug_engine swd target jtag)
+set(DAP_COMPONENTS usb_device cmsis_dap wifi_dap debug_engine swd target jtag)
 
 foreach(comp ${DAP_COMPONENTS})
     idf_component_get_property(lib ${comp} COMPONENT_LIB)
