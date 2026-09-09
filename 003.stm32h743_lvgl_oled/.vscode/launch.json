@@ -10,8 +10,7 @@
       "executable": "${workspaceFolder}/build/lvgl_oled.elf",
       "configFiles": [
         "${workspaceFolder}/openocd.cfg"
-      ],
-      "openocdPath": "openocd",
+      ], 
       "gdbPath": "arm-none-eabi-gdb",
       "device": "STM32H743ZI",
       "interface": "swd",
@@ -30,7 +29,6 @@
       "configFiles": [
         "${workspaceFolder}/openocd.cfg"
       ],
-      "openocdPath": "openocd",
       "gdbPath": "arm-none-eabi-gdb",
       "device": "STM32H743ZI",
       "interface": "swd",
