@@ -49,7 +49,17 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id,
         memcpy(msg.data, buffer, msg.len);
         ESP_LOGV(TAG, "HID OUT cmd=0x%02X len=%u", buffer[0], (unsigned)msg.len);
         if (s_rx_queue) {
-            xQueueSend(s_rx_queue, &msg, 0);
+            /* NEVER drop DAP commands silently: OpenOCD pipelines many HID OUT
+             * reports (JTAG/SWD flash download bursts). A dropped command means
+             * the host waits for a response that never comes -> timeout + retry
+             * = multi-second stalls. Queue is deep enough to absorb a full
+             * OpenOCD command batch; if it ever overflows, complain loudly. */
+            if (xQueueSend(s_rx_queue, &msg, 0) != pdTRUE) {
+                static uint32_t s_dropped;
+                s_dropped++;
+                ESP_LOGE(TAG, "rx queue FULL, DAP cmd 0x%02X DROPPED (total %u)",
+                         buffer[0], (unsigned)s_dropped);
+            }
         }
     }
 }
@@ -149,7 +159,7 @@ esp_err_t usb_device_init(void)
         return err;
     }
 
-    s_rx_queue = xQueueCreate(4, sizeof(usb_dap_msg_t));
+    s_rx_queue = xQueueCreate(32, sizeof(usb_dap_msg_t));
     s_tx_done = xSemaphoreCreateBinary();
     if (s_rx_queue == NULL || s_tx_done == NULL) {
         return ESP_ERR_NO_MEM;
