@@ -993,7 +993,7 @@ static uint32_t dap_process_command(const uint8_t *request, uint8_t *response)
         uint8_t info_type = request[1];
         num = dap_info(info_type, response + 2);
         response[1] = (uint8_t)num;
-        ESP_LOGI(TAG, "DAP_Info id=%u len=%u", info_type, (unsigned)num);
+        ESP_LOGD(TAG, "DAP_Info id=%u len=%u", info_type, (unsigned)num);
         return (2u << 16) + 2u + num;
     }
 
@@ -1115,7 +1115,7 @@ uint32_t cmsis_dap_execute(const uint8_t *request, uint32_t request_len,
         return 1;
     }
 
-    ESP_LOGI(TAG, ">> req cmd=0x%02X len=%u", request[0], (unsigned)request_len);
+    ESP_LOGV(TAG, ">> req cmd=0x%02X len=%u", request[0], (unsigned)request_len);
 
     if (request[0] == ID_DAP_QueueCommands || request[0] == ID_DAP_ExecuteCommands) {
         uint8_t *resp = response;
@@ -1180,7 +1180,13 @@ esp_err_t cmsis_dap_init(QueueHandle_t rx_queue)
     if (rx_queue == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (xTaskCreate(dap_task, "dap_task", 6144, rx_queue, 9, NULL) != pdTRUE) {
+    /* Run the DAP request loop on core 1. WiFi (CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0)
+     * lives on core 0, so pinning here keeps the bit-bang timing free of WiFi
+     * RX/TX interrupts and the lwIP stack - the single biggest source of clock
+     * jitter at high SWD/JTAG speeds. Priority 20 sits above the USB task (10)
+     * but below the WiFi core tasks (~23), so WiFi keepalive is never starved. */
+    if (xTaskCreatePinnedToCore(dap_task, "dap_task", 6144, rx_queue,
+                                20, NULL, 1) != pdTRUE) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

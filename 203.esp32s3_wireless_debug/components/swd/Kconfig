@@ -28,7 +28,8 @@ config DEBUG_SWD_DEFAULT_CLOCK_HZ
 
 config DEBUG_SWD_MAX_CLOCK_HZ
     int "Maximum SWD clock (Hz)"
-    default 4000000
+    default 8000000
+    range 100000 20000000
     help
         Soft cap applied by DAP_SWJ_Clock. Bit-banged SWD on ESP32-S3 has
         been verified up to this frequency; raise only after testing.

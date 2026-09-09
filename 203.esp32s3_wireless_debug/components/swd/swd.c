@@ -145,6 +145,14 @@ esp_err_t swd_init(void)
     gpio_config(&rst_conf);
 #endif
 
+    /* Drive strength to maximum (GPIO_DRIVE_CAP_3) for clean, fast edges at
+     * the higher SWD clock rates (flying-wire + 240 MHz CPU). */
+    gpio_set_drive_capability(SWCLK_GPIO, GPIO_DRIVE_CAP_3);
+    gpio_set_drive_capability(SWDIO_GPIO, GPIO_DRIVE_CAP_3);
+#if NRESET_GPIO >= 0
+    gpio_set_drive_capability(NRESET_GPIO, GPIO_DRIVE_CAP_3);
+#endif
+
     swd_set_clock(CONFIG_DEBUG_SWD_DEFAULT_CLOCK_HZ);
     swd_set_idle();
     return ESP_OK;
@@ -221,7 +229,7 @@ esp_err_t swd_swj_sequence(uint32_t count_bits, const uint8_t *data)
     return ESP_OK;
 }
 
-void swd_sequence_out(uint32_t nbits, const uint8_t *data)
+void IRAM_ATTR swd_sequence_out(uint32_t nbits, const uint8_t *data)
 {
     uint32_t val;
     uint32_t k;
@@ -234,7 +242,7 @@ void swd_sequence_out(uint32_t nbits, const uint8_t *data)
     }
 }
 
-void swd_sequence_in(uint32_t nbits, uint8_t *data)
+void IRAM_ATTR swd_sequence_in(uint32_t nbits, uint8_t *data)
 {
     uint32_t bit, val, k;
     while (nbits) {
@@ -254,7 +262,7 @@ void swd_swdio_output(bool enable)
     pin_output_en(SWDIO_GPIO, enable);
 }
 
-esp_err_t swd_line_reset(void)
+esp_err_t IRAM_ATTR swd_line_reset(void)
 {
     pin_output_en(SWDIO_GPIO, true);
     pin_high(SWDIO_GPIO);
@@ -290,7 +298,13 @@ esp_err_t swd_swd_to_jtag(void)
 /* ------------------------------------------------------------------ */
 /* Core transfer (mirrors ARM SW_DP.c SWD_Transfer)                    */
 /* ------------------------------------------------------------------ */
-uint8_t swd_transfer(uint8_t request, uint32_t *data)
+/* IRAM: this is the hottest path in the whole firmware. Running it from
+ * flash would incur cache-miss stalls on every GPIO toggle, making the SWD
+ * clock jittery and forcing the host (OpenOCD/Keil) to throttle to ~200kHz.
+ * Keeping it in IRAM (CPU-internal, no wait states) lets the clock scale to
+ * MHz with stable edges. The pin_* helpers are static inline and are pulled
+ * into IRAM automatically with this function. */
+uint8_t IRAM_ATTR swd_transfer(uint8_t request, uint32_t *data)
 {
     uint32_t ack, bit, val, parity;
     uint32_t n;

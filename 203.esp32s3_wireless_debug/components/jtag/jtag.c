@@ -214,12 +214,22 @@ esp_err_t jtag_init(void)
     gpio_config(&trst_conf);
 #endif
 
+    /* Drive strength to maximum (GPIO_DRIVE_CAP_3) for clean, fast edges at
+     * the higher JTAG/SWD clock rates (flying-wire + 240 MHz CPU). */
+    gpio_set_drive_capability(TCK_GPIO, GPIO_DRIVE_CAP_3);
+    gpio_set_drive_capability(TMS_GPIO, GPIO_DRIVE_CAP_3);
+    gpio_set_drive_capability(TDI_GPIO, GPIO_DRIVE_CAP_3);
+    gpio_set_drive_capability(TDO_GPIO, GPIO_DRIVE_CAP_3);
+#if NTRST_GPIO >= 0
+    gpio_set_drive_capability(NTRST_GPIO, GPIO_DRIVE_CAP_3);
+#endif
+
     jtag_set_clock(CONFIG_DEBUG_JTAG_DEFAULT_CLOCK_HZ);
     jtag_set_idle();
     return ESP_OK;
 }
 
-void jtag_set_idle(void)
+void IRAM_ATTR jtag_set_idle(void)
 {
     JTAG_TCK_LOW();          /* idle TCK low */
     PIN_TMS_SET();           /* idle TMS high */
@@ -295,7 +305,7 @@ uint8_t jtag_get_count(void)
 /* ------------------------------------------------------------------ */
 /* JTAG reset (Test-Logic-Reset)                                       */
 /* ------------------------------------------------------------------ */
-esp_err_t jtag_line_reset(void)
+esp_err_t IRAM_ATTR jtag_line_reset(void)
 {
     /* TMS high for >=5 TCK cycles drives the TAP through Test-Logic-Reset
      * and leaves it in Run-Test/Idle. */
@@ -314,7 +324,7 @@ esp_err_t jtag_line_reset(void)
 /* ------------------------------------------------------------------ */
 
 /* Generate JTAG Sequence */
-void jtag_sequence(uint32_t info, const uint8_t *tdi, uint8_t *tdo)
+void IRAM_ATTR jtag_sequence(uint32_t info, const uint8_t *tdi, uint8_t *tdo)
 {
     uint32_t i_val, o_val, bit, n, k;
 
@@ -357,7 +367,7 @@ void jtag_sequence(uint32_t info, const uint8_t *tdi, uint8_t *tdo)
  * Bit order: LSB-first (`ir >>= 1`), as the ARM JTAG-DP captures it.
  * Chain order: [ir_before bypass][selected IR][ir_after bypass]; bits shifted
  * first travel deepest, so index 0 (nearest TDO) has ir_before == 0. */
-void jtag_ir(uint32_t ir)
+void IRAM_ATTR jtag_ir(uint32_t ir)
 {
     uint32_t n;
 
@@ -398,7 +408,7 @@ void jtag_ir(uint32_t ir)
 
 /* JTAG Transfer I/O. request: A[3:2] RnW APnDP (same DAP_TRANSFER encoding).
  * returns ACK[2:0] (DAP_TRANSFER_OK/WAIT/FAULT/...). */
-uint8_t jtag_transfer(uint32_t request, uint32_t *data)
+uint8_t IRAM_ATTR jtag_transfer(uint32_t request, uint32_t *data)
 {
     uint32_t ack;
     uint32_t bit = 0U;
@@ -492,7 +502,7 @@ exit:
 }
 
 /* JTAG Read IDCODE register of the selected TAP */
-uint32_t jtag_read_idcode(void)
+uint32_t IRAM_ATTR jtag_read_idcode(void)
 {
     uint32_t val = 0;
     uint32_t bit;
@@ -525,7 +535,7 @@ uint32_t jtag_read_idcode(void)
 /* JTAG Write ABORT register. NOTE: the caller must have selected the dedicated
  * JTAG_IR_ABORT (0x08) instruction first - the ARM JTAG-DP has a separate ABORT
  * scan chain, it is NOT written through DPACC. Verbatim port of the reference. */
-void jtag_write_abort(uint32_t data)
+void IRAM_ATTR jtag_write_abort(uint32_t data)
 {
     uint32_t n;
 
