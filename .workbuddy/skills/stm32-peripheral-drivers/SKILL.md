@@ -1,6 +1,6 @@
 ---
 name: stm32-peripheral-drivers
-description: STM32 外设驱动速查表与实测踩坑：STM32H743 / STM32F429 引脚映射、OV5640(DCMI) 多缓冲采集、ST7789(SPI6) OLED 显示、SD 卡 FatFs + GBK 中文点阵字库、QSPI(W25Q64) Flash、USB OTG_FS 的 VDD33USB 供电坑、LAN8720A(RMII) 网络、I2C 总线锁死恢复。适用于"查 STM32 引脚""移植摄像头/OLED/SD 卡驱动""GBK 字库渲染""USB 设备枚举不上""I2C 死锁"。触发词：STM32H7 引脚、STM32F4 引脚、OV5640、DCMI、ST7789、SPI6、FatFs 字库、GBK 字库、QSPI、W25Q64、VDD33USB、USB 枚举不上、LAN8720、RMII、I2C 锁死、PCF8574、SDRAM、FMC、OV5640 DCMI 基地址 0x48020000、F429 LCD 8080 NT35510 扫描方向交换、GT911 触摸中断风暴、SDIO 4字节对齐、TJpgDec swap 涂抹、MPU9250 磁力计可选、EXFAT 字库挂载、emWin STemWin、USB Host TinyUSB、exFAT U盘、PRINT_LOG 日志开关、GT911 中断风暴三层防护。
+description: STM32 外设驱动速查表与实测踩坑：STM32H743 / STM32F429 引脚映射、OV5640(DCMI) 多缓冲采集、ST7789(SPI6) OLED 显示、SD 卡 FatFs + GBK 中文点阵字库、QSPI(W25Q64) Flash、USB OTG_FS 的 VDD33USB 供电坑、LAN8720A(RMII) 网络、I2C 总线锁死恢复、emWin(STemWin) GUI 栈、USB Host + exFAT U 盘、USART1 非阻塞日志输出（环形缓冲 + TXE 中断）。适用于"查 STM32 引脚""移植摄像头/OLED/SD 卡驱动""GBK 字库渲染""USB 设备枚举不上""I2C 死锁""emWin 移植""exFAT 挂载""printf 阻塞改非阻塞"。触发词：STM32H7 引脚、STM32F4 引脚、OV5640、DCMI、ST7789、SPI6、FatFs 字库、GBK 字库、QSPI、W25Q64、VDD33USB、USB 枚举不上、LAN8720、RMII、I2C 锁死、PCF8574、SDRAM、FMC、H7 DCMI 基地址 0x48020000、F429 LCD 8080 NT35510、GT911 触摸中断风暴、SDIO 4字节对齐、TJpgDec swap、MPU9250、EXFAT 字库挂载、emWin STemWin、USB Host TinyUSB、exFAT U盘、USART 日志、非阻塞日志、PRINT_LOG、环形缓冲、TXE 中断。
 agent_created: true
 ---
 
@@ -262,3 +262,63 @@ STemWin（Segger emWin 的 ST 版）是 LVGL 之外的另一套 GUI 方案，在
 - **exFAT 真实性**：`f_mkfs(FM_EXFAT, ...)` + 解析原始卷，验证 VBR 引导签名、簇堆 128KB 对齐、
   分配单元 128KB（见 `102/verify_exfat/harness.c`，PC 端 gcc 编译，`12 passed`）。
 - **GT911/GT9147 触摸中断风暴**：见 §8.5.1（ISR 内屏蔽 line + 任务侧重新武装 + 速率看门狗）。
+
+## 十二、USART1 非阻塞日志输出（环形缓冲 + TXE 中断）
+
+裸 `printf` → `HAL_UART_Transmit` 会**阻塞调用线程直到整行发完**，在高速/中断密集场景拖累实时性。
+落地范本：`003.stm32h743_lvgl_oled/Bsp/bsp_log.{c,h}`（H743 裸机，可原样复制到其他 STM32 工程），
+把 `printf` 系统性替换为 `PRINT_LOG`，**输出内容与原来逐字节一致**（不自动加前缀），调用方永不阻塞。
+
+> 本节是**速查摘要**。日志系统的完整规范（三层架构、CMake 开关、裸机 TX 中断环形缓冲、
+> 串口不可用时的 SWD 取证、移植步骤与回归清单）见独立 skill **`stm32-logging-print-log`**
+> ——两者冲突时以该 skill 为准。
+
+- **中断源选 TXE，不要选 TC**：`TXE` = 发送数据寄存器空（可写下一字节），是逐字节 drain 环形缓冲的
+  正确中断源；`TC` = 整帧移出、线路空闲，只在 RS485 方向切换等"线路空闲"场景用。
+- **数据流**：`PRINT_LOG → vsnprintf` 进栈缓冲（`LOG_BUF_SIZE` 一般 192~256B，超长截断）→
+  `uart_write()` 拷进环形缓冲 → ISR 逐字节写 TDR。
+- **临界区**：`uart_write()` 先在**关闭 `UART_IT_TXE`** 的临界区内改 `w/r/n` 索引，改完再开中断，
+  使 ISR 与写者不可能同时竞争索引。裸机单线程已足够；**RTOS 下需再包一层 `taskENTER_CRITICAL()`**
+  防两个任务重入 `uart_write()`。
+- **首字节触发 + 自动停机**：仅当发送空闲（`uart_tx_active==0`）时由 `uart_write()` 写 TDR 触发首字节；
+  ISR 发现缓冲耗尽立即 `__HAL_UART_DISABLE_IT(TXE)` 并清 active，做到"有数据才走中断"。
+- **ISR 内禁止调 `PRINT_LOG`**（内部可能取互斥量），中断上下文一律直接 `uart_write()`。
+- **编译期开关**：`PRINT_LOG_ENABLE=0` 时宏展开为 `((void)0)`、函数体早返回，零 FLASH/零 UART 流量；
+  可用 SWD 读 TX 环形缓冲写指针验证"关日志 = 串口零字节"（见 `stm32-verification-acceptance` 4.3）。
+
+## 十三、UART 物理层与桥接踩坑（CDC↔UART 透明桥，012 实战）
+
+做一个 **USB CDC ↔ UART 透明转发桥**（无任何 in-band 配置通道）时，串口侧最容易出的三个问题，
+全部来自"物理层/寄存器语义"而非逻辑设计。
+
+### 13.1 环形缓冲满/空二义性 → 必须"故意少用一个字节"
+`head == tail` 既表示空也表示满。若 `rb_free()` 用 `cap - used` 计算，会把「满」误判为「空」，
+生产者覆盖未消费数据——实测首轮压测丢字节达 3.6e10。
+**可用容量必须是 `cap - 1`**（保留 1 字节不用），这是环形缓冲的标准约定，实现前务必确认。
+
+### 13.2 7 数据位 + 校验时，校验位会污染数据字节
+STM32 的字长是**含校验位**的总长：7 数据位 + 校验 = **8 位字长**（`M=00`），
+此时 RDR 的 **bit7 就是校验位**，DMA 按字节搬运会把它一起读进来。
+- 修法：按数据位算掩码 `rx_data_mask = (1 << data_bits) - 1`，在排空时对已消费的 DMA 缓冲**就地掩蔽**
+  （8 数据位时掩码为 `0xFF`，可跳过，不影响主路径性能）。
+- 现象特征：**7N1 通过，但 7E1 / 7O1 全部失败**；而 8E1 / 8O1 不受影响（它们是 9 位字长，
+  校验位落在 bit8，超出字节范围）。
+- 另注意：7 数据位模式无法承载任意二进制（每字节 MSB 在线路上不存在），只能用 7 位安全 ASCII 验证。
+
+### 13.3 RTS/CTS 流控：引脚模式必须与 `HwFlowCtl` 成对，否则悬空
+- **`RTS` 若配成 `GPIO_MODE_AF_PP` 而 `HwFlowCtl=UART_HWCONTROL_NONE`，USART 并不驱动它**，
+  且复用模式下 `HAL_GPIO_WritePin`（写 BSRR）对该引脚无效 → 引脚高阻悬空。
+  典型症状：对端 CTS 被悬空的 RTS 牵连读成"未就绪"，而软件状态变量却显示已断言，**一帧都不通**。
+- 推荐配置：**RTS 用 `GPIO_MODE_OUTPUT_PP` 由软件按接收环余量驱动**（硬件 RTS 只跟踪 1 字节 RDR 标志，
+  对 KB 级 ring 毫无意义）；**CTS 用 `GPIO_MODE_AF_PP` + PULLDOWN** —— PULLDOWN 让"对端不驱动 CTS（悬空）"
+  读作**就绪**，TX 永不被门控，对端主动拉高才暂停 TX，这才是标准透明行为。
+- 流控宜做成**连接门控**（USB 端口打开时使能 CTSE + 软件驱动 RTS），断开自动还原 115200/8N1/无校验。
+
+### 13.4 Windows `usbser.sys` 不转发 RTS（只转发 DTR）
+实测 `EscapeCommFunction(CLRRTS/SETRTS)` **不会**触发 `tud_cdc_line_state_cb`，而 `CLRDTR/SETDTR` 会。
+⇒ "由主机 RTS 切换流控开关"在 Windows 上位机**不可行**；因此流控必须**固件自管理**。
+（属主机驱动限制，非固件缺陷；Linux/macOS 行为不同。）
+
+### 13.5 D-Cache 与 DMA（若不用 MPU）
+桥接类 DMA 缓冲在 D-Cache 开启时务必处理一致性：要么按 `soc-cache-mpu` 配置 MPU 区域，
+要么在 DMA 读写前后做 Cache clean/invalidate；**不要既开 Cache 又什么都不做**。

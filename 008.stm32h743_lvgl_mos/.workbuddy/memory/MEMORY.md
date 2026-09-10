@@ -9,10 +9,11 @@ STM32H743ZIT6 + LVGL v8 菜单框架 + 纯 C NES 模拟器。**无实体按键**
 - 内存：DTCM(128K)+RAM_D2(288K)=运行时 `bsp/sram_pool.c` 边界标记分配器（每块开销 16B）；NES 开页分配 ~82KB 机器态(DTCM)+≤286KB ROM(D2)，退出归还供相机复用。RAM_D3 64K non-cacheable=USB DMA。MPU Region0/1 write-back，DCache 开。空闲基线 DTCM 131024 / D2 294864。
 - `status` 命令报 sram 空闲/cache 状态；上位机 `tools/NesPadTool`。
 
-## UI 配色体系（2026-09-10 深色表盘风）
-- 全工程取色唯一源：`app/app_page.h` COL_* 宏。深色底 0x07070B + 白字 + iOS 彩色点缀（ACCENT/SEL 0x0A84FF、VALUE 0x30D158、ERR 0xFF453A）。
+## UI 配色与字体体系（2026-09-10 深色表盘风）
+- 全工程取色唯一源：`app/app_page.h` COL_* 宏。深色底 0x07070B + 白字 + iOS 彩色点缀（ACCENT/SEL 0x0A84FF、VALUE 0x30D158、ERR 0xFF453A）；灰阶=淡蓝灰 LABEL 0xA8B4C6 / DIM 0x7E8BA0。
 - 主菜单每应用彩色圆片：`app_menu.c` 的 `s_chip[]`（注册序 clock橙/camera青/txt蓝/image紫/nes红/keytest黄/sysinfo绿/about粉）；选中=白环+光晕+白标题。
 - 图标位图=彩底白图形：`tools/recolor_menu_icons.py` 原地换色 `app/menu_icons.c`（墨量反相算法保抗锯齿；CRLF/行宽逐字节保留——`read_text()` 会吞 CRLF，须 `open(newline="")`）。
+- 字体：UI 全部用 `app/ui_font.c` 的 ui_font_12/16/24/32=Montserrat（编入 Flash）+ `fallback=&lv_font_gbk_xx`（SD 卡字库）——英文/数字/符号 Montserrat、汉字自动回落；**唯一例外 TXT 正文用纯 `lv_font_gbk_16`**（`TXT_BODY_FONT`）。艺术字进一步定制改 lv_conf.h 启用的 Montserrat 字号即可。
 
 ## 已修复缺陷（一句话档，详见每日日志）
 1. USB 缓存一致性死机(08-12)：`.usb_ram`→RAM_D3 non-cacheable + `CFG_TUD_MEM_DCACHE_ENABLE=1`。

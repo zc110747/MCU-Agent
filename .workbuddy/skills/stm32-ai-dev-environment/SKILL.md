@@ -114,6 +114,23 @@ taskkill /F /PID <pid>
 - 在 `.bat` 里把 `pause` 改成 `exit /b %ERR%`，把阻塞 `pause` 去掉，便于 PowerShell/CI 拿到真实错误码（阻塞 `pause` 在 PowerShell 下会卡死或返回 255）。
 - 想在 PowerShell 看真实输出，用 `python -m west build ... 2>&1 | Tee-Object -Variable out` 后查 `BUILD_EXIT`。
 
+### 4.9 编辑 Windows .bat 后必须保持 CRLF + 纯 ASCII（Agent 高频翻车）
+Edit/Write 工具常把 `.bat` 重写成 **LF（Unix）行尾 + 中文（UTF-8）**，而 cmd.exe 解析 .bat **必须 CRLF**：
+- 纯 LF 时 cmd 无法正确断行，把整文件按空格/换行碎片化成命令执行 → 报一串
+  `'-click' 不是内部或外部命令` / `'ject' ...` / `'rrorlevel' ...`（token 碎片），`%%T` 退化成 `%T`。
+- 注释里混中文（UTF-8 字节）在中文 Windows GBK 控制台同样干扰解析（本项目 .bat 一律全英文）。
+- 修复：`tr -d '\r' | awk '{ printf "%s\r\n", $0 }'` 转回 CRLF；删除所有非 ASCII。
+- 改完必须复查：`tr -cd '\r' < x.bat | wc -c`（应等于行数）+ `grep -P '[^\x00-\x7F]' x.bat`（应为空）。
+- 相关：`.bat` 六大坑（含 PowerShell 工具吞子进程输出的正确诊断姿势）见 `soc-debug-verification`。
+
+### 4.10 Agent 沙箱创建的 build/ 目录 ACL 异常 → 用户侧重跑报 ninja 权限错
+Agent 在沙箱/提权模式下创建的 `build/` `build-rel/`，其文件 ACL 可能只授予沙箱令牌写权限；
+用户态 cmd/cmake 重跑时 cmake Generate 阶段报：
+`ninja: error: failed recompaction: Permission denied` → `CMake Generate step failed.`
+（文件看似 `rw-r--r--`、owner 正确、无 ReadOnly 属性、无残留进程，但就是写不进 `.ninja_log`）。
+修复：**删除 build/、build-rel/ 让用户侧脚本重新生成**（构建产物可再生，删除安全）；
+`.bat` 的 stale-cache 检测只认工具链字符串、不会清这类目录，需人工 `rm -rf build build-rel` 兜底。
+
 ## 五、编译期零警告约束
 
 本项目强约束 **Debug / Release 双构零警告**：

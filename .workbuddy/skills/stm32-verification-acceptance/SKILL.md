@@ -1,6 +1,6 @@
 ---
 name: stm32-verification-acceptance
-description: STM32 嵌入式项目的端到端验收方法论：Debug/Release 双构零警告、OpenOCD 烧录、串口/网络真机验证、Python/C# verify 脚本 pass/fail 计数模式、增量交付清单。适用于"验收 STM32 固件""写嵌入式自测脚本""定义项目验收标准""真机烧录后如何确认功能正常""整理交付清单"。触发词：验收流程、零警告构建、OpenOCD 烧录验证、串口自测、verify 脚本、pass/fail 计数、交付清单、真机验证、嵌入式测试、snmp_verify、serial_test、openocd 烧录必须用 elf 非 bin、mdw 4字节对齐读取、没报错不等于有数据、COM code-31、LIBUSB_ERROR_ACCESS、PRINT_LOG 全局日志开关、SWD 验证日志开关行为。
+description: STM32 嵌入式项目的端到端验收方法论：Debug/Release 双构零警告、OpenOCD 烧录、串口/网络真机验证、Python/C# verify 脚本 pass/fail 计数模式、增量交付清单。适用于"验收 STM32 固件""写嵌入式自测脚本""定义项目验收标准""真机烧录后如何确认功能正常""整理交付清单""串口抓取失败/拒绝访问""LVGL 首帧卡顿定位"。触发词：验收流程、零警告构建、OpenOCD 烧录验证、串口自测、verify 脚本、pass/fail 计数、交付清单、真机验证、嵌入式测试、snmp_verify、serial_test、openocd 烧录必须用 elf 非 bin、mdw 4字节对齐读取、没报错不等于有数据、COM code-31、LIBUSB_ERROR_ACCESS、PRINT_LOG 全局日志开关、SWD 验证日志开关行为、串口拒绝访问、ST-Link VCP 重试、COM 端口占用、gdb 计数直读、LVGL 首帧性能测量、离屏预热、脚本榫化回归。
 agent_created: true
 ---
 
@@ -252,9 +252,76 @@ s = serial.Serial('<COM端口>', 115200, timeout=0.3)   # H7: ST-Link VCP
 - **COM 口 `code-31 / PermissionError(13)`**：CH340 等会周期性进入「设备未发挥作用」状态，需重新插拔 USB
   才能恢复；串口挂掉时可用 SWD 读内存取证（见 3.2）代替串口抓日志。
 
+### 8.6.1 ST-Link 虚拟串口「拒绝访问」重试坑（真机教训，高概率）
+当用 OpenOCD 经 libusb 触碰过 ST-Link 后，**首次打开其 VCP（COMx，即 USART1 PA9/PA10）常报
+「拒绝访问 / PermissionError」**——即使 `tasklist` 查无占用者、没有残留 python/捕获进程（与上面
+"端口被残留进程占用"是**两种不同根因**）。根因是 ST-Link 的 VCP 在 OpenOCD 释放后仍被 Windows 短暂持锁。
+**解法**：串口捕获脚本对 `serial.Serial(...)` 做 **5~7 次重试（指数退避 0.2~1.5s）**，重试几次后必然成功；
+若仍失败，重插 ST-Link 或重启 OpenOCD 后再重试即可。切勿误判为"端口被占用去 kill 进程"——那种做法无效。
+- 端口号依本机分配（H7 多为 COM19 之类）；Git Bash 下近似 `/dev/ttyS<N-1>`，原生 python 用 `COM<N>`。
+- 抓日志要在 `reset run` **之后**开始，否则错过启动 banner（见 8.6 顺序铁律）。
+
+### 8.6.2 ⚠️ 主机侧读数方式会造成"固件很慢"的假象（30 ms 假延迟）
+压测/延迟脚本里最常见的写法藏着一个数量级陷阱：
+```python
+data = ser.read(self.ser.in_waiting or 4096)   # ❌ 错
+```
+`in_waiting == 0` 时此处会**请求 4096 字节**；pySerial/Windows 的读语义是
+「尽量凑满所请求字节数，凑不满就等到读超时」，于是**每次无数据时都要空等整整一个 timeout**，
+把本该 0.2 ms 返回的字节拖到 ~30 ms 才交出来。
+
+实测对照（`012.stm32h743_usb_serial` 1 字节小包延迟）：
+
+| 路径 | 错误读数 | 修正后 |
+|---|---|---|
+| 软件回环 `AT+LOOP=1`（**完全绕过 UART**） | 31.91 ms | 0.22–0.24 ms |
+| 经 UART4 真实回环（PA0↔PA1） | 34.24 ms | **1.43 ms** |
+
+关键点：**软件回环根本不碰 UART/DMA，却同样有 31.91 ms** → 这 30 ms 与固件无关。
+
+**正确写法**：`data = ser.read(self.ser.in_waiting or 1)`（有读多少，无则最多等 1 字节）。
+- 方法论：任何"固件延迟异常"先做**双路径对照**（绕过外设 vs 经过外设），
+  两者差异才是外设真实开销；两者共同的开销一定在主机侧（与 §10 LVGL 首帧"先排除伪性能"同理）。
+- 吞吐压测的 `平均延迟` 还受**在途窗口**（默认 2048 B）与波特率主导，不代表固件固有延迟：
+  真实往返延迟要看 pacing 模式（无在途窗口）。
+
 ### 8.7 沙箱 / 环境局限（验收设计必知）
 - **QSPI 直写不可行**：openocd `stmqspi` 在本类环境常拉不起 H743 QSPI（probe 后 timeout / No QSPI）。升级包改走**设计的 U 盘路径**（QSPI FatFs + TinyUSB MSC，用户机器拷包）。
 - **COM 映射**：Windows 下串口号近似 `/dev/ttyS<N-1>`（Git Bash）；原生 python 用 `COM<N>`，端口号依本机分配。
+
+### 8.8 运行时计数直读（验证缓存命中率 / 算法行为，无需串口命令接口）
+当固件没有 UART 命令接口、却要确认某个模块（如 Glyph Cache）的 hit/miss/evict 计数是否真实生效时，
+**烧录 Debug 构建 + gdb 直读静态变量** 是最硬的证据。比串口打印更准（不受日志时序/缓冲干扰）。
+
+```bash
+# 1) 烧录 Debug 构建（带 -g 符号），让目标跑起来
+openocd -f openocd.cfg -c "program build-debug/xxx.elf verify reset exit"
+# 2) 起常驻 openocd 服务器（见 8.1）
+openocd -f openocd.cfg > ocd.log 2>&1 &
+# 3) gdb 脚本（或 -x）：reset 让目标跑 N 秒触发业务，再 halt 直读
+cat > read_counters.gdb <<'EOF'
+set pagination off
+target remote :3333
+monitor reset run          # 重新启动，跑自动业务（如页面切换 demo）
+shell sleep 20             # 让缓存/算法充分运行
+monitor halt               # 冻结
+x/1uw &'glyph_cache.c'::s_hits      # 直读真实内存地址
+x/1uw &'glyph_cache.c'::s_misses
+x/1uw &'glyph_cache.c'::s_evicts
+x/1uw &'glyph_cache.c'::s_free_bytes
+detach
+quit
+EOF
+arm-none-eabi-gdb -batch -x read_counters.gdb build-debug/xxx.elf
+```
+- 读数即权威：`s_hits=1319 / s_misses=210 → 命中率 86%` 这类数字直接证明缓存生效；
+  `s_evicts=0` 若符合预期（缓存未填满）也一并坐实。
+- **必须用 `x/1uw &'file.c'::symbol` 直读符号真实地址**，不要 `call func(&$h)`：
+  gdb 便利变量 `$h` 不能取地址，会报 `Attempt to take address of value not located in memory`；
+  `x/1uw` 直接剥符号地址读内存，100% 可靠。
+- gdb 偶发 `This normally should not happen, please file a bug report` 多为 `printf` 路径噪声，
+  不影响 `x/1uw` 结果，可忽略。
+- 验证完把板子刷回 Release 构建（生产态），并删掉临时 `.gdb` 脚本。
 
 ## 九、双固件 Bootloader 端到端验证
 
@@ -267,3 +334,5 @@ Bootloader + App 是**两套独立构建、固定地址共存**，验收分三�
 - 任何校验失败都**在擦写前 abort**，已运行 App 不会被破坏（防砖设计，验收时重点确认"坏包不破坏"）。
 - 黄金外部参考样本：`7.stm32h7_iap`（同芯片已验证的 `drv_flash.c` / `upload_frame.c`，可作为外部参考，非本仓 skill）。
 - 防砖设计与坏包验证见 `stm32-project-scaffold` 第八节。
+
+## 十、LVGL 首帧/首绘性能测量与预热回归（STM32 + LVGL）

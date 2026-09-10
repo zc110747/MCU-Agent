@@ -24,7 +24,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 ⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝到内存卡内访问**
 
-⚠️注意：**项目.workbuddy/skills整理提炼了开发这些项目过程中的技能，是本项目最重要的成果，可以直接使用workbuddy安装**
+⚠️注意：**项目 `.workbuddy/skills/` 整理提炼了开发这些项目过程中的技能，是本项目最重要的成果，现已沉淀 18 个 skill（含能力表索引）。覆盖 STM32 / ESP32 / Zephyr 三域：总方法论、环境工具链、工程结构与内存架构、外设驱动与显示、调试取证与验收、ESP32 平台。可直接同步到 `~/.workbuddy/skills/` 全局复用：索引见 [STM32_skills_能力表.md](./.workbuddy/skills/STM32_skills_能力表.md)**
 
 ## 项目说明
 
@@ -53,6 +53,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 ✅ 009.基于zephyr系统实现lvgl显示功能  
 ✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader
 ✅ 011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)  
+✅ 012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)  
 
 🚀 **STM32F429IGT6项目**
 
@@ -63,6 +64,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 ✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)  
 ✅ 202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享  
+✅ 203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)  
 
 具体项目效果和提示词说明如下。
 
@@ -274,6 +276,22 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 2. 解决 STemWin 预编译库与 binutils 2.44 不兼容（锁定 GNU Arm Embedded 14.2.rel1 工具链）
 3. 修复 GUI_Init 死循环（CRC 时钟未使能）、ARGB 色序差异、LCD_* 符号冲突
 
+#### 基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)
+
+🚀 [012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)](./012.stm32h743_usb_serial/README.md)
+
+**AI开发**：桥接架构、环形缓冲、USB CDC 描述符与调度、流控自管理、PC 侧压测/延迟工具
+**个人参与**: 仿真环境、提示词、真机压测验收
+
+工作量：
+
+1. 无 RTOS 下实现 USB CDC ACM ↔ UART4 双方向透明转发（D-Cache 开启、不使用 MPU 划区）
+2. 修复环形缓冲满/空二义性导致的数据覆盖（保留 1 字节不用）
+3. 修复 7 数据位+校验时校验位污染数据字节（按数据位掩码就地掩蔽）
+4. 修复 RTS 配成复用模式却未启用 HwFlowCtl 导致的引脚悬空、流控失效
+5. 定位并排除主机侧读数方式造成的 34 ms "假延迟"（`read(in_waiting or 4096)`）
+6. PA0/PA1 短接自回环 + Python 一键自动化压测/延迟/流控/7bit 校验回归
+
 ### STM32F429IGT6项目
 
 #### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
@@ -335,7 +353,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 #### ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享
 
-🚀 [202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享](./202.esp32s3_usb_wifi/prompter.md)
+🚀 [202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享](./202.esp32s3_hw_detect/README.md)
 
 **AI开发**：ESP32-S3 自带 Wi-Fi + USB Device 实现 RNDIS 网卡（lwIP + USB RNDIS），CH343 串口下载
 **个人参与**: 仿真环境、提示词
@@ -344,6 +362,21 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 1. 参考 github 已有项目复刻 USB Wi-Fi 网络适配器
 2. ESP32-S3 STA 连 Wi-Fi，经 lwIP 桥接到 USB RNDIS，Windows 枚举为 RNDIS 网卡
+
+#### ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)
+
+🚀 [203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)](./203.esp32s3_wireless_debug/README.md)
+
+**AI开发**：CMSIS-DAP v1 命令处理、SWD/JTAG 位带引擎、调试引擎、Wi-Fi 传输层、OpenOCD 体检配置
+**个人参与**: 仿真环境、提示词、真机对接目标板验收
+
+工作量：
+
+1. TinyUSB HID 实现 CMSIS-DAP v1（HID 单通道，固化 ID/PID），支持 SWD 与 JTAG 双模
+2. 性能优化：CPU 240 MHz + 热点代码 IRAM_ATTR + GPIO 驱动强度拉满 + 热路径日志降级，时钟上限 8 MHz
+3. USB / Wi-Fi 传输仲裁（互斥），用 `tud_mounted()` 判定主机存在；无 USB 主机时启动 SoftAP 兜底
+4. 修复 JTAG `Invalid ACK (4)` FAULT（bool 形参提升导致 TDI 恒高）+ 校正 Shift-IR 末位时序
+5. PSRAM 静态保留池与 Wi-Fi 缓冲收紧，为 DAP-over-WiFi 预留内存
 
 ## 开发经验总结
 

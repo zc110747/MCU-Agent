@@ -1,6 +1,6 @@
 ---
 name: stm32-project-scaffold
-description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、开发流程文档编写、工程 README 规范、CMSIS 启动文件 GLOB_RECURSE 禁止、HAL 目录 Cube 标准命名、startup_stm32h7xx 显式列出、sys_startup 本地设备层替代 Drivers/CMSIS/Device、build_oneclick 致命坑4 cd %~dp0 尾随反斜杠、.bat 纯英文、多缓冲防撕裂结构。
+description: STM32 嵌入式工程的统一骨架与构建系统规范：app/bsp/Drivers/third_party 分层、CMake+Ninja 交叉编译、OpenOCD 烧录、链接脚本、CMakePresets、VSCode Cortex-Debug 集成、sys_startup 本地设备层（替代 Drivers/CMSIS/Device）、LVGL 多页面 UI 拆分约定，以及多工程 .vscode 批量统一（tasks.json 仅 configure/build/clean/flash、工具走 PATH 裸名、svd/cfg 放工程根）。适用于"搭建新 STM32 工程""规范化已有工程结构""配置 CMake/OpenOCD 工具链""修复链接脚本与烧录配置""批量统一多个工程的 .vscode""统一 startup 设备层""拆分 LVGL 多页面 UI"。触发词：工程结构、目录分层、CMake 交叉编译、ninja、openocd 烧录、链接脚本、CMakePresets、Cortex-Debug、.vscode 统一、tasks.json configure build clean flash、svd cfg 工程根目录、多工程批量统一、STM32 工程模板、startup 向量表、build_all 一键编译全部工程、support_all 支持包同步、README 工程说明文档、工程 README 规范、CMSIS 启动文件 GLOB_RECURSE 禁止、HAL 目录 Cube 标准命名、startup_stm32h7xx 显式列出、sys_startup 本地设备层替代 Drivers/CMSIS/Device、build_oneclick 致命坑 cd %~dp0 尾随反斜杠、.bat 纯英文 CRLF、lint_bat.py、多缓冲防撕裂结构、LVGL 多页面 UI 拆分、app/ui 每页独立。
 agent_created: true
 ---
 
@@ -15,9 +15,9 @@ agent_created: true
 <project>/
 ├── app/            应用逻辑（main.c、业务模块、FreeRTOS/LwIP 移植、shell）
 ├── bsp/            用户开发的板级驱动（bsp_uart / bsp_led / bsp_i2c / bsp_sdram ...）
-├── Drivers/        CMSIS-Core / CMSIS-Device(ST) / STM32x_HAL_Driver（ST 官方，不手改；HAL 用 Cube 标准子目录名，如 STM32H7xx_HAL_Driver）
+├── Drivers/        CMSIS-Core / CMSIS-Include / DSP / NN（ST 官方，不手改）；**禁止**放 CMSIS-Device(ST)（见第十四节）
+├── sys_startup/    本地设备层（强约束，见第十四节）：device 头文件 + system_stm32h7xx.c + startup(gcc/arm/iar) + 本工程链接脚本 *.ld
 ├── third_party/    第三方库（tinyusb / lvgl / FatFs / LwIP / FreeRTOS / mbedTLS）
-├── ldscript/       stm32xxxx_flash.ld 链接脚本
 ├── cmake/          arm-none-eabi.cmake 交叉工具链文件
 ├── openocd.cfg     OpenOCD 烧录/调试配置（stlink 本板 / cmsisdap 目标板），放工程根（与 .vscode 同级，不再用 openocd/ 子目录）
 ├── *.svd           MCU SVD 寄存器描述（如 STM32H743.svd / STM32F429.svd），放工程根，供 cortex-debug 加载
@@ -29,6 +29,7 @@ agent_created: true
 
 **铁律**：
 - HAL 驱动只放 `Drivers/`，用户驱动放 `bsp/`，第三方库放 `third_party/`（统一管理，便于复用）。
+- **设备层（startup 向量表 / `system_stm32h7xx.c` / device 头文件 / 链接脚本）一律放在工程本地 `sys_startup/`，禁止依赖 `Drivers/CMSIS/Device/ST/STM32H7xx/` 那棵庞大的官方树**（见第十四节）。
 - 调试/构建产物**一律相对路径**，不写死本机绝对路径（换机器即失效）。
 - `*.svd` / `*.cfg` 放**工程根目录**（与 `.vscode`、`CMakeLists.txt` 同级），**不再需要 `openocd/` 子目录**。
 - `third_party` 体积大，建议把可复用的 `Drivers/` / `third_party/` 打包成压缩包随工程分发，
@@ -61,6 +62,10 @@ set_target_properties(${PROJECT_NAME}.elf PROPERTIES LINK_DEPENDS ${LINKER_SCRIP
 ninja 增量不会自动重扫，否则新文件不进编译）。
 
 ### 2.1 CMSIS Device 启动文件必须显式列出（禁止 GLOB_RECURSE）
+
+> **演进提示**：本节适用于仍保留官方树 `Drivers/CMSIS/Device/ST/...` 的**存量工程**。
+> **新工程一律走第十四节 `sys_startup/` 本地设备层**（禁止依赖 `Drivers/CMSIS/Device`）。
+> 两者共同铁律一致：**startup / `system_*.c` 必须显式列出，禁止 `GLOB_RECURSE` 整树收集**。
 
 **坑（010.stm32h743_boot 真机教训）**：CMSIS-Device 树为每个 H7 型号都提供 startup 文件
 （arm/gcc/iar 三套汇编器语法 × 几十个型号），还有多个 `system_*.c` 变体。若用
@@ -303,7 +308,7 @@ OpenOCD server / 模型导出等）全部删除。
 ```bat
 set "TOOLMISS=0"
 for %%T in (cmake ninja openocd arm-none-eabi-gcc) do (
-    where %%T >nul 2>&1
+    where %%T > nul 2>nul
     if errorlevel 1 (
         echo [ERROR] Required tool not found: %%T
         set "TOOLMISS=1"
@@ -345,21 +350,28 @@ def sanitize(line):
 
 反斜杠 `\`（如 `..\support_tools\...` 路径）在 cmd 的 `echo` 中是字面量，**不受影响**，无需处理。
 
-**⚠️ 致命坑 4 —— `cd /d "%~dp0"` 尾随反斜杠 + `for` 块内 `2>&1` 触发 `此时不应有 .`**
-`%~dp0` 永远带尾随 `\`，`cd /d "D:\...\009.stm32h743_zephyr\"` 行尾 `\"` 被 cmd 当成转义引号 → 引号未闭合 →
-后续 `echo` 行被吞 → 遇路径里的 `.` 报 `此时不应有 .。`；且 `for %%T in (...) do ( where %%T >nul 2>&1 ... )`
-括号块内 `2>&1` 的 `&` 被当成命令分隔符解析报错。
-正确写法：先去尾随 `\` 再 `cd`；`2>&1` 改成 `> nul 2>nul`：
-```bat
-set "SD=%~dp0"
-if "%SD:~-1%"=="\" set "SD=%SD:~0,-1%"
-cd /d "%SD%"
-for %%T in (cmake ninja openocd arm-none-eabi-gcc) do ( where %%T > nul 2>nul )
-```
-> 该 `build_oneclick.bat` 坑已在 `009.stm32h743_zephyr` 真机复现并修复，沉淀于此避免新工程重蹈。
+**⚠️ 致命坑 4 —— `cd /d "%~dp0"` 尾随反斜杠 + `for` 块内 `2>&1` 会触发 `此时不应有 .` 解析错误**
+- `%~dp0` 永远带尾随 `\`，写成 `cd /d "%~dp0"` 会变成 `cd /d "D:\proj\"`。行尾 `\"` 被 cmd 当成**转义引号**（字面 `"`），
+  导致整行引号未闭合、后续 `echo` 行被吞进同一字符串，遇到路径里的 `.`（如 `009.stm32h743_zephyr`）直接报
+  `此时不应有 .。`，**且脚本在第一个 `echo` 之后立刻崩、没有任何后续 STEP 输出**。正确写法：先去掉尾随 `\` 再 `cd`：
+  ```bat
+  set "SD=%~dp0"
+  if "%SD:~-1%"=="\" set "SD=%SD:~0,-1%"
+  cd /d "%SD%"
+  ```
+- `for ... do ( ... )` 块内用 `2>&1`（如 `where %%T >nul 2>&1`）时，`&` 在括号块解析期被当成命令分隔符，
+  同样会报 `此时不应有 .` / `此时不应有 &。`。**一律改用 `2>nul`**：`where %%T > nul 2>nul`
+  （把 stdout、stderr 都丢弃，等价 `>nul 2>&1` 且对 cmd 解析安全）。
+- 验证：修复后双击 / PowerShell 直接 `.\build_oneclick.bat` 应正常打印 `[STEP] ...` 并走到 west/cmake 编译；
+  若仍报 `此时不应有 .`，优先排查这两处。
 
-**⚠️ 所有 `.bat` 文件必须纯英文（不含任何中文注释）**：GBK 控制台解析中文注释会乱码甚至语句截断，
-生成/手写 `.bat` 时一律用英文注释或干脆无注释。
+> **⚠️ 实测修正（2026-08-28, Win11 cmd）：致命坑 4 在本机【不触发】报错。**
+> - `001.stm32h743_tinyusb_cdc_msc/build_oneclick.bat` **保留原始 `cd /d "%~dp0"` + `for` 块内 `2>&1`**，
+>   实测仍一路跑过 `Configure → Clean → Build`，**无 `此时不应有` 报错**。
+> - 真正会崩的只有 **致命坑 3（`echo` 文本里的 `(` `)` `&` `|` `<` `>`）**；`REM`/`::` 注释行里的括号也**不会**崩。
+> - 因此：**不要再为"致命坑 4"去改 cd/2>&1**（属无谓改动，且我曾在 freertos_emwin 误改过）；
+>   若 `.bat` 报 `此时不应有 . / into。`，**第一嫌疑永远是 echo 行里的括号/& 等特殊字符**。
+> - 配套 `lint_bat.py`（同目录）可做 preflight：只把 `echo` 行特殊字符列为 ERROR，`REM`/`cd %~dp0`/`2>&1` 降为 INFO。
 
 ---
 
@@ -376,7 +388,8 @@ for %%T in (cmake ninja openocd arm-none-eabi-gcc) do ( where %%T > nul 2>nul )
 - **cmd 老坑（必看）**：
   - `for` 循环内**不能用 `goto`**（会直接中断整个循环）→ 改用 `call :build` 子例程，循环体只写 `call :build "%%P"`，所有 `goto` 放在子例程内。
   - 计数器在 `for`/`call` 内多次累加需延迟展开 → 顶部 `setlocal enabledelayedexpansion`，计数用 `!VAR!`。
-  - 子脚本 `cd /d "%~dp0"` 在 `setlocal` 作用域内，返回后不影响父脚本 CWD（父脚本用 `%~dp0` 绝对路径调用，安全）。
+  - 子脚本进入工程目录：**必须先去掉 `%~dp0` 尾随的反斜杠**再 `cd`，否则 `cd /d "路径\"` 行尾的 `\"` 会被 cmd 当成转义引号、引号未闭合、后续行被吞、遇路径里的 `.` 报 `此时不应有 .。`。正确写法：
+    `set "SD=%~dp0" & if "%SD:~-1%"=="\" set "SD=%SD:~0,-1%" & cd /d "%SD%"`。其在 `setlocal` 作用域内，返回后不影响父脚本 CWD（父脚本用 `%~dp0` 绝对路径调用，安全）。
 - **验证**：① dummy 三态（成功/失败/缺失）确认 `< nul` 跳过子 pause、`errorlevel` 正确回传、失败暂停后继续、计数正确；② 真实 `001` 工程 `call ... < nul` 实测：`cmake` configure→clean→build 全过，产出 `h743_tinyusb_cdc.elf`（FLASH 65668B/2MB≈3.13%），`ERRLEV=0`，证明 `< nul` 不干扰 cmake/ninja 且退出码正确回传。
 
 > 单工程脚本规范见第十节；本节的 `build_all.bat` 是其在工作空间级的编排层，二者配套使用。
@@ -426,49 +439,90 @@ for %%T in (cmake ninja openocd arm-none-eabi-gcc) do ( where %%T > nul 2>nul )
 
 ---
 
-## 十四、sys_startup 本地设备层约定（强约束，替代 Drivers/CMSIS/Device）
+## 十四、sys_startup 本地设备层约定（强约束，替代 `Drivers/CMSIS/Device`）
 
-所有 STM32H7 CMake 工程统一用本地 `sys_startup/` 取代 `Drivers/CMSIS/Device/ST/STM32H7xx/`
-（已迁移并 Debug+Release 双构验证的工程：002/003/004/005/006/007/008/010；模板取自 `001/sys_startup`）。
+**背景**：ST 官方 `Drivers/CMSIS/Device/ST/STM32H7xx/` 是一棵极庞大的树（~60 个 startup `.s`
+变体 × arm/gcc/iar × 每个 H7 型号、所有 H7 头文件、DSP/NN 源）。每个工程实际只用到其中
+**一份** device 头 + 一份 `system_stm32h7xx.c` + 一份对应型号的 startup + 工程自己的链接脚本。
+把整棵树拖进每个工程既臃肿又让 `CMakeLists.txt` / `c_cpp_properties.json` 的引用路径冗长易错。
+**结论**：每个 STM32H7 CMake 工程必须自带本地 `sys_startup/`，只放真正需要的设备层文件，
+**不得**从 `Drivers/CMSIS/Device/` 引用任何东西（DSP/NN 在 `Drivers/CMSIS/DSP`、`/NN`，与 Device 平级，保留）。
 
-### 14.1 目录树（禁止在 Drivers/ 下放 CMSIS-Device）
+### 14.1 `sys_startup/` 固定布局（以 H743 为例，已验证于 001~010 系列工程）
+
 ```
-<project>/
-├── sys_startup/                  # 本地设备层（替代 Drivers/CMSIS/Device）
-│   ├── stm32h743xx.h             # 设备头
-│   ├── stm32h7xx.h               # 系列头
-│   ├── system_stm32h7xx.h/.c     # 系统时钟
-│   ├── startup_stm32h743xx.s     # gcc 启动文件（arm/iar 同目录备用）
-│   └── STM32H743ZITX_FLASH.ld    # 链接脚本（各工程自有，ldscript/ 作废）
-├── Drivers/                      # 只放 CMSIS-Core / Include / DSP / NN + STM32x_HAL_Driver
-├── app/ bsp/ third_party/
-└── CMakeLists.txt
+<project>/sys_startup/
+├── stm32h743xx.h          # device 头（从官方 Device/.../Include 取，全工程唯一）
+├── stm32h7xx.h            # top-level CMSIS 设备聚合头
+├── system_stm32h7xx.h     # system 头
+├── system_stm32h7xx.c     # 时钟初始化（从官方 Device/.../Source/Templates 取）
+├── <本工程链接脚本>.ld     # 例如 STM32H743ZITx_FLASH.ld / stm32h743zi_flash.ld / stm32h743xix_flash.ld
+├── gcc/startup_stm32h743xx.s   # gcc 版向量表（add_executable 实际编译）
+├── arm/startup_stm32h743xx.s   # armclang 版（备用，不编译）
+└── iar/startup_stm32h743xx.s   # IAR 版（备用，不编译）
 ```
 
-### 14.2 铁律
-- 设备层一律放本地 `sys_startup/`，**禁止依赖 `Drivers/CMSIS/Device/ST/STM32H7xx/`**。
-- **验收红线**：`grep -c "Drivers/CMSIS/Device" CMakeLists.txt` 出现次数 == 0；`sys_startup` 引用 ≥ 3 处。
-- `c_cpp_properties.json` 的 includePath 从 `Drivers/CMSIS/Device/ST/STM32H7xx/Include` 改为 `sys_startup`。
-- 迁移时删除旧位置（`Core/Src/system_stm32h7xx.c`、`startup/`、`Core/Startup/` 中的 startup/system 副本）。
+- **device 头 / `system_*` / 三份 startup 是型号级通用件**：所有 H743 工程逐字节相同，
+  可从 `001.stm32h743_tinyusb_cdc_msc/sys_startup/` 直接复制，零风险（迁移前已 `diff -q` 验证全一致）。
+- **链接脚本是工程级专属件**：每个板的 Flash/RAM/SDRAM 布局不同，**绝不跨工程复制**，
+  必须保留各工程自己的 `.ld` 内容（仅改存放位置到 `sys_startup/`）。
+- 早期工程的旧位置（`Core/Src/system_stm32h7xx.c`、`startup/startup_stm32h743xx.s`、
+  `Core/Startup/startup_stm32h743xx.s`、`ldscript/`、`Drivers/CMSIS/Device/...`）一律作废，
+  集中到 `sys_startup/` 后删除冗余副本。
 
-### 14.3 CMakeLists 引用写法
+### 14.2 `CMakeLists.txt` 引用方式（强约束写法）
+
 ```cmake
-set(SYS_STARTUP_DIR ${CMAKE_SOURCE_DIR}/sys_startup)
-include_directories(${SYS_STARTUP_DIR})
-set(STARTUP_SOURCES
-  ${SYS_STARTUP_DIR}/startup_stm32h743xx.s
-  ${SYS_STARTUP_DIR}/system_stm32h7xx.c
+set(CMSIS_DEVICE sys_startup)   # 语义化变量，指向本地设备层目录
+# ① include 路径：只给 device 头，不再指向 Drivers/CMSIS/Device/ST/STM32H7xx/Include
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMSIS_DEVICE}                                  # stm32h743xx.h / stm32h7xx.h / system_stm32h7xx.h
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Core/Include   # CMSIS-Core（保留）
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
 )
-# 链接脚本随工程：除 007 用 stm32h743zi_flash.ld 外，H743 多数为 STM32H743ZITX_FLASH.ld
-set(LINKER_SCRIPT ${SYS_STARTUP_DIR}/STM32H743ZITX_FLASH.ld)
+# ② 源文件：startup(gcc) + system 都从 sys_startup 取
+set(STARTUP_SOURCE   ${CMSIS_DEVICE}/gcc/startup_stm32h743xx.s)
+set(SYSTEM_SOURCE    ${CMSIS_DEVICE}/system_stm32h7xx.c)
+# ③ 链接脚本：用本工程那份（内容已拷进 sys_startup）
+set(LINKER_SCRIPT    ${CMSIS_DEVICE}/STM32H743ZITx_FLASH.ld)
+set(CMAKE_EXE_LINKER_FLAGS "${MCU_FLAGS} -T${LINKER_SCRIPT} -Wl,--gc-sections")
 set_target_properties(${PROJECT_NAME}.elf PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
+# ④ add_executable 必须显式列出这两份源（即便 app/ 用 GLOB，也别靠 GLOB 漏掉）
+target_sources(${PROJECT_NAME} PRIVATE ${STARTUP_SOURCE} ${SYSTEM_SOURCE})
 ```
 
-### 14.4 新工程落地 5 步
-1. 拷贝 `001/sys_startup/` 作模板；2. 选对应 `.ld`（见 14.3 注释）；3. CMakeLists 改引用；
-4. `c_cpp_properties.json` includePath 改 `sys_startup`；5. 编译验证 `Drivers/CMSIS/Device` 出现次数 == 0。
+**验收红线**：迁移/新建后，整份 `CMakeLists.txt` 中 `Drivers/CMSIS/Device` 出现次数必须为
+**0**；`sys_startup` 至少出现 3 次（include / startup / linker）。
 
----
+### 14.3 `.vscode/c_cpp_properties.json` 同步
+
+若存在 `${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include` 这一条 includePath，
+**必须改**为 `${workspaceFolder}/sys_startup`（与 CMake 的 include 指向一致，否则 IntelliSense
+找不到 `stm32h743xx.h`）。没有该条的工程（如 003/008）无需改动。
+
+### 14.4 新工程落地步骤（保持全仓库一致）
+
+1. 在工程根 `mkdir sys_startup`，从 `001.stm32h743_tinyusb_cdc_msc/sys_startup/` 复制
+   `stm32h743xx.h` / `stm32h7xx.h` / `system_stm32h7xx.h` / `system_stm32h7xx.c` /
+   `gcc|arm|iar/startup_stm32h743xx.s` 六件套（型号不同则换对应头与 startup 名）。
+2. 把本工程的链接脚本放进 `sys_startup/`，**保留原文件名与内容**。
+3. 按 14.2 改写 `CMakeLists.txt`；按 14.3 修正 `c_cpp_properties.json`。
+4. 删除旧位置的设备层冗余副本（`Core/Src/system_stm32h7xx.c`、各处 `startup_*.s`、`ldscript/`）。
+5. 双构验证：`cmake --preset debug/release`（或等价 `cmake -S . -B build ...`）必须
+   `exit 0`、0 error；并检查 `grep -c "Drivers/CMSIS/Device" CMakeLists.txt` == 0。
+
+### 14.5 已落地记录（本次迁移，供回溯）
+
+- 源模板：`001.stm32h743_tinyusb_cdc_msc/sys_startup/`（pioneer，2026-08-28）。
+- 已迁移并 Debug+Release 双构通过（0 error）的工程：
+  `002` `003` `004` `005` `006` `007` `008` `010`。
+- 迁移前两种旧写法：
+  **模式 A**（002/003/004/005/006/008）startup+system 原放 `Core/Src|startup|Core/Startup`，
+  仅 headers 走 `Drivers/CMSIS/Device/.../Include`；
+  **模式 B**（007/010）startup+system 直接取自 `Drivers/CMSIS/Device/.../Source/Templates`。
+  两种均统一为 14.1 布局。
+- `Drivers/CMSIS/Device/` 整棵树的删除由人工执行（体积大、需逐工程确认）；
+  删除后 `Drivers/CMSIS/` 仅保留 `Core` / `Include` / `DSP` / `NN`。
 
 ## 十五、LVGL 多页面 UI 拆分约定（app/app_ui.c 框架 + app/ui/ 每页独立）
 
@@ -518,4 +572,3 @@ add_executable(${PROJECT_NAME}.elf ${APP_SOURCES} ${UI_SOURCES} ${BSP_SOURCES} .
   （如 `设置`/`开启`/`关闭` 按钮）时刷新，避免编辑过程中标签乱跳。
 - 报警/蜂鸣器类：关闭动作要同时停外设（`BSP_BEEP_Off()`），并持久化状态（EEPROM/备份寄存器）。
 - 自动关：报警用 tick 计数窗口（如 2Hz×120=60s），超时调关闭函数（停外设+持久化+刷新标签）。
-
