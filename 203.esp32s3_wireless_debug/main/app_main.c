@@ -21,6 +21,31 @@
 
 static const char *TAG = "probe";
 
+/* ------------------------------------------------------------------------- */
+/* Transport arbitration: USB first, Wi-Fi only as a fallback                */
+/* ------------------------------------------------------------------------- */
+#if CONFIG_DEBUG_ENABLE_USB && CONFIG_DEBUG_ENABLE_WIFI
+/**
+ * Wait for a USB host to attach/enumerate.
+ *
+ * Why this exists: once esp_wifi starts the RF on ESP32-S3, the USB OTG HID
+ * transfers become unreliable (host sees CMSIS-DAP command timeouts). The
+ * SoftAP must therefore only be started when there is NO USB host, i.e. the
+ * probe is powered from a plain 5V supply / power bank and used wirelessly.
+ */
+static bool wait_for_usb_host(uint32_t timeout_ms)
+{
+    const uint32_t poll_ms = 100;
+    for (uint32_t waited = 0; waited < timeout_ms; waited += poll_ms) {
+        if (usb_device_is_connected()) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(poll_ms));
+    }
+    return usb_device_is_connected();
+}
+#endif
+
 #if CONFIG_DEBUG_PROBE_SELFTEST
 static void probe_selftest(void)
 {
@@ -75,14 +100,32 @@ void app_main(void)
         return;
     }
 
-    /* Wireless CMSIS-DAP transport (AP + TCP 50000). Non-fatal: USB keeps
-     * working if WiFi init fails. Reuses cmsis_dap_execute() under the shared
-     * debug_engine lock, so no change to the SWD/JTAG core. */
-    err = wifi_dap_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "wifi_dap_init failed: %s (USB transport still active)",
-                 esp_err_to_name(err));
+    /* Wireless CMSIS-DAP transport (AP + TCP 50000).
+     *
+     * USB-FIRST POLICY: the SoftAP is a FALLBACK, not a parallel transport.
+     * Wi-Fi RF on ESP32-S3 corrupts the USB OTG HID timing, so if a USB host
+     * is present we never touch esp_wifi at all. Reuses cmsis_dap_execute()
+     * under the shared debug_engine lock, so the SWD/JTAG core is unchanged. */
+#if CONFIG_DEBUG_ENABLE_WIFI
+    bool usb_host_present = false;
+#if CONFIG_DEBUG_ENABLE_USB
+    usb_host_present = wait_for_usb_host((uint32_t)CONFIG_WIFI_DAP_USB_WAIT_MS);
+#endif
+    if (usb_host_present) {
+        /* WARN: project log level is WARN, INFO would not be visible. */
+        ESP_LOGW(TAG, "USB host enumerated (vbus=%d mounted=%d) -> USB mode, Wi-Fi AP NOT started",
+                 (int)usb_device_vbus_present(), (int)usb_device_is_connected());
+    } else {
+        ESP_LOGW(TAG, "no USB host in %d ms (vbus=%d mounted=%d) -> starting Wi-Fi AP mode",
+                 (int)CONFIG_WIFI_DAP_USB_WAIT_MS,
+                 (int)usb_device_vbus_present(), (int)usb_device_is_connected());
+        err = wifi_dap_init();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "wifi_dap_init failed: %s (USB transport still active)",
+                     esp_err_to_name(err));
+        }
     }
+#endif
 
 #if CONFIG_DEBUG_PROBE_SELFTEST
     vTaskDelay(pdMS_TO_TICKS(2000));

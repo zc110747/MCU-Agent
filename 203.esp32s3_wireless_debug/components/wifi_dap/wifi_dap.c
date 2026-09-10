@@ -20,6 +20,7 @@
  */
 #include <string.h>
 #include <inttypes.h>
+#include "sdkconfig.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -29,6 +30,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
+#include "esp_check.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -69,6 +71,10 @@ static bool s_client_active = false;
 /* ------------------------------------------------------------------------- */
 esp_err_t wifi_dap_init(void)
 {
+#if !CONFIG_DEBUG_ENABLE_WIFI
+    ESP_LOGW(TAG, "Wi-Fi transport disabled (CONFIG_DEBUG_ENABLE_WIFI=n)");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     /* NVS is required by esp_wifi; only init if not already done. Guard with a
      * local flag so we don't clobber an existing NVS partition owned by USB. */
     static bool s_nvs_done = false;
@@ -98,9 +104,14 @@ esp_err_t wifi_dap_init(void)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "wireless CMSIS-DAP transport ready: connect to AP, target TCP %s:%d",
+    /* WARN level on purpose: the project ships CONFIG_LOG_DEFAULT_LEVEL=WARN
+     * (UART logging must never become the HID download bottleneck), so an
+     * INFO line here would be invisible during bring-up. Start-up only, so
+     * it does not affect the DAP hot path. */
+    ESP_LOGW(TAG, "wireless CMSIS-DAP transport ready: connect to AP, target TCP %s:%d",
              WIFI_DAP_AP_IP, WIFI_DAP_TCP_PORT);
     return ESP_OK;
+#endif
 }
 
 /* ------------------------------------------------------------------------- */
@@ -151,7 +162,7 @@ static esp_err_t wifi_dap_start_ap(void)
         ESP_LOGW(TAG, "AP netif handle not found; using default IP");
     }
 
-    ESP_LOGI(TAG, "SoftAP '%s' up @ %s", ssid, WIFI_DAP_AP_IP);
+    ESP_LOGW(TAG, "SoftAP '%s' up @ %s", ssid, WIFI_DAP_AP_IP);
     return ESP_OK;
 }
 
@@ -181,9 +192,9 @@ static int rxbuf_fill(uint8_t *buf, size_t *len, size_t cap, int sock)
 }
 
 /* Try to parse one complete framed packet from buf.
- * Returns 0 and sets *payload/*payload_len on success,
- *         -EAGAIN if more bytes needed,
- *         negative on hard error. */
+ * Returns 0 and sets *payload and *payload_len on success,
+ *         -EAGAIN if more bytes are needed,
+ *         negative on a hard error. */
 static int rxbuf_parse(const uint8_t *buf, size_t len,
                        const uint8_t **payload, size_t *payload_len,
                        size_t *consumed)

@@ -3923,10 +3923,17 @@ CONFIG_DEBUG_ENABLE_USB=y
 # default:
 # CONFIG_DEBUG_ENABLE_UART is not set
 # default:
-# CONFIG_DEBUG_ENABLE_WIFI is not set
+CONFIG_DEBUG_ENABLE_WIFI=y
 # default:
 # CONFIG_DEBUG_PROBE_SELFTEST is not set
 # end of Debug Probe General Configuration
+
+#
+# Wi-Fi CMSIS-DAP Transport
+#
+# default:
+CONFIG_WIFI_DAP_USB_WAIT_MS=3000
+# end of Wi-Fi CMSIS-DAP Transport
 # end of Component config
 
 # default:

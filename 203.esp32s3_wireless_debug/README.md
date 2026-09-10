@@ -68,6 +68,9 @@ openocd -f interface/cmsis-dap.cfg -f target/stm32h7x.cfg
 
 > 日常下载 / 仿真用 **SWD**（默认 transport，速度正常）；JTAG 模式仅建议用于 chain / IDCODE 发现、
 > 多 TAP examine、边界扫描——其 flash 下载受 CMSIS-DAP v1 HID 限制明显慢于 SWD（见 §7.2）。
+>
+> **传输仲裁**：上电默认走 USB；只有在 **没有 USB 主机** 时才会启动 Wi-Fi SoftAP（见 §7.4）。
+> 插着 PC 使用时探针不会开热点，Wi-Fi 不会干扰 USB HID 通讯。
 
 详细的协议层、OpenOCD/Keil 测试命令、排错清单见 **doc/useage.md**。
 
@@ -106,7 +109,13 @@ components/
   debug_engine/     Cortex-M 调试引擎（halt/run/step/读写寄存器/内存）
   swd/              SWD 位带引擎（寄存器级 GPIO）
   jtag/             JTAG 位带引擎（寄存器级 GPIO，逐字移植 ARM JTAG_DP.c）
+  wifi_dap/         Wi-Fi 传输：SoftAP + TCP 50000（**仅在无 USB 主机时启动**，见 §7.4）
 main/               app_main 入口 + 整包 whole-archive 链接
+tools/
+  verify_usb_hid.cfg  OpenOCD USB HID 链路体检（不需接目标板）
+  uart_capture.py     带到达时间戳的串口抓日志
+  hold_reset.py       按住 / 释放 EN，用于确认热点归属
+  wifi_dap_client.py  无线 DAP 客户端（AP 模式下使用）
 doc/useage.md       详细使用与排错文档
 ```
 
@@ -139,7 +148,37 @@ doc/useage.md       详细使用与排错文档
 注意 OpenOCD 实际只走 `DAP_JTAG_Sequence(0x14)`（非 `DAP_JTAG_Transfer(0x17)`）。
 完整排错方法论见 skill **`stm32-cmsis-dap-probe`**。
 
-### 7.4 调试注意事项
+### 7.4 传输仲裁：USB 优先，Wi-Fi AP 兜底
+**政策**：两种传输**互斥**，不同时运行。上电先初始化 USB，然后在
+`CONFIG_WIFI_DAP_USB_WAIT_MS`（默认 **3000 ms**）窗口内等待主机完成枚举：
+- 检测到 USB 主机 → **常驻 USB 模式，完全不启动 esp_wifi**（不开热点）；
+- 窗口内没有主机 → 才启动 SoftAP `ESP32-DAP-XXXX` @ 192.168.4.1 + TCP 50000（无线模式）。
+
+**为什么必须互斥**：ESP32-S3 上 Wi-Fi RF 一旦工作就会破坏 USB OTG HID 的传输时序，
+主机侧表现为 CMSIS-DAP 通讯错误 / 命令超时。因此无线传输只能是"供电但无 USB 主机"时的兜底，
+不能与 USB 并存。
+
+**实现要点（踩过的坑）**：
+- 判定必须用 **`tud_mounted()`**，不能用 `tud_connected()`。在 ESP32-S3 上 `tud_connected()`
+  只代表 **VBUS 存在**——插充电头 / 充电宝也会为真，会被误判成"有 USB 主机"而永远不开热点。
+  已封装为 `usb_device_is_connected()`（`usb_device_vbus_present()` 保留作诊断）。
+- `CONFIG_DEBUG_ENABLE_WIFI` 是无线功能的总开关（默认 `y`）。置 `n` 则 `wifi_dap_init()` 直接返回，
+  运行时完全不触碰 esp_wifi。
+- 该宏**只能**用于 C 代码里的 `#if` 门控，**不能**用于 `main/CMakeLists.txt` 的 `if(CONFIG_...)`：
+  本 IDF 版本在组件注册阶段取不到该 CMake 变量，条件化 `REQUIRES` 会静默丢掉 include 路径并编译失败。
+
+**验证方法**：
+1. 串口日志：**注意本项目 `CONFIG_LOG_DEFAULT_LEVEL=2`（WARN）**，所有 `ESP_LOGI` 都不可见
+   （这是有意为之——UART 日志不能成为 HID 下载瓶颈）。仲裁结果特意用 `ESP_LOGW` 输出：
+   - `probe: USB host enumerated (vbus=1 mounted=1) -> USB mode, Wi-Fi AP NOT started`
+   - `probe: no USB host in 3000 ms (vbus=0 mounted=0) -> starting Wi-Fi AP mode`
+2. USB 链路体检（不需接目标板）：`openocd -f tools/verify_usb_hid.cfg`
+   → 见到 `CMSIS-DAP: FW Version = 1.2.0` / `Interface ready` 即 USB HID 通讯正常；
+   末尾 `Error connecting DP` 只是当前没挂 STM32 目标，属预期。
+3. 热点是否广播：`netsh wlan show networks mode=bssid | findstr ESP32-DAP`
+   （USB 模式下应为空；Windows 扫描有缓存，拔线后等 20–30 s 再看）。
+
+### 7.5 调试注意事项
 - **双主机警告**：同一目标不能同时挂 J-Link + 本探针，否则出现确定性坏值（如 DPIDR `0xff4c001b`）；
   VSCode 调试前先断开 Keil / J-Link 会话。
 - **空 Flash 假故障**：目标板 Flash 为空时 `mdw 0x08000000` 全 `ffffffff` → Cortex-M lockup

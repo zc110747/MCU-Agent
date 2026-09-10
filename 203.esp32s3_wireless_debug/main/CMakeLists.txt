@@ -1,6 +1,12 @@
+# NOTE: wifi_dap is always linked. Do NOT try to make it conditional on
+# CONFIG_DEBUG_ENABLE_WIFI here: the sdkconfig CMake variables are not
+# reliable at component-registration time in this IDF version, so a
+# conditional REQUIRES silently drops the include path and breaks the build.
+# The run-time gate lives in app_main.c / wifi_dap.c (#if CONFIG_...).
 idf_component_register(SRCS "app_main.c"
                        INCLUDE_DIRS "."
-                       REQUIRES usb_device cmsis_dap wifi_dap debug_engine swd target jtag)
+                       REQUIRES usb_device cmsis_dap wifi_dap debug_engine
+                                swd target jtag)
 
 # ---------------------------------------------------------------------------
 # Whole-archive linking of all DAP components.

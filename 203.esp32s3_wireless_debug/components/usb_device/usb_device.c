@@ -100,6 +100,18 @@ QueueHandle_t usb_device_rx_queue(void)
     return s_rx_queue;
 }
 
+bool usb_device_is_connected(void)
+{
+    /* Must be tud_mounted(), not tud_connected(): on ESP32-S3 tud_connected()
+     * only reflects VBUS being present, so a charger would look like a host. */
+    return tud_mounted();
+}
+
+bool usb_device_vbus_present(void)
+{
+    return tud_connected();
+}
+
 esp_err_t usb_device_send_response(const uint8_t *data, size_t len)
 {
     if (data == NULL) {
