@@ -45,6 +45,7 @@
 #include "menu_icons.h"
 #include "sd_browser.h"
 #include "lv_font_gbk.h"
+#include "ui_font.h"
 #include "misc/lv_txt.h"     /* _lv_txt_get_next_line() for word-wrap paging */
 #include "drv_spi_oled.h"
 #include "bsp_key.h"
@@ -403,7 +404,7 @@ static void build_reader_view(void)
     (void)ui_header(s_root, "文本阅读器");
 
     gbk_to_utf8(s_fname_gbk, utf8, (int)sizeof(utf8));
-    s_file_lbl = ui_label(s_root, UI_PAD, UI_HDR_H + 2, &lv_font_gbk_12,
+    s_file_lbl = ui_label(s_root, UI_PAD, UI_HDR_H + 2, &ui_font_12,
                           COL_DIM, (s_truncated != 0) ? "（仅显示前 32KB）" : utf8);
 
     s_body_lbl = ui_label(s_root, UI_PAD, TXT_BODY_Y, TXT_BODY_FONT,
@@ -411,7 +412,7 @@ static void build_reader_view(void)
     lv_obj_set_width(s_body_lbl, TXT_USABLE_W);
     lv_label_set_long_mode(s_body_lbl, LV_LABEL_LONG_WRAP);
 
-    s_foot_lbl = ui_label_center(s_root, TXT_FOOTER_Y, &lv_font_gbk_12,
+    s_foot_lbl = ui_label_center(s_root, TXT_FOOTER_Y, &ui_font_12,
                                  COL_DIM, "↑上 ↓/A下  B目录");
 
     render_page(0);

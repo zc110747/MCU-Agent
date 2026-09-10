@@ -6,6 +6,7 @@
   */
 #include "sd_browser.h"
 #include "lv_font_gbk.h"
+#include "ui_font.h"
 #include "menu_icons.h"
 #include "drv_spi_oled.h"
 #include "ff.h"
@@ -224,9 +225,9 @@ static void layout_list(sd_browser_t *b)
 
     if (b->count == 0)
     {
-        (void)ui_label(b->root, UI_PAD, 60, &lv_font_gbk_16, COL_ERR,
+        (void)ui_label(b->root, UI_PAD, 60, &ui_font_16, COL_ERR,
                        "未找到文件");
-        (void)ui_label(b->root, UI_PAD, 90, &lv_font_gbk_12, COL_DIM,
+        (void)ui_label(b->root, UI_PAD, 90, &ui_font_12, COL_DIM,
                        "请检查 SD 卡根目录");
         return;
     }
@@ -252,7 +253,7 @@ static void layout_list(sd_browser_t *b)
 
         /* Vertically centre each label inside the row (align to LEFT_MID so it
          * does not depend on the font's line_height metric). */
-        lv_obj_t *lbl_mark = ui_label(row, 0, 0, &lv_font_gbk_16, COL_ACCENT, " ");
+        lv_obj_t *lbl_mark = ui_label(row, 0, 0, &ui_font_16, COL_ACCENT, " ");
         lv_obj_align(lbl_mark, LV_ALIGN_LEFT_MID, 4, 0);
         b->marks[i] = lbl_mark;
 
@@ -266,12 +267,12 @@ static void layout_list(sd_browser_t *b)
             lv_img_set_src(ico, &icon_folder);
             lv_obj_align(ico, LV_ALIGN_LEFT_MID, 16, 0);
 
-            lbl_text = ui_label(row, 0, 0, &lv_font_gbk_16, COL_TEXT, b->disp[i]);
+            lbl_text = ui_label(row, 0, 0, &ui_font_16, COL_TEXT, b->disp[i]);
             lv_obj_align(lbl_text, LV_ALIGN_LEFT_MID, 34, 0);
         }
         else
         {
-            lbl_text = ui_label(row, 0, 0, &lv_font_gbk_16, COL_TEXT, b->disp[i]);
+            lbl_text = ui_label(row, 0, 0, &ui_font_16, COL_TEXT, b->disp[i]);
             lv_obj_align(lbl_text, LV_ALIGN_LEFT_MID, 20, 0);
         }
 
@@ -286,7 +287,7 @@ static void layout_list(sd_browser_t *b)
     const char *hint = (strcmp(b->path, "1:") == 0)
                        ? "↑↓ 选  A 进入/打开  SELECT 退出"
                        : "↑↓ 选  A 进入/打开  SELECT 上级";
-    b->status = ui_label(b->root, UI_PAD, UI_H - 26, &lv_font_gbk_12,
+    b->status = ui_label(b->root, UI_PAD, UI_H - 26, &ui_font_12,
                          COL_DIM, hint);
 
     highlight(b, b->sel, 1);
@@ -550,10 +551,10 @@ void sd_browser_show_error(sd_browser_t *b, const char *line1, const char *line2
     lv_obj_set_style_bg_opa(ov, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
 
-    (void)ui_label_center(ov, 78, &lv_font_gbk_24, COL_ERR, line1);
-    (void)ui_label_center(ov, 116, &lv_font_gbk_16, COL_TEXT,
+    (void)ui_label_center(ov, 78, &ui_font_24, COL_ERR, line1);
+    (void)ui_label_center(ov, 116, &ui_font_16, COL_TEXT,
                           (line2 != NULL) ? line2 : "");
-    (void)ui_label_center(ov, UI_H - 30, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label_center(ov, UI_H - 30, &ui_font_12, COL_DIM,
                           "SELECT 返回");
 
     b->err = ov;

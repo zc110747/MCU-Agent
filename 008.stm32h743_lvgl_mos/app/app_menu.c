@@ -23,6 +23,7 @@
   */
 #include "app_page.h"
 #include "lv_font_gbk.h"
+#include "ui_font.h"
 #include "menu_icons.h"
 #include "drv_spi_oled.h"
 #include "drv_rtc.h"
@@ -41,6 +42,22 @@ static const app_page_t *s_pages[APP_PAGE_MAX];
 static int               s_page_count = 0;
 static int               s_selection  = 0;
 static int               s_current    = -1;     /* -1 = root menu */
+
+/* Per-app chip colour (dark watch-face style).  Registration order is fixed
+ * in app_main.c register_pages(); the icon bitmaps in menu_icons.c are baked
+ * on the very same colour, so the square 48x48 bitmap melts into the filled
+ * circle below it and reads as one coloured round chip with a white glyph. */
+static const uint32_t s_chip[APP_PAGE_MAX] =
+{
+    0xFF9F0A,       /* 0 clock    - orange  */
+    0x32ADE6,       /* 1 camera   - cyan    */
+    0x0A84FF,       /* 2 txt      - blue    */
+    0xBF5AF2,       /* 3 image    - purple  */
+    0xFF453A,       /* 4 nes      - red     */
+    0xFFD60A,       /* 5 keytest  - yellow  */
+    0x30D158,       /* 6 sysinfo  - green   */
+    0xFF2D78,       /* 7 about    - pink    */
+};
 
 static lv_obj_t         *s_menu_root  = NULL;
 static lv_obj_t         *s_page_root  = NULL;
@@ -114,7 +131,7 @@ lv_obj_t *ui_header(lv_obj_t *parent, const char *title)
     lv_obj_set_style_bg_color(hdr, lv_color_hex(COL_HDR), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
 
-    (void)ui_label_center(hdr, 6, &lv_font_gbk_16, COL_HDR_TXT, title);
+    (void)ui_label_center(hdr, 6, &ui_font_16, COL_HDR_TXT, title);
 
     /* Live wall-clock on the left edge: "HH:MM" (no seconds, per request). */
     {
@@ -131,7 +148,7 @@ lv_obj_t *ui_header(lv_obj_t *parent, const char *title)
             snprintf(buf, sizeof(buf), "--:--");
         }
 
-        lv_obj_t *clk = ui_label(hdr, UI_PAD, 6, &lv_font_gbk_16,
+        lv_obj_t *clk = ui_label(hdr, UI_PAD, 6, &ui_font_16,
                                  COL_HDR_TXT, buf);
 
         if (parent == s_menu_root)
@@ -152,9 +169,9 @@ lv_obj_t *ui_header(lv_obj_t *parent, const char *title)
  *--------------------------------------------------------------------------*/
 
 /* The root menu is a horizontal strip of full-screen cards.  Only one card is
- * visible at a time; KEY_LEFT / KEY_RIGHT slide the strip.  The selected icon
- * gets a blue ring (plus a soft light-blue glow) and a blue title so it stands
- * out against the white background - no outer rectangular border. */
+ * visible at a time; KEY_LEFT / KEY_RIGHT slide the strip.  Every icon sits on
+ * its own filled colour chip; the selected one gains a white ring (plus a soft
+ * blue glow) and a bright title - no outer rectangular border. */
 static void highlight_card(int index, int on)
 {
     if ((index < 0) || (index >= s_page_count) ||
@@ -166,7 +183,8 @@ static void highlight_card(int index, int on)
     if (s_rings[index] != NULL)
     {
         lv_obj_set_style_border_color(s_rings[index],
-                                      lv_color_hex((on != 0) ? COL_ACCENT : COL_DIM),
+                                      lv_color_hex((on != 0) ? 0xFFFFFF
+                                                             : s_chip[index]),
                                       LV_PART_MAIN);
         lv_obj_set_style_border_width(s_rings[index], (on != 0) ? 3 : 2,
                                       LV_PART_MAIN);
@@ -182,7 +200,7 @@ static void highlight_card(int index, int on)
     }
 
     lv_obj_set_style_text_color(s_titles[index],
-                                lv_color_hex((on != 0) ? COL_ACCENT : COL_TEXT),
+                                lv_color_hex((on != 0) ? COL_TEXT : COL_LABEL),
                                 LV_PART_MAIN);
 
     if (s_dots[index] != NULL)
@@ -244,14 +262,17 @@ static void build_menu(void)
         lv_obj_clear_flag(glow, LV_OBJ_FLAG_SCROLLABLE);
         s_glows[i] = glow;
 
-        /* Main icon circle outline. */
+        /* Main icon chip: filled colour circle.  The 48x48 icon bitmap is
+         * baked on the same colour (see menu_icons.c), its corners stay
+         * inside the r=37 circle, so square + circle read as one chip. */
         lv_obj_t *ring = lv_obj_create(card);
         lv_obj_remove_style_all(ring);
         lv_obj_set_size(ring, 74, 74);
         lv_obj_set_style_radius(ring, 37, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ring, lv_color_hex(s_chip[i]), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN);
-        lv_obj_set_style_border_color(ring, lv_color_hex(COL_DIM), LV_PART_MAIN);
+        lv_obj_set_style_border_color(ring, lv_color_hex(s_chip[i]), LV_PART_MAIN);
         lv_obj_set_style_border_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_align(ring, LV_ALIGN_CENTER, 0, -34);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
@@ -266,7 +287,7 @@ static void build_menu(void)
         }
 
         /* App name only: larger font, just below the icon ring. */
-        s_titles[i] = ui_label_center(card, CARD_H / 2 + 22, &lv_font_gbk_24,
+        s_titles[i] = ui_label_center(card, CARD_H / 2 + 22, &ui_font_24,
                                       COL_TEXT, s_pages[i]->title);
 
         s_cards[i] = card;
@@ -281,7 +302,7 @@ static void build_menu(void)
         s_dots[i] = dot;
     }
 
-    s_status = ui_label(s_menu_root, UI_PAD, STATUS_Y, &lv_font_gbk_12,
+    s_status = ui_label(s_menu_root, UI_PAD, STATUS_Y, &ui_font_12,
                         COL_DIM, "← → 选择   A 进入   B 返回");
 
     highlight_card(s_selection, 1);

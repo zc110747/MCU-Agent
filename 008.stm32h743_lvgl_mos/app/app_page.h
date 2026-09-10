@@ -167,17 +167,19 @@ void        page_camera_info(char *out, int out_size);
 #define UI_PAD              8
 #define UI_HDR_H            28
 
-#define COL_BG              0xFFFFFF  /* 白底 */
-#define COL_HDR             0xFFFFFF  /* 标题栏背景与屏幕一致 */
-#define COL_HDR_TXT         0x0319    /* 深蓝标题文字 */
-#define COL_SEL             0x8DFF    /* 浅蓝选中高亮 */
-#define COL_TEXT            0x0319    /* 主文字：蓝色 */
-#define COL_LABEL           0x64BB    /* 描述文字：浅蓝 */
-#define COL_VALUE           0x40E070
-#define COL_ACCENT          0x0319    /* 强调/选中图标环：蓝色 */
-#define COL_DIM             0x64BB    /* 提示/状态栏：浅蓝 */
-#define COL_ERR             0xFF4040
-#define COL_SEP             0xB6FF    /* 分隔线：淡蓝 */
+/* 深色表盘风调色板（参考智能手表 UI：近黑底 + iOS 系统彩色点缀）。
+ * 只改色值，不改任何布局/结构；全工程页面颜色都从这里取。 */
+#define COL_BG              0x07070B  /* 背景：近黑深蓝 */
+#define COL_HDR             COL_BG    /* 标题栏背景与屏幕一致 */
+#define COL_HDR_TXT         0xFFFFFF  /* 标题文字：白 */
+#define COL_SEL             0x0A84FF  /* 选中高亮：亮蓝 */
+#define COL_TEXT            0xFFFFFF  /* 主文字：白 */
+#define COL_LABEL           0xA8B4C6  /* 描述文字：淡蓝灰（参考截图色差） */
+#define COL_VALUE           0x30D158  /* 数值：绿 */
+#define COL_ACCENT          0x0A84FF  /* 强调/进度条：亮蓝 */
+#define COL_DIM             0x7E8BA0  /* 提示/按键槽：淡蓝灰（比 LABEL 深一档） */
+#define COL_ERR             0xFF453A  /* 错误：红 */
+#define COL_SEP             0x232331  /* 分隔线：暗灰 */
 
 lv_obj_t *ui_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
                    const lv_font_t *font, uint32_t color, const char *text);

@@ -209,6 +209,7 @@ set(PROJECT_SRCS
   app/app_main.c
   app/app_menu.c
   app/app_pages.c
+  app/ui_font.c
   app/menu_icons.c
   app/sd_browser.c
   app/page_nes.c
