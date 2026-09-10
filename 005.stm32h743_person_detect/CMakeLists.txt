@@ -30,6 +30,17 @@ add_compile_definitions(
 )
 
 # ---------------------------------------------------------------------------
+# Logging switch: -DPRINT_LOG_ENABLE=OFF compiles every PRINT_LOG() away
+# (no UART traffic, zero runtime cost). See bsp/bsp_log.h.
+# ---------------------------------------------------------------------------
+option(PRINT_LOG_ENABLE "Enable the PRINT_LOG() USART1 console" ON)
+if(PRINT_LOG_ENABLE)
+    add_compile_definitions(PRINT_LOG_ENABLE=1)
+else()
+    add_compile_definitions(PRINT_LOG_ENABLE=0)
+endif()
+
+# ---------------------------------------------------------------------------
 # Compile options
 # ---------------------------------------------------------------------------
 add_compile_options(
@@ -88,6 +99,9 @@ set(PROJECT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_oled_fonts.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_dcmi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_dcmi_ov5640.c
+
+    # USART1 console: non-blocking PRINT_LOG (TX ring buffer + TXE interrupt)
+    ${CMAKE_CURRENT_SOURCE_DIR}/bsp/bsp_log.c
 
     # Person-detection middleware (CMSIS-NN MobileNetV1-0.25, 96x96 int8)
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/person_detect/pd_model_data.c

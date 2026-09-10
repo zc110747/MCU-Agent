@@ -9,11 +9,13 @@
 #include "main.h"
 
 #include "app_vision.h"
+#include "bsp_log.h"
 
 DCMI_HandleTypeDef hdcmi;
 DMA_HandleTypeDef  hdma_dcmi;
 I2C_HandleTypeDef  hi2c4;
 SPI_HandleTypeDef  hspi6;
+UART_HandleTypeDef huart1;   /* USART1 console (PA9/PA10) - see bsp_log.c */
 
 static void MPU_Config(void);
 static void SystemClock_Config(void);
@@ -37,6 +39,10 @@ int main(void)
     MX_SPI6_Init();
     MX_DCMI_Init();
     MX_I2C4_Init();
+
+    /* USART1 console first: every PRINT_LOG() below now goes out over the
+     * non-blocking TX ring buffer (115200-8-N-1 on PA9/PA10). */
+    (void)bsp_log_init();
 
     app_vision_init();
 

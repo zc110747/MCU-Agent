@@ -32,7 +32,7 @@
 #include "drv_dcmi.h"
 #include "drv_spi_oled.h"
 #include "pd_infer.h"
-#include "logger.h"
+#include "bsp_log.h"
 
 /* ------------------------------------------------------------------ layout */
 #define VIEW_W          CAPTURE_WIDTH                       /* 192            */
@@ -105,7 +105,7 @@ GlobalType_t app_vision_init(void)
 {
     if (driver_spi_oled_init() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "oled init failed");
+        PRINT_LOG("[E] oled init failed\r\n");
         return RT_FAIL;
     }
 
@@ -117,15 +117,14 @@ GlobalType_t app_vision_init(void)
 
     if (pd_init() != 0)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "pd_init failed");
+        PRINT_LOG("[E] pd_init failed\r\n");
         LCD_Clear();
         LCD_DisplayText(4, 100, "NN INIT FAIL");
         return RT_FAIL;
     }
     pd_set_threshold(APP_PERSON_THRESHOLD);   /* 与显示判定保持一致的阈值 */
     s_pd_ready = 1;
-    PRINT_LOG(LOG_INFO, HAL_GetTick(),
-              "Person detection ready: %dx%d int8-in (CMSIS-NN)",
+    PRINT_LOG("[I] Person detection ready: %dx%d int8-in (CMSIS-NN)\r\n",
               PD_INPUT_W, PD_INPUT_H);
 
     /* 预先生成"人在 / 不在"两块图标位图 */
@@ -134,7 +133,7 @@ GlobalType_t app_vision_init(void)
 
     if (drv_dcmi_init() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "camera init failed");
+        PRINT_LOG("[E] camera init failed\r\n");
         LCD_Clear();
         LCD_DisplayText(4, 100, "CAM INIT FAIL");
         return RT_FAIL;
@@ -145,7 +144,7 @@ GlobalType_t app_vision_init(void)
 
     if (drv_dcmi_start() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "camera start failed");
+        PRINT_LOG("[E] camera start failed\r\n");
         return RT_FAIL;
     }
 
@@ -156,7 +155,7 @@ GlobalType_t app_vision_init(void)
     s_present          = 0;
     s_cap_idx          = 0xFF;
     s_icon_state       = -1;
-    PRINT_LOG(LOG_INFO, HAL_GetTick(), "vision pipeline running (ping-pong)");
+    PRINT_LOG("[I] vision pipeline running (ping-pong)\r\n");
     return RT_OK;
 }
 
@@ -174,7 +173,7 @@ void app_vision_loop(void)
     if (g_dcmi_overruns != s_overruns)
     {
         s_overruns = g_dcmi_overruns;
-        PRINT_LOG(LOG_WARN, now, "dcmi overrun #%lu, restarting",
+        PRINT_LOG("[W] dcmi overrun #%lu, restarting\r\n",
                   (unsigned long)s_overruns);
         drv_dcmi_recover();
         return;
@@ -203,7 +202,7 @@ void app_vision_loop(void)
         /* 运行 CMSIS-NN 行人检测 */
         if (pd_run(&s_res) != 0)
         {
-            PRINT_LOG(LOG_ERROR, HAL_GetTick(), "pd_run failed");
+            PRINT_LOG("[E] pd_run failed\r\n");
         }
         else
         {
@@ -262,8 +261,7 @@ void app_vision_loop(void)
         s_loop_fps  = (uint8_t)s_loop_count;
         s_loop_count = 0u;
 
-        PRINT_LOG(LOG_INFO, now,
-                  "cam %2u fps | pipe %2u fps | nn %5lu us | score %.2f | cap%d",
+        PRINT_LOG("[I] cam %2u fps | pipe %2u fps | nn %5lu us | score %.2f | cap%d\r\n",
                   g_dcmi_fps, s_loop_fps, (unsigned long)s_infer_us,
                   s_res.score, s_cap_idx);
     }
