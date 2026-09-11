@@ -3,7 +3,7 @@
  * -------------------------------------------------------------------------*/
 
 #include "sd_app.h"
-#include "sdcard.h"
+#include "bsp_sdcard.h"
 #include "ff.h"
 #include "tusb.h"
 

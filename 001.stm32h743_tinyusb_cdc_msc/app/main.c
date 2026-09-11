@@ -21,8 +21,10 @@
 #include <string.h>
 
 #include "bsp.h"
+#include "bsp_led.h"  /* user LED                       */
+#include "bsp_log.h"  /* USART1 debug logging           */
 #include "tusb.h"
-#include "sdcard.h"   /* SDMMC1 / SD card block interface */
+#include "bsp_sdcard.h"   /* SDMMC1 / SD card block interface */
 #include "sd_app.h"   /* SD-card FatFs app: init + CDC file commands */
 
 /* ------------------------------------------------------------------------ */
@@ -176,10 +178,10 @@ static void handle_line(char* line) {
     s_heartbeat = !s_heartbeat;
     cdc_printf("\r\nheartbeat %s\r\n", s_heartbeat ? "on" : "off");
   } else if (strcmp(line, "led on") == 0) {
-    board_led_write(true);
+    bsp_led_write(true);
     cdc_puts("\r\nled on\r\n");
   } else if (strcmp(line, "led off") == 0) {
-    board_led_write(false);
+    bsp_led_write(false);
     cdc_puts("\r\nled off\r\n");
   } else if (strncmp(line, "flood", 5) == 0) {
     cmd_flood(line + 5);
@@ -254,12 +256,19 @@ static void led_task(void) {
 
   if ((int32_t)(board_millis() - next) < 0) return;
   next = board_millis() + period;
-  board_led_toggle();
+  bsp_led_toggle();
 }
 
 /* ------------------------------------------------------------------------ */
 int main(void) {
   bsp_init();
+  bsp_log_init();         /* USART1 @ 115200 8N1 debug logging */
+
+  PRINT_LOG("System Init OK\r\n");
+  PRINT_LOG("STM32H743ZIT6  SYSCLK %lu MHz  HCLK %lu MHz\r\n",
+            (unsigned long) (g_sysclk_hz / 1000000U),
+            (unsigned long) (g_hclk_hz   / 1000000U));
+
   sdcard_init();          /* bring up SDMMC1 and the SD card */
   fatfs_init();           /* mount (or format+seed) the FAT volume */
 

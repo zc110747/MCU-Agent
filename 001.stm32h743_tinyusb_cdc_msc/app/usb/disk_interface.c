@@ -8,7 +8,7 @@
 /*-----------------------------------------------------------------------*/
 #include "disk_interface.h"
 #include "diskio.h"
-#include "sdcard.h"
+#include "bsp_sdcard.h"
 #include <string.h>
 
 #define SD_RUN_ERROR_TIMES  4

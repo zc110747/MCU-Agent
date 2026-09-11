@@ -2,6 +2,7 @@
 
 #include "stm32h7xx_hal.h"
 #include "tusb.h"
+#include "bsp_log.h"
 
 /* ------------------------------------------------------------------------ */
 /* Core exceptions                                                           */
@@ -31,6 +32,11 @@ void UsageFault_Handler(void) {
 void SVC_Handler(void)      { }
 void DebugMon_Handler(void) { }
 void PendSV_Handler(void)   { }
+
+/* USART1 - debug log UART (TX ring-buffer drain handled in bsp_log.c). */
+void USART1_IRQHandler(void) {
+  log_uart_tx_irq();
+}
 
 void SysTick_Handler(void) {
   HAL_IncTick();

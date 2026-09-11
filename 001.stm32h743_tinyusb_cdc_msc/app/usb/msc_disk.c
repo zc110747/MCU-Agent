@@ -1,11 +1,11 @@
 /* ---------------------------------------------------------------------------
  * TinyUSB Mass Storage Class callbacks - the SD card is exposed to the USB
- * host as a single LUN (logical unit). All block moves go through sdcard.c,
+ * host as a single LUN (logical unit). All block moves go through bsp_sdcard.c,
  * exactly as FatFs does, so the two views of the card can never disagree.
  * -------------------------------------------------------------------------*/
 
 #include "tusb.h"
-#include "sdcard.h"
+#include "bsp_sdcard.h"
 #include "sd_app.h"   /* fatfs_release_for_host / fatfs_reacquire */
 
 void tud_msc_inquiry_cb(uint8_t lun,

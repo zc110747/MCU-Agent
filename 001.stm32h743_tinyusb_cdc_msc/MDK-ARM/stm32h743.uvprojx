@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>STM32H743xx,USE_HAL_DRIVER,USE_PWR_LDO_SUPPLY,CFG_TUSB_MCU=OPT_MCU_STM32H7,CFG_TUSB_OS=1,BOARD_TUD_RHPORT=0,USB_PORT_IS_FS=1</Define>
               <Undefine></Undefine>
-              <IncludePath>..\src;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\Include;..\sys_startup;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\third_party\tinyusb\src;..\third_party\FatFs</IncludePath>
+              <IncludePath>..\app;..\app\usb;..\bsp;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\Include;..\sys_startup;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\third_party\tinyusb\src;..\third_party\FatFs</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -401,42 +401,52 @@
             <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\main.c</FilePath>
+              <FilePath>..\app\main.c</FilePath>
             </File>
             <File>
               <FileName>bsp.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\bsp.c</FilePath>
+              <FilePath>..\bsp\bsp.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_led.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_led.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_log.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_log.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_sdcard.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_sdcard.c</FilePath>
             </File>
             <File>
               <FileName>usb_descriptors.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\usb_descriptors.c</FilePath>
+              <FilePath>..\app\usb\usb_descriptors.c</FilePath>
             </File>
             <File>
               <FileName>stm32h7xx_it.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\stm32h7xx_it.c</FilePath>
-            </File>
-            <File>
-              <FileName>sdcard.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\src\sdcard.c</FilePath>
+              <FilePath>..\app\stm32h7xx_it.c</FilePath>
             </File>
             <File>
               <FileName>msc_disk.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\msc_disk.c</FilePath>
+              <FilePath>..\app\usb\msc_disk.c</FilePath>
             </File>
             <File>
               <FileName>sd_app.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\sd_app.c</FilePath>
+              <FilePath>..\app\usb\sd_app.c</FilePath>
             </File>
             <File>
               <FileName>disk_interface.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\src\disk_interface.c</FilePath>
+              <FilePath>..\app\usb\disk_interface.c</FilePath>
             </File>
             <File>
               <FileName>mdk_target.c</FileName>
@@ -492,6 +502,21 @@
               <FileName>stm32h7xx_ll_sdmmc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_ll_sdmmc.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_uart.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_uart_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_uart_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma.c</FilePath>
             </File>
           </Files>
         </Group>

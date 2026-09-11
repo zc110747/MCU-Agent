@@ -1,8 +1,8 @@
 /* ---------------------------------------------------------------------------
- * SD card driver - STM32H743 SDMMC1 (see sdcard.h for the pin map)
+ * SD card driver - STM32H743 SDMMC1 (see bsp_sdcard.h for the pin map)
  * -------------------------------------------------------------------------*/
 
-#include "sdcard.h"
+#include "bsp_sdcard.h"
 #include "stm32h7xx_hal.h"
 
 #define SDMMC_READ_WRITE_TIMEOUT        1000

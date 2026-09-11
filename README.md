@@ -76,7 +76,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 ![image](./document/image/001-01.jpg)
 
-提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/prompter.md)  
+提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/doc/prompter.md)  
 
 **AI开发**：项目框架、tinyusb移植、复合设备
 **个人参与**: 仿真环境、提示词

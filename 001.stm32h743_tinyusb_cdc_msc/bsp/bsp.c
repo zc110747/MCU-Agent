@@ -12,6 +12,7 @@
  * -------------------------------------------------------------------------*/
 
 #include "bsp.h"
+#include "bsp_led.h"
 #include "stm32h7xx_hal.h"
 
 uint32_t g_sysclk_hz;
@@ -123,30 +124,6 @@ static void usb_crs_config(void) {
   HAL_RCCEx_CRSConfig(&crs);
 }
 
-/* ------------------------------------------------------------------------ */
-static void led_init(void) {
-  GPIO_InitTypeDef g = {0};
-  LED_GPIO_CLK_EN();
-  g.Pin   = LED_GPIO_PIN;
-  g.Mode  = GPIO_MODE_OUTPUT_PP;
-  g.Pull  = GPIO_NOPULL;
-  g.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_GPIO_PORT, &g);
-  board_led_write(false);
-}
-
-void board_led_write(bool on) {
-#if LED_ACTIVE_HIGH
-  HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
-#else
-  HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, on ? GPIO_PIN_RESET : GPIO_PIN_SET);
-#endif
-}
-
-void board_led_toggle(void) {
-  HAL_GPIO_TogglePin(LED_GPIO_PORT, LED_GPIO_PIN);
-}
-
 uint32_t board_millis(void)          { return HAL_GetTick(); }
 void     board_delay_ms(uint32_t ms) { HAL_Delay(ms); }
 
@@ -213,6 +190,6 @@ void bsp_init(void) {
   system_clock_config();
   usb_crs_config();
 
-  led_init();
+  bsp_led_init();
   usb_hw_init();
 }
