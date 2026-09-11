@@ -44,3 +44,20 @@ void _ttywrch(int ch)
 {
     ch = ch;
 }
+
+/* Non-semihosting stdout retarget.
+ * app/lwip/arch/cc.h routes LWIP_PLATFORM_ASSERT through printf(), so the C
+ * library's printf needs an fputc to write through. Without this definition
+ * the library's own (semihosting) fputc is pulled in and the linker aborts:
+ *   L6915E: __use_no_semihosting was requested, but a semihosting fputc was linked in
+ * Routing it to the project's own UART path instead keeps semihosting out of
+ * the image while preserving the assertion diagnostics. */
+int fputc(int ch, FILE *f)
+{
+    (void)f;
+    extern int uart_write(const unsigned char *data, int len);
+    unsigned char c = (unsigned char)ch;
+    (void)uart_write(&c, 1);
+    return ch;
+}
+
