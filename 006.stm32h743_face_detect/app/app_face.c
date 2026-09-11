@@ -44,7 +44,7 @@
 #include "drv_dcmi.h"
 #include "drv_spi_oled.h"
 #include "fd_infer.h"
-#include "logger.h"
+#include "bsp_log.h"
 
 /* ------------------------------------------------------------------ build */
 #ifndef APP_ENABLE_DETECT
@@ -116,14 +116,13 @@ static void fatal_screen(const char *msg);
 /* ------------------------------------------------------------------- init */
 GlobalType_t app_face_init(void)
 {
-    PRINT_LOG(LOG_INFO, HAL_GetTick(),
-              "=== STM32H743 face detect (%s) ===",
+    PRINT_LOG("=== STM32H743 face detect (%s) ===",
               APP_ENABLE_DETECT ? "camera + NN" : "camera preview only");
 
     /* 1. Panel first, so later failures have somewhere to be reported. */
     if (driver_spi_oled_init() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "oled init failed");
+        PRINT_LOG("oled init failed");
         return RT_FAIL;
     }
     LCD_SetBackColor(LCD_BLACK);
@@ -143,7 +142,7 @@ GlobalType_t app_face_init(void)
     /* 3. Camera. */
     if (drv_dcmi_init() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "camera init failed");
+        PRINT_LOG("camera init failed");
         fatal_screen("CAM INIT FAIL");
         return RT_FAIL;
     }
@@ -155,7 +154,7 @@ GlobalType_t app_face_init(void)
 
     if (drv_dcmi_start() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "camera start failed");
+        PRINT_LOG("camera start failed");
         fatal_screen("CAM START FAIL");
         return RT_FAIL;
     }
@@ -166,8 +165,7 @@ GlobalType_t app_face_init(void)
     s_last_face_tick = 0u;
     s_miss_count     = 0u;
 
-    PRINT_LOG(LOG_INFO, HAL_GetTick(),
-              "pipeline running: %dx%d capture -> %dx%d input -> %dx%d panel",
+    PRINT_LOG("pipeline running: %dx%d capture -> %dx%d input -> %dx%d panel",
               CAPTURE_WIDTH, CAPTURE_HEIGHT, FD_INPUT_W, FD_INPUT_H,
               LCD_WIDTH, LCD_HEIGHT);
     return RT_OK;
@@ -186,7 +184,7 @@ void app_face_loop(void)
     if (g_dcmi_overruns != s_overruns)
     {
         s_overruns = g_dcmi_overruns;
-        PRINT_LOG(LOG_WARN, now, "dcmi overrun #%lu, restarting",
+        PRINT_LOG("dcmi overrun #%lu, restarting",
                   (unsigned long)s_overruns);
         drv_dcmi_recover();
         return;
@@ -255,8 +253,7 @@ void app_face_loop(void)
         s_loop_fps   = (uint8_t)s_loop_count;
         s_loop_count = 0u;
 
-        PRINT_LOG(LOG_INFO, now,
-                  "cam %2u fps | pipe %2u fps | nn %5lu us | faces %u | peak %u%%"
+        PRINT_LOG("cam %2u fps | pipe %2u fps | nn %5lu us | faces %u | peak %u%%"
                   " | ovr %lu",
                   g_dcmi_fps, s_loop_fps, (unsigned long)s_res.infer_us,
                   faces, (unsigned)((peak * 100u + 127u) / 255u),

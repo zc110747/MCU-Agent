@@ -1,14 +1,18 @@
 ; *****************************************************************************
-; * stm32h743.sct - scatter for 003.stm32h743_lvgl_oled (Keil MDK-ARM)
+; * stm32h743.sct - scatter for 004.stm32h743_sd_oled_img (Keil MDK-ARM)
 ; *
 ; * Mirrors sys_startup/STM32H743ZITX_FLASH.ld:
 ; *   - Main RAM (.data/.bss/heap/stack) goes to AXI SRAM (D1, 0x24000000,
 ; *     512K) because the SDMMC1 internal DMA (IDMA) cannot access DTCM, so
 ; *     any FatFs / SD sector buffer living there would silently fail. Every
 ; *     master can reach AXI SRAM, so it is the safe default.
-; *   - .dtcm  section  -> DTCM   (0x20000000, 128K) latency-critical data
-; *   - .ram_d2 section  -> SRAM_D2 (0x30000000, 288K)
 ; *   - overflow         -> SRAM_D3 (0x38000000, 64K)
+; *
+; * NOTE: unlike 003/008, this project has NO user of the optional `.dtcm`
+; * or `.ram_d2` sections, so no scatter region is declared for them (an
+; * empty match pattern would raise L6314W "No section matches pattern").
+; * If a future module needs SRAM_D2, add back:
+; *   RW_IRAM3 0x30000000 0x00048000 { *.o (.ram_d2) }  ; SRAM_D2
 ; *
 ; * Heap/stack use the two-region model (__use_two_region_memory): the STACK
 ; * and HEAP AREAs from the startup land in the first .ANY (+RW +ZI) region
@@ -17,8 +21,6 @@
 LR_IROM1 0x08000000 0x00200000
 {
   ER_IROM1 0x08000000 0x00200000  { *.o (RESET, +First) * (InRoot$$Sections) .ANY (+RO) }
-
-  RW_IRAM3 0x30000000 0x00048000  { *.o (.ram_d2) }  ; SRAM_D2
 
   RW_IRAM1 0x24000000 0x00080000  { .ANY (+RW +ZI) }                 ; AXI SRAM (main)
   RW_IRAM4 0x38000000 0x00010000  { .ANY (+RW +ZI) }                 ; SRAM_D3 (overflow)

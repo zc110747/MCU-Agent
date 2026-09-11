@@ -109,13 +109,40 @@ include_directories(
   third_party/tjpgd
 )
 
-# ---- HAL driver sources (glob, then drop the HAL template files) ------------
-#  The *_template.c files redefine HAL_MspInit / HAL_InitTick and would either
-#  clash with our stm32h7xx_hal_msp.c or silently (and wrongly) replace the
-#  SysTick-based tick handler, so they are excluded from the build.
-file(GLOB HAL_DRIVER_SRCS CONFIGURE_DEPENDS
-     Drivers/STM32H7xx_HAL_Driver/Src/*.c)
-list(FILTER HAL_DRIVER_SRCS EXCLUDE REGEX ".*_template\\.c$")
+# ---- HAL driver sources: import ONLY the modules actually used --------------
+#  Reverse-looked-up from the HAL_*() calls in Core/ bsp/ app/:
+#    DCMI  DMA  GPIO  I2C  PWR  RCC  RTC  SD  SPI  UART  (+ 5 mandatory core)
+#  No TIM: the HAL tick comes from SysTick (no *_timebase_tim.c in this project).
+#  hal_dma(+_ex) is referenced from hal_dcmi.c / hal_spi.c / hal_uart.c / hal_i2c.c.
+#  The *_template.c files are intentionally NOT listed (they would clash with
+#  our stm32h7xx_hal_msp.c or wrongly replace the SysTick tick handler).
+set(HAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src)
+set(HAL_DRIVER_SRCS
+    # --- mandatory core ---
+    ${HAL_DIR}/stm32h7xx_hal.c
+    ${HAL_DIR}/stm32h7xx_hal_cortex.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_gpio.c
+    # --- power ---
+    ${HAL_DIR}/stm32h7xx_hal_pwr.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
+    # --- dma (referenced by dcmi/spi/uart/i2c drivers) ---
+    ${HAL_DIR}/stm32h7xx_hal_dma.c
+    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
+    # --- peripherals actually used: DCMI / I2C / RTC / SD (polling) / SPI / UART ---
+    ${HAL_DIR}/stm32h7xx_hal_dcmi.c
+    ${HAL_DIR}/stm32h7xx_hal_i2c.c
+    ${HAL_DIR}/stm32h7xx_hal_i2c_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_rtc.c
+    ${HAL_DIR}/stm32h7xx_hal_rtc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_sd.c
+    ${HAL_DIR}/stm32h7xx_ll_sdmmc.c
+    ${HAL_DIR}/stm32h7xx_hal_spi.c
+    ${HAL_DIR}/stm32h7xx_hal_spi_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_uart.c
+    ${HAL_DIR}/stm32h7xx_hal_uart_ex.c
+)
 
 # ---- LVGL sources -----------------------------------------------------------
 #  LVGL is built the way upstream intends: compile everything and let the

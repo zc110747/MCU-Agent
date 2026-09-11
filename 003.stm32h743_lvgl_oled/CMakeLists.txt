@@ -115,12 +115,36 @@ include_directories(
 )
 
 # ---- HAL driver sources (glob, then drop the HAL template files) ------------
-#  The *_template.c files redefine HAL_MspInit / HAL_InitTick and would either
-#  clash with our stm32h7xx_hal_msp.c or silently (and wrongly) replace the
-#  SysTick-based tick handler, so they are excluded from the build.
-file(GLOB HAL_DRIVER_SRCS CONFIGURE_DEPENDS
-     Drivers/STM32H7xx_HAL_Driver/Src/*.c)
-list(FILTER HAL_DRIVER_SRCS EXCLUDE REGEX ".*_template\\.c$")
+#  HAL: import ONLY the modules this project actually uses (do not glob the whole Src dir).
+#  Reverse-looked-up from the HAL_*() calls in Core/ bsp/ app/:
+#    GPIO  PWR  RCC  RTC  SD  SPI  UART   (+ the 5 mandatory core modules)
+#  The 5 mandatory core modules (hal / hal_cortex / hal_rcc / hal_rcc_ex / hal_gpio)
+#  are always required.  No DMA/timebase-TIM here: SDMMC1 and SPI6 both run in
+#  polling mode, and the HAL tick comes from SysTick.
+set(HAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src)
+set(HAL_DRIVER_SRCS
+    # --- mandatory core ---
+    ${HAL_DIR}/stm32h7xx_hal.c
+    ${HAL_DIR}/stm32h7xx_hal_cortex.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_gpio.c
+    # --- power ---
+    ${HAL_DIR}/stm32h7xx_hal_pwr.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
+    # --- dma (required by hal_spi.c: its DMA-mode code is kept as a unit by ARMCLANG) ---
+    ${HAL_DIR}/stm32h7xx_hal_dma.c
+    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
+    # --- peripherals actually used: SD (polling) / SPI / UART / RTC ---
+    ${HAL_DIR}/stm32h7xx_hal_sd.c
+    ${HAL_DIR}/stm32h7xx_ll_sdmmc.c
+    ${HAL_DIR}/stm32h7xx_hal_spi.c
+    ${HAL_DIR}/stm32h7xx_hal_spi_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_uart.c
+    ${HAL_DIR}/stm32h7xx_hal_uart_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_rtc.c
+    ${HAL_DIR}/stm32h7xx_hal_rtc_ex.c
+)
 
 # ---- LVGL sources -----------------------------------------------------------
 #  LVGL is built the way upstream intends: compile everything and let the

@@ -37,7 +37,7 @@
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
           <BinPath></BinPath>
-          <IncludePath>..\Core\Inc;..\bsp;..\app;..\middleware\person_detect;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\sys_startup;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\DSP\Include;..\Drivers\CMSIS\NN\Include</IncludePath>
+          <IncludePath>..\Core\Inc;..\bsp;..\app;..\middleware\face_detect;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\sys_startup;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\DSP\Include;..\Drivers\CMSIS\NN\Include</IncludePath>
           <LibPath></LibPath>
           <RegisterFilePath></RegisterFilePath>
           <DBRegisterFilePath></DBRegisterFilePath>
@@ -339,7 +339,7 @@
               <MiscControls>-Wno-unused-parameter -Wno-sign-compare -fno-strict-aliasing</MiscControls>
               <Define>STM32H743xx,USE_HAL_DRIVER,USE_FULL_LL_DRIVER,ARM_MATH_CM7,__FPU_PRESENT=1U</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Inc;..\bsp;..\app;..\middleware\person_detect;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\sys_startup;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\DSP\Include;..\Drivers\CMSIS\NN\Include</IncludePath>
+              <IncludePath>..\Core\Inc;..\bsp;..\app;..\middleware\face_detect;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\sys_startup;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\DSP\Include;..\Drivers\CMSIS\NN\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -357,7 +357,7 @@
               <MiscControls></MiscControls>
               <Define></Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Inc;..\bsp;..\app;..\middleware\person_detect;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\sys_startup;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\DSP\Include;..\Drivers\CMSIS\NN\Include</IncludePath>
+              <IncludePath>..\Core\Inc;..\bsp;..\app;..\middleware\face_detect;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\sys_startup;..\Drivers\CMSIS\Core\Include;..\Drivers\CMSIS\DSP\Include;..\Drivers\CMSIS\NN\Include</IncludePath>
             </VariousControls>
           </Aads>
           <LDads>
@@ -454,24 +454,24 @@
           <GroupName>App</GroupName>
           <Files>
             <File>
-              <FileName>app_vision.c</FileName>
+              <FileName>app_face.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\app\app_vision.c</FilePath>
+              <FilePath>..\app\app_face.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Middleware/PersonDetect</GroupName>
+          <GroupName>Middleware/FaceDetect</GroupName>
           <Files>
             <File>
-              <FileName>pd_model_data.c</FileName>
+              <FileName>fd_model_data.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\middleware\person_detect\pd_model_data.c</FilePath>
+              <FilePath>..\middleware\face_detect\fd_model_data.c</FilePath>
             </File>
             <File>
-              <FileName>pd_infer.c</FileName>
+              <FileName>fd_infer.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\middleware\person_detect\pd_infer.c</FilePath>
+              <FilePath>..\middleware\face_detect\fd_infer.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -934,16 +934,6 @@
               <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_gpio.c</FilePath>
             </File>
             <File>
-              <FileName>stm32h7xx_hal_pwr.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32h7xx_hal_pwr_ex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr_ex.c</FilePath>
-            </File>
-            <File>
               <FileName>stm32h7xx_hal_dma.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma.c</FilePath>
@@ -952,6 +942,16 @@
               <FileName>stm32h7xx_hal_dma_ex.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_pwr.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_pwr_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr_ex.c</FilePath>
             </File>
             <File>
               <FileName>stm32h7xx_hal_dcmi.c</FileName>

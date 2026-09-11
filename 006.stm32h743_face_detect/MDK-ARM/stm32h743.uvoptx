@@ -370,16 +370,16 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\app\app_vision.c</PathWithFileName>
-      <FilenameWithoutPath>app_vision.c</FilenameWithoutPath>
+      <PathWithFileName>..\app\app_face.c</PathWithFileName>
+      <FilenameWithoutPath>app_face.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
   </Group>
 
   <Group>
-    <GroupName>Middleware/PersonDetect</GroupName>
-    <tvExp>1</tvExp>
+    <GroupName>Middleware/FaceDetect</GroupName>
+    <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
     <RteFlg>0</RteFlg>
@@ -390,8 +390,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\middleware\person_detect\pd_model_data.c</PathWithFileName>
-      <FilenameWithoutPath>pd_model_data.c</FilenameWithoutPath>
+      <PathWithFileName>..\middleware\face_detect\fd_model_data.c</PathWithFileName>
+      <FilenameWithoutPath>fd_model_data.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -402,8 +402,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\middleware\person_detect\pd_infer.c</PathWithFileName>
-      <FilenameWithoutPath>pd_infer.c</FilenameWithoutPath>
+      <PathWithFileName>..\middleware\face_detect\fd_infer.c</PathWithFileName>
+      <FilenameWithoutPath>fd_infer.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -1510,8 +1510,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr.c</PathWithFileName>
-      <FilenameWithoutPath>stm32h7xx_hal_pwr.c</FilenameWithoutPath>
+      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma.c</PathWithFileName>
+      <FilenameWithoutPath>stm32h7xx_hal_dma.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -1522,8 +1522,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr_ex.c</PathWithFileName>
-      <FilenameWithoutPath>stm32h7xx_hal_pwr_ex.c</FilenameWithoutPath>
+      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma_ex.c</PathWithFileName>
+      <FilenameWithoutPath>stm32h7xx_hal_dma_ex.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -1534,8 +1534,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma.c</PathWithFileName>
-      <FilenameWithoutPath>stm32h7xx_hal_dma.c</FilenameWithoutPath>
+      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr.c</PathWithFileName>
+      <FilenameWithoutPath>stm32h7xx_hal_pwr.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -1546,8 +1546,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_dma_ex.c</PathWithFileName>
-      <FilenameWithoutPath>stm32h7xx_hal_dma_ex.c</FilenameWithoutPath>
+      <PathWithFileName>..\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_pwr_ex.c</PathWithFileName>
+      <FilenameWithoutPath>stm32h7xx_hal_pwr_ex.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

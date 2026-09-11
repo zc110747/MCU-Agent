@@ -79,9 +79,36 @@ set(PROJECT_INCLUDES
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
-file(GLOB HAL_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src/*.c)
-list(FILTER HAL_SOURCES EXCLUDE REGEX ".*_template\\.c$")
+# HAL: import ONLY the modules this project actually uses (do not glob the whole Src dir).
+# Reverse-looked-up from the HAL_*() calls in Core/ bsp/ app/:
+#   DCMI  DMA  GPIO  I2C  PWR  RCC  SPI  UART   (+ the 5 mandatory core modules)
+# The 5 mandatory core modules (hal / hal_cortex / hal_rcc / hal_rcc_ex / hal_gpio) are always required.
+# hal_dma(+_ex) is required because hal_dcmi.c / hal_spi.c / hal_uart.c / hal_i2c.c reference HAL_DMA_* symbols.
+# Deliberately NOT included: sd / sd_ex / sdio / ll_sdmmc / ll_rcc / tim / tim_ex / flash / flash_ex
+#   -- none of them are referenced by this project (SD only appears inside hal_conf.h guards).
+set(HAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src)
+set(HAL_SOURCES
+    # --- mandatory core ---
+    ${HAL_DIR}/stm32h7xx_hal.c
+    ${HAL_DIR}/stm32h7xx_hal_cortex.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_gpio.c
+    # --- power ---
+    ${HAL_DIR}/stm32h7xx_hal_pwr.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
+    # --- dma (referenced by dcmi/spi/uart/i2c drivers) ---
+    ${HAL_DIR}/stm32h7xx_hal_dma.c
+    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
+    # --- peripherals actually used: DCMI (camera) / I2C / SPI / UART ---
+    ${HAL_DIR}/stm32h7xx_hal_dcmi.c
+    ${HAL_DIR}/stm32h7xx_hal_i2c.c
+    ${HAL_DIR}/stm32h7xx_hal_i2c_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_spi.c
+    ${HAL_DIR}/stm32h7xx_hal_spi_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_uart.c
+    ${HAL_DIR}/stm32h7xx_hal_uart_ex.c
+)
 
 file(GLOB_RECURSE CMSIS_NN_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/NN/Source/*.c)

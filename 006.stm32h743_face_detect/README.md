@@ -10,7 +10,7 @@
 
 | 项目 | 规格 |
 |------|------|
-| MCU | STM32H743ZIT6（Cortex-M7 @ 400 MHz，1 MB Flash / 1 MB RAM，含 512 KB AXI-SRAM） |
+| MCU | STM32H743ZIT6（Cortex-M7 @ 400 MHz，2 MB Flash / 1 MB RAM，含 512 KB AXI-SRAM） |
 | 主时钟 | 25 MHz 无源晶振 → 内部 PLL 倍频 |
 | 摄像头 | OV5640，DCMI 接口，QVGA(240×240) 输出后裁到 96×96 做 AI |
 | 显示屏 | 240×240 SPI OLED（已验证驱动，四线 SPI） |
@@ -65,12 +65,13 @@ stm_face_detect/
 │   ├── app_face.c / .h        # 应用层：三缓冲合成 + 画框 + 去抖 + 信息栏
 │   └── ...
 ├── bsp/                       # 用户驱动（移植自 005 工程并裁剪）
+│   ├── bsp_log.c/.h           # USART1 控制台 + 非阻塞 PRINT_LOG（TX 环 + TXE 中断）
 │   ├── drv_dcmi.c/.h          # DCMI + 双缓冲管理
 │   ├── drv_dcmi_ov5640.c/.h   # OV5640 初始化/SCCB
 │   ├── drv_spi_oled.c/.h      # 240×240 OLED SPI 驱动
-│   ├── drv_oled_fonts.c/.h    # 字体
-│   ├── drv_uart.c/.h          # 调试串口
-│   └── logger.h
+│   └── drv_oled_fonts.c/.h    # 字体
+├── MDK-ARM/                   # Keil MDK-ARM 工程（uvprojx + 分散加载 sct）
+│   └── stm32h743.uvprojx      # 与 CMakeLists.txt 共用同一份源码集合
 ├── middleware/face_detect/     # 人脸检测中间件（与芯片无关）
 │   ├── fd_infer.c/.h          # CMSIS-NN 推理 + CenterNet 解码
 │   ├── fd_model_data.c/.h     # 导出的 int8 权重（≈49 KB const）
@@ -79,9 +80,8 @@ stm_face_detect/
 ├── Drivers/                   # STM32 HAL + CMSIS（含 CMSIS-NN）
 ├── cmake/toolchain-arm-none-eabi.cmake
 ├── CMakeLists.txt / CMakePresets.json
-├── debug/
-│   ├── openocd.cfg            # ST-Link + STM32H7 SWD 配置
-│   └── probe.gdb
+├── openocd.cfg                # ST-Link + STM32H7 SWD 配置（工程根）
+├── STM32H743.svd              # 寄存器描述（工程根）
 ├── .vscode/                   # launch/tasks/c_cpp/settings
 └── tools/                     # PC 端训练/导出/仿真（见第 6 节）
     ├── fd_arch.py             # 网络结构定义（Keras）
@@ -118,21 +118,39 @@ cmake --build --preset release
 
 产物：`build/debug/stm32h7_face_detect.elf`（零告警构建已验证）。
 
+### 构建（Keil MDK-ARM，可选）
+
+`MDK-ARM/stm32h743.uvprojx` 与 CMake 工程**共用同一份源码集合**（HAL 模块清单逐项对齐，
+两侧均为 16 个 HAL 源文件）。引擎 ARMCLANG V6.14 + DFP `Keil.STM32H7xx_DFP.4.1.3`。
+
+```bat
+"C:\Keil_v5\UV4\UV4.exe" -b -j0 -t stm32h743 ^
+  -x "MDK-ARM\stm32h743.uvprojx" -o "MDK-ARM\build_log.htm"
+```
+
+产物 `MDK-ARM/Objects/stm32h743.{axf,hex,bin}`；判定依据 `build_log.htm` 末行
+`0 Error(s), 0 Warning(s)`。
+
+> **实现要点**：Keil 侧**不含 `syscalls.c`**、也不含 `mdk_target.c`（ARMCLANG 自带堆与
+> 半主机抑制）。控制台输出统一走 `bsp/bsp_log.c` 的 `PRINT_LOG()` → `uart_write()`
+> 非阻塞 TX 环；`bsp_log.c` 里的 `_write()` 重定向用 `#if defined(__GNUC__) &&
+> !defined(__ARMCC_VERSION)` 守卫，因此 GCC 与 Keil **编译同一份日志源码**。
+
 ### 烧录（OpenOCD + ST-Link）
 
 ```bash
-openocd -f debug/openocd.cfg \
+openocd -f openocd.cfg \
   -c "program build/debug/stm32h7_face_detect.elf verify reset exit"
 ```
 
 ### 调试（VSCode Cortex-Debug）
 
-`.vscode/launch.json` 已配好三套配置（Debug / Attach / Debug Release），设备 `STM32H743ZI`，SVD `tools/STM32H743.svd`，均走 PATH 中的 OpenOCD（无绝对路径，便于跨机）。
+`.vscode/launch.json` 已配好三套配置（Debug / Attach / Debug Release），设备 `STM32H743ZI`，SVD `STM32H743.svd`（工程根），均走 PATH 中的 OpenOCD（无绝对路径，便于跨机）。
 
 **真机运行时只读回读技巧**（无需单步也能确认管线活着）：
 
 ```bash
-openocd -f debug/openocd.cfg -c init -c "reset run" \
+openocd -f openocd.cfg -c init -c "reset run" \
   -c "sleep 3000" -c halt \
   -c "mdw <addr> 1" -c resume -c shutdown
 ```
@@ -222,7 +240,7 @@ python tools/fd_sim.py --cache tools/runs/cache_*.npz --num 24 --preview preview
 | 训练最佳 val_loss | 1.1395（60 epoch） |
 | 200 张 val @ 阈值115 中心命中 | 80/178 ≈ 45%（含大量严重降采样干扰图） |
 | 标定范围 head_hm / head_wh | [-6.58, +1.22] / [-0.009, +0.547] |
-| 固件 FLASH | ≈123 KB（5.86%） |
+| 固件 FLASH | 123512 B / 2 MB（5.89%，GCC 实测） |
 | 固件 RAM | ≈158 KB（61.61%，含双帧 DMA 144 KB） |
 | 烧录 verify | OK |
 | 真机 SWD 回读：overruns | **0**（无撕裂） |
@@ -243,7 +261,7 @@ python tools/fd_sim.py --cache tools/runs/cache_*.npz --num 24 --preview preview
 # 1) 构建并烧录固件
 cmake --preset debug
 cmake --build --preset debug
-openocd -f debug/openocd.cfg -c "program build/debug/stm32h7_face_detect.elf verify reset exit"
+openocd -f openocd.cfg -c "program build/debug/stm32h7_face_detect.elf verify reset exit"
 
 # 2)（如需重训模型）准备 WIDER FACE 到 tools/dataset，然后：
 python tools/fd_train.py --epochs 60 --batch 64

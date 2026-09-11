@@ -27,10 +27,37 @@ set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup/STM32H743ZITX_FLASH.ld
 #  Sources
 # ---------------------------------------------------------------------------
 
-# HAL: pull everything except the CubeMX *_template.c examples
-file(GLOB HAL_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src/*.c)
-list(FILTER HAL_SOURCES EXCLUDE REGEX ".*_template\\.c$")
+# HAL: import ONLY the modules this project actually uses (do not glob the whole Src dir).
+# Reverse-looked-up from the HAL_*() calls in Core/ bsp/ app/:
+#   GPIO PWR RCC SD SPI TIM UART EXTXRCC -> see list below.
+# The 5 mandatory core modules (hal / hal_cortex / hal_rcc / hal_rcc_ex / hal_gpio) are always required.
+# hal_dma(+_ex) is required because hal_uart.c / hal_spi.c / hal_tim.c reference HAL_DMA_* symbols.
+# hal_exti is required because hal_pwr_ex.c references HAL_EXTI_Dx_EventInputConfig().
+# ll_sdmmc.c is a required companion of hal_sd.c (register-level SDMMC layer).
+set(HAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src)
+set(HAL_SOURCES
+    # --- mandatory core ---
+    ${HAL_DIR}/stm32h7xx_hal.c
+    ${HAL_DIR}/stm32h7xx_hal_cortex.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_gpio.c
+    # --- power + exti ---
+    ${HAL_DIR}/stm32h7xx_hal_pwr.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_exti.c
+    # --- dma (referenced by uart/spi/tim drivers) ---
+    ${HAL_DIR}/stm32h7xx_hal_dma.c
+    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
+    # --- peripherals actually used: SD (polling) / SPI / TIM / UART ---
+    ${HAL_DIR}/stm32h7xx_hal_sd.c
+    ${HAL_DIR}/stm32h7xx_ll_sdmmc.c
+    ${HAL_DIR}/stm32h7xx_hal_spi.c
+    ${HAL_DIR}/stm32h7xx_hal_tim.c
+    ${HAL_DIR}/stm32h7xx_hal_tim_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_uart.c
+    ${HAL_DIR}/stm32h7xx_hal_uart_ex.c
+)
 
 file(GLOB CORE_SOURCES  CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/*.c)
 file(GLOB BSP_SOURCES   CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/bsp/*.c)
