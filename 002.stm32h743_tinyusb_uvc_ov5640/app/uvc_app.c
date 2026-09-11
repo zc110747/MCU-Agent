@@ -46,6 +46,17 @@ static uint8_t s_fb[FB_COUNT][FRAME_SIZE];
 volatile uint32_t uvc_frames_sent    = 0;
 volatile uint32_t uvc_frames_dropped = 0;
 
+/* Rolling frame-rate telemetry. uvc_fps_x10 is refreshed once per
+ * uvc_fps_window_ms of wall-clock time from the uvc_frames_sent delta, so the
+ * debugger/host reads the *actual* throughput (the USB FS bandwidth bound) with
+ * a single SWD access - no external poller stalling the DCMI/USB pipelines.
+ * Covers both the live-sensor path and the synthetic test pattern, since both
+ * bump uvc_frames_sent in tud_video_frame_xfer_complete_cb(). */
+volatile uint32_t uvc_fps_x10       = 0; /* live fps * 10, e.g. 80 == 8.0 fps */
+volatile uint32_t uvc_fps_window_ms = 1000U;
+volatile uint32_t uvc_fps_frames    = 0; /* frames counted in the last window  */
+volatile uint32_t uvc_fps_ms        = 0; /* elapsed ms of the last window       */
+
 /* USB lifecycle telemetry - readable over SWD without a serial port. */
 volatile uint32_t usb_mounted       = 0; /* 1 while the host has us configured */
 volatile uint32_t usb_mount_count   = 0; /* number of successful enumerations  */
@@ -202,6 +213,28 @@ void uvc_app_task(void)
               ((s_ready_idx >= 0) ? 0x08U : 0U) |
               (s_camera_ok        ? 0x10U : 0U) |
               (s_cam_running      ? 0x20U : 0U);
+
+  /* ---- 0. Rolling frame-rate estimate ----
+   * Accumulate sent frames over a sliding wall-clock window and publish the
+   * result as uvc_fps_x10, so a single SWD read reports the *actual* throughput
+   * rather than the announced FRAME_RATE. The first window after boot may mix
+   * pre-stream samples (frames == 0 -> 0 fps), then it tracks live within one
+   * uvc_fps_window_ms. */
+  {
+    static uint32_t s_fps_base_sent = 0U;
+    static uint32_t s_fps_base_ms   = 0U;
+    const uint32_t  dt = now - s_fps_base_ms;
+
+    if (dt >= uvc_fps_window_ms) {
+      const uint32_t frames = uvc_frames_sent - s_fps_base_sent;
+      /* fps * 10 = frames * 10000 / dt_ms  (10000 == 10 * 1000). */
+      uvc_fps_x10   = (frames * 10000U) / dt;
+      uvc_fps_frames = frames;
+      uvc_fps_ms     = dt;
+      s_fps_base_sent = uvc_frames_sent;
+      s_fps_base_ms   = now;
+    }
+  }
 
   /* ---- 1. Track the host-driven streaming state ---- */
   bool host_streaming = tud_video_n_streaming(0, 0);

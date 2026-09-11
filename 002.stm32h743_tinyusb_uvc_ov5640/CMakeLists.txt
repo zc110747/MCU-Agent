@@ -33,21 +33,21 @@ set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/sys_startup/STM32H743ZITx_FLASH.ld)
 # Sources
 # --------------------------------------------------------------------------
 set(APP_SOURCES
-    Core/Src/main.c
+    app/main.c
+    app/stm32h7xx_hal_msp.c
+    app/stm32h7xx_it.c
+    app/uvc_app.c
+    app/syscalls.c
     sys_startup/system_stm32h7xx.c
-    Core/Src/stm32h7xx_it.c
-    Core/Src/stm32h7xx_hal_msp.c
-    Core/Src/bsp_board.c
-    Core/Src/bsp_camera.c
-    Core/Src/ov5640_ref.c
-    Core/Src/usb_descriptors.c
-    Core/Src/uvc_app.c
-    Core/Src/syscalls.c
 )
 
-set(OV5640_SOURCES
-    BSP/ov5640/ov5640.c
-    BSP/ov5640/ov5640_reg.c
+set(BSP_SOURCES
+    bsp/ov5640/ov5640.c
+    bsp/ov5640/ov5640_reg.c
+    bsp/bsp_board.c
+    bsp/bsp_camera.c
+    bsp/bsp_ov5640_ref.c
+    bsp/usb_descriptors.c
 )
 
 set(HAL_SOURCES
@@ -92,7 +92,7 @@ set(STARTUP_SOURCE sys_startup/gcc/startup_stm32h743xx.s)
 
 add_executable(${TARGET_NAME}
     ${APP_SOURCES}
-    ${OV5640_SOURCES}
+    ${BSP_SOURCES}
     ${HAL_SOURCES}
     ${TINYUSB_SOURCES}
     ${STARTUP_SOURCE}
@@ -102,8 +102,9 @@ add_executable(${TARGET_NAME}
 # Include directories
 # --------------------------------------------------------------------------
 target_include_directories(${TARGET_NAME} PRIVATE
-    Core/Inc
-    BSP/ov5640
+    app/
+    bsp/
+    bsp/ov5640
     ${HAL_DIR}/Inc
     ${HAL_DIR}/Inc/Legacy
     ${CMSIS_DIR}/Include
@@ -145,7 +146,7 @@ target_compile_options(${TARGET_NAME} PRIVATE
 )
 
 # Third-party code should not fail the build on style warnings
-set_source_files_properties(${HAL_SOURCES} ${OV5640_SOURCES} ${TINYUSB_SOURCES}
+set_source_files_properties(${HAL_SOURCES} ${BSP_SOURCES} ${TINYUSB_SOURCES}
     PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
 
 # --------------------------------------------------------------------------
@@ -185,7 +186,7 @@ find_program(OPENOCD_EXECUTABLE openocd)
 if(OPENOCD_EXECUTABLE)
     add_custom_target(flash
         COMMAND ${OPENOCD_EXECUTABLE}
-                -f ${CMAKE_SOURCE_DIR}/debug/openocd.cfg
+                -f ${CMAKE_SOURCE_DIR}/openocd.cfg
                 -c "program $<TARGET_FILE:${TARGET_NAME}> verify reset exit"
         DEPENDS ${TARGET_NAME}
         COMMENT "Flashing ${TARGET_NAME}.elf via ST-Link")

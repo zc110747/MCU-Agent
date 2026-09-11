@@ -29,6 +29,14 @@ bool uvc_app_is_streaming(void);
 extern volatile uint32_t uvc_frames_sent;
 extern volatile uint32_t uvc_frames_dropped;
 
+/* Rolling frame-rate telemetry (see uvc_app.c). uvc_fps_x10 is the live
+ * throughput in fps*10 (e.g. 80 == 8.0 fps); read it once over SWD instead of
+ * polling the sent counter from the host. */
+extern volatile uint32_t uvc_fps_x10;
+extern volatile uint32_t uvc_fps_window_ms;
+extern volatile uint32_t uvc_fps_frames;
+extern volatile uint32_t uvc_fps_ms;
+
 /* USB lifecycle telemetry (see uvc_app.c) */
 extern volatile uint32_t usb_mounted;
 extern volatile uint32_t usb_mount_count;

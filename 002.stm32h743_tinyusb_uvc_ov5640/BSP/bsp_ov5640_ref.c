@@ -27,7 +27,7 @@
  ******************************************************************************
  */
 
-#include "ov5640_ref.h"
+#include "bsp_ov5640_ref.h"
 #include "bsp_camera.h"
 
 /* Sensor-side output size. The DCMI crop window trims this to FRAME_WIDTH x

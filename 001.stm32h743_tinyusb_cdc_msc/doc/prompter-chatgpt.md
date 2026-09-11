@@ -359,39 +359,27 @@ static void uart_tx_enable_irq(void)
 函数命名：
 
 ```c
-usb_init();
-usb_task();
+bsp_usb_init();
+bsp_usb_task();
 
-sdcard_init();
-sdcard_read();
-sdcard_write();
+bsp_uart_init();
+bsp_uart_write();
 
-storage_init();
-storage_read();
-storage_write();
-
-uart_init();
-uart_write();
-
-led_init();
-led_on();
-led_off();
-led_toggle();
+bsp_led_init();
+bsp_led_on();
+bsp_led_off();
+bsp_led_toggle();
 ```
 
 文件命名：
 
 ```text
-usb_device.c
-usb_device.h
 usb_descriptors.c
 usb_descriptors.h
-sdcard.c
-sdcard.h
-storage.c
-storage.h
-uart.c
-uart.h
+bsp_sdcard.c
+bsp_sdcard.h
+bsp_uart.c
+bsp_uart.h
 ```
 
 新增代码、文件和模块自动遵循以上规则。
