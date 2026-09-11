@@ -339,7 +339,7 @@
               <MiscControls>-Wno-unused-parameter -Wno-sign-compare</MiscControls>
               <Define>STM32H743xx,USE_HAL_DRIVER,HSE_VALUE=25000000,LV_FONT_ENGINE=2</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Inc;..\Bsp;..\Bsp\font;..\Application;..\Drivers\CMSIS\Include;..\sys_startup;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\third_party\FatFs;..\third_party\lvgl;..\third_party\lvgl\src;..\third_party\lvgl\src\extra\libs\tiny_ttf</IncludePath>
+              <IncludePath>..\app;..\bsp;..\bsp\font;..\Drivers\CMSIS\Include;..\sys_startup;..\Drivers\STM32H7xx_HAL_Driver\Inc;..\Drivers\STM32H7xx_HAL_Driver\Inc\Legacy;..\third_party\FatFs;..\third_party\lvgl;..\third_party\lvgl\src;..\third_party\lvgl\src\extra\libs\tiny_ttf</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -381,7 +381,7 @@
       </TargetOption>
       <Groups>
         <Group>
-          <GroupName>Application/Startup</GroupName>
+          <GroupName>sys_startup</GroupName>
           <Files>
             <File>
               <FileName>startup_stm32h743xx.s</FileName>
@@ -396,22 +396,22 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Application/User/Core</GroupName>
+          <GroupName>app</GroupName>
           <Files>
             <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Core\Src\main.c</FilePath>
+              <FilePath>..\app\main.c</FilePath>
             </File>
             <File>
               <FileName>stm32h7xx_hal_msp.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32h7xx_hal_msp.c</FilePath>
+              <FilePath>..\app\stm32h7xx_hal_msp.c</FilePath>
             </File>
             <File>
               <FileName>stm32h7xx_it.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32h7xx_it.c</FilePath>
+              <FilePath>..\app\stm32h7xx_it.c</FilePath>
             </File>
             <File>
               <FileName>mdk_target.c</FileName>
@@ -421,152 +421,152 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Bsp</GroupName>
+          <GroupName>bsp</GroupName>
           <Files>
             <File>
               <FileName>bsp_log.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\bsp_log.c</FilePath>
+              <FilePath>..\bsp\bsp_log.c</FilePath>
             </File>
             <File>
               <FileName>disk_interface.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\disk_interface.c</FilePath>
+              <FilePath>..\bsp\disk_interface.c</FilePath>
             </File>
             <File>
               <FileName>drv_oled_fonts.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\drv_oled_fonts.c</FilePath>
+              <FilePath>..\bsp\drv_oled_fonts.c</FilePath>
             </File>
             <File>
               <FileName>drv_oled_text.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\drv_oled_text.c</FilePath>
+              <FilePath>..\bsp\drv_oled_text.c</FilePath>
             </File>
             <File>
               <FileName>drv_rtc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\drv_rtc.c</FilePath>
+              <FilePath>..\bsp\drv_rtc.c</FilePath>
             </File>
             <File>
               <FileName>drv_sdio.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\drv_sdio.c</FilePath>
+              <FilePath>..\bsp\drv_sdio.c</FilePath>
             </File>
             <File>
               <FileName>drv_spi_oled.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\drv_spi_oled.c</FilePath>
+              <FilePath>..\bsp\drv_spi_oled.c</FilePath>
             </File>
             <File>
               <FileName>lv_font_gbk.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\lv_font_gbk.c</FilePath>
+              <FilePath>..\bsp\lv_font_gbk.c</FilePath>
             </File>
             <File>
               <FileName>lv_font_harmony.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\lv_font_harmony.c</FilePath>
+              <FilePath>..\bsp\lv_font_harmony.c</FilePath>
             </File>
             <File>
               <FileName>lv_font_provider.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\lv_font_provider.c</FilePath>
+              <FilePath>..\bsp\lv_font_provider.c</FilePath>
             </File>
             <File>
               <FileName>lv_gbk_map.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\lv_gbk_map.c</FilePath>
+              <FilePath>..\bsp\lv_gbk_map.c</FilePath>
             </File>
             <File>
               <FileName>lv_port_disp.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\lv_port_disp.c</FilePath>
+              <FilePath>..\bsp\lv_port_disp.c</FilePath>
             </File>
             <File>
               <FileName>lv_port_fs.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\lv_port_fs.c</FilePath>
+              <FilePath>..\bsp\lv_port_fs.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Bsp/font</GroupName>
+          <GroupName>bsp/font</GroupName>
           <Files>
             <File>
               <FileName>blkcache.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\font\blkcache.c</FilePath>
+              <FilePath>..\bsp\font\blkcache.c</FilePath>
             </File>
             <File>
               <FileName>ctf_reader.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\font\ctf_reader.c</FilePath>
+              <FilePath>..\bsp\font\ctf_reader.c</FilePath>
             </File>
             <File>
               <FileName>glyph_cache.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\font\glyph_cache.c</FilePath>
+              <FilePath>..\bsp\font\glyph_cache.c</FilePath>
             </File>
             <File>
               <FileName>lvgl_font.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\font\lvgl_font.c</FilePath>
+              <FilePath>..\bsp\font\lvgl_font.c</FilePath>
             </File>
             <File>
               <FileName>stb_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\font\stb_adapter.c</FilePath>
+              <FilePath>..\bsp\font\stb_adapter.c</FilePath>
             </File>
             <File>
               <FileName>ttf_reader.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\font\ttf_reader.c</FilePath>
+              <FilePath>..\bsp\font\ttf_reader.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Application</GroupName>
+          <GroupName>app/ui</GroupName>
           <Files>
             <File>
               <FileName>app_main.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\app_main.c</FilePath>
+              <FilePath>..\app\app_main.c</FilePath>
             </File>
             <File>
               <FileName>app_ui.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\app_ui.c</FilePath>
+              <FilePath>..\app\app_ui.c</FilePath>
             </File>
             <File>
               <FileName>ui_common.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\ui_common.c</FilePath>
+              <FilePath>..\app\ui_common.c</FilePath>
             </File>
             <File>
               <FileName>ui_page_boot.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\ui_page_boot.c</FilePath>
+              <FilePath>..\app\ui_page_boot.c</FilePath>
             </File>
             <File>
               <FileName>ui_page_fault.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\ui_page_fault.c</FilePath>
+              <FilePath>..\app\ui_page_fault.c</FilePath>
             </File>
             <File>
               <FileName>ui_page_font.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\ui_page_font.c</FilePath>
+              <FilePath>..\app\ui_page_font.c</FilePath>
             </File>
             <File>
               <FileName>ui_page_info.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\ui_page_info.c</FilePath>
+              <FilePath>..\app\ui_page_info.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Middlewares/FatFs</GroupName>
+          <GroupName>third_party/FatFs</GroupName>
           <Files>
             <File>
               <FileName>diskio.c</FileName>
@@ -681,7 +681,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Middlewares/LVGL</GroupName>
+          <GroupName>third_party/LVGL</GroupName>
           <Files>
             <File>
               <FileName>lv_disp.c</FileName>

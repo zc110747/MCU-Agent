@@ -60,6 +60,17 @@
   （ttf_reader 的 seek_cycles/read_cycles），首疑 f_read 读放大。方向：CTF v2 glyf 预取打包/顺序预读/FA_FASTSEEK。
 - README 第 8 节（8.1~8.14）已完整归档全部 Phase 成果与实机数据（含索引常驻 RAM）。
 
+## Keil MDK-ARM 工程（2026-09-11 与 CMakeLists 对齐，编译通过）
+- `MDK-ARM/stm32h743.uvprojx` 源文件集 = CMake 的 `PROJECT_SRCS + HAL_DRIVER_SRCS + GLOB(third_party/lvgl/src/*.c)`，
+  **245 个文件逐条一致**（LVGL 恰好 192 个）；宏与 include 路径也与 CMake 对齐。
+  差异仅两处（有意）：startup 用 `sys_startup/arm/`、`app/syscalls.c` 换成 `MDK-ARM/mdk_target.c`。
+- 编译：`MSYS_NO_PATHCONV=1 UV4.exe -b|-r "<绝对路径>\MDK-ARM\stm32h743.uvprojx" -o "<绝对路径>\....log"`
+  **`-o` 必须是绝对路径**，相对路径会静默不写日志（退出码仍为 0）。
+  AC6(armclang) V6.16 全量重编 **0 Error / 0 Warning**；FLASH 474576B(22.63%)、AXI SRAM 257752B(49.17%)、
+  SRAM_D2 204800B(69.44%)（scatter `stm32h743.sct` 与 GCC ld 脚本等价）。
+- 文件编辑铁律：`uvprojx`/`uvoptx` 是 CRLF/LF 混排，**禁用 sed**；用 Python 二进制 token 替换并带计数断言。
+  改 `.uvprojx` 时必须同步改 `.uvoptx`，否则 Keil GUI 文件树仍显示旧路径。
+
 ## 前期状态（2026-08-05 GBK 基线）
 - VSCode 仿真链路（reset/load/断点/单步/step into/变量监视/外设寄存器/attach）全部实测可用。
 - GBK 点阵链路（UNIGBK+GBK12/16/24/32）保留可用，作为引擎 0 的回退路径。

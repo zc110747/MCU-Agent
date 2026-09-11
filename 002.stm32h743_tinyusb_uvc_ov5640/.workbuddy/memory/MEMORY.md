@@ -2,13 +2,25 @@
 
 ## 硬件平台
 - 芯片: STM32H743ZIT6 (鹿小班开发板)
-- 编译器: arm-none-eabi-gcc, CMake 构建
+- 编译器: arm-none-eabi-gcc (CMake) + ARMCLANG (Keil MDK-ARM)；双构建并存
 - 调试: ST-Link + OpenOCD + cortex-debug
 - USB: FS (PA11/PA12), dwc2 rhport 0 @ 0x40080000
 - 内存: AXI SRAM 0x24000000 (512KB, non-cacheable via MPU Region0)
 
+## 工程结构（2026-09-11 重构：Core/ → app/ + bsp/）
+- `app/` 应用层：main.c/main.h、uvc_app.c/h、stm32h7xx_it.c、stm32h7xx_hal_msp.c、
+  stm32h7xx_hal_conf.h、tusb_config.h、syscalls.c(GCC 堆桩)
+- `bsp/` 板级/外设驱动：bsp_board.c、bsp_camera.c、bsp_ov5640_ref.c、
+  usb_descriptors.c、ov5640/(ST 组件参考驱动)
+- `sys_startup/` 启动文件/设备头/链接脚本（gcc|arm|iar + STM32H743ZITx_FLASH.ld）
+- `MDK-ARM/` Keil 工程（stm32h743.uvprojx + stm32h743.sct）：源列表/include/宏与
+  `CMakeLists.txt` 同步；用 `sys_startup/arm` 启动、**排除 app/syscalls.c**（由
+  `mdk_target.c` 提供 no-semihosting 重定向）
+- 旧 `Core/`+`BSP/` 已废弃；`ov5640_ref.c` → `bsp/bsp_ov5640_ref.c`（函数名
+  `ov5640_ref_init()` 不变）
+
 ## 关键技术决策
-1. **OV5640 驱动**: ST BSP 组件驱动 (`BSP/ov5640/`) 的 QVGA 表有 bug（水平 binning 未使能），改用用户提供的参考驱动 (`ov5640_ref.c`)
+1. **OV5640 驱动**: ST BSP 组件驱动 (`bsp/ov5640/`) 的 QVGA 表有 bug（水平 binning 未使能），改用用户提供的参考驱动 (`bsp/bsp_ov5640_ref.c`)
 2. **DCMI 极性**: RISING / LOW / LOW (PCK/VSYNC/HSYNC)，对应传感器 0x4740=0x21
 3. **传感器输出**: 400×300 YUV422/YUYV，DCMI crop 到 240×240
 4. **DMA**: DMA2_Stream1 CIRCULAR, WORD alignment, FIFO FULL, INC4/SINGLE

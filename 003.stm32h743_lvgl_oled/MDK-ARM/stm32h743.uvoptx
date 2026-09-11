@@ -207,7 +207,7 @@
   </Target>
 
   <Group>
-    <GroupName>Application/Startup</GroupName>
+    <GroupName>sys_startup</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -239,7 +239,7 @@
   </Group>
 
   <Group>
-    <GroupName>Application/User/Core</GroupName>
+    <GroupName>app</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -251,7 +251,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Core\Src\main.c</PathWithFileName>
+      <PathWithFileName>..\app\main.c</PathWithFileName>
       <FilenameWithoutPath>main.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -263,7 +263,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Core\Src\stm32h7xx_hal_msp.c</PathWithFileName>
+      <PathWithFileName>..\app\stm32h7xx_hal_msp.c</PathWithFileName>
       <FilenameWithoutPath>stm32h7xx_hal_msp.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -275,7 +275,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Core\Src\stm32h7xx_it.c</PathWithFileName>
+      <PathWithFileName>..\app\stm32h7xx_it.c</PathWithFileName>
       <FilenameWithoutPath>stm32h7xx_it.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -295,7 +295,7 @@
   </Group>
 
   <Group>
-    <GroupName>Bsp</GroupName>
+    <GroupName>bsp</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -307,7 +307,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\bsp_log.c</PathWithFileName>
+      <PathWithFileName>..\bsp\bsp_log.c</PathWithFileName>
       <FilenameWithoutPath>bsp_log.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -319,7 +319,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\disk_interface.c</PathWithFileName>
+      <PathWithFileName>..\bsp\disk_interface.c</PathWithFileName>
       <FilenameWithoutPath>disk_interface.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -331,7 +331,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\drv_oled_fonts.c</PathWithFileName>
+      <PathWithFileName>..\bsp\drv_oled_fonts.c</PathWithFileName>
       <FilenameWithoutPath>drv_oled_fonts.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -343,7 +343,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\drv_oled_text.c</PathWithFileName>
+      <PathWithFileName>..\bsp\drv_oled_text.c</PathWithFileName>
       <FilenameWithoutPath>drv_oled_text.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -355,7 +355,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\drv_rtc.c</PathWithFileName>
+      <PathWithFileName>..\bsp\drv_rtc.c</PathWithFileName>
       <FilenameWithoutPath>drv_rtc.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -367,7 +367,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\drv_sdio.c</PathWithFileName>
+      <PathWithFileName>..\bsp\drv_sdio.c</PathWithFileName>
       <FilenameWithoutPath>drv_sdio.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -379,7 +379,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\drv_spi_oled.c</PathWithFileName>
+      <PathWithFileName>..\bsp\drv_spi_oled.c</PathWithFileName>
       <FilenameWithoutPath>drv_spi_oled.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -391,7 +391,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\lv_font_gbk.c</PathWithFileName>
+      <PathWithFileName>..\bsp\lv_font_gbk.c</PathWithFileName>
       <FilenameWithoutPath>lv_font_gbk.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -403,7 +403,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\lv_font_harmony.c</PathWithFileName>
+      <PathWithFileName>..\bsp\lv_font_harmony.c</PathWithFileName>
       <FilenameWithoutPath>lv_font_harmony.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -415,7 +415,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\lv_font_provider.c</PathWithFileName>
+      <PathWithFileName>..\bsp\lv_font_provider.c</PathWithFileName>
       <FilenameWithoutPath>lv_font_provider.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -427,7 +427,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\lv_gbk_map.c</PathWithFileName>
+      <PathWithFileName>..\bsp\lv_gbk_map.c</PathWithFileName>
       <FilenameWithoutPath>lv_gbk_map.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -439,7 +439,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\lv_port_disp.c</PathWithFileName>
+      <PathWithFileName>..\bsp\lv_port_disp.c</PathWithFileName>
       <FilenameWithoutPath>lv_port_disp.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -451,7 +451,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\lv_port_fs.c</PathWithFileName>
+      <PathWithFileName>..\bsp\lv_port_fs.c</PathWithFileName>
       <FilenameWithoutPath>lv_port_fs.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -459,7 +459,7 @@
   </Group>
 
   <Group>
-    <GroupName>Bsp/font</GroupName>
+    <GroupName>bsp/font</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -471,7 +471,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\font\blkcache.c</PathWithFileName>
+      <PathWithFileName>..\bsp\font\blkcache.c</PathWithFileName>
       <FilenameWithoutPath>blkcache.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -483,7 +483,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\font\ctf_reader.c</PathWithFileName>
+      <PathWithFileName>..\bsp\font\ctf_reader.c</PathWithFileName>
       <FilenameWithoutPath>ctf_reader.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -495,7 +495,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\font\glyph_cache.c</PathWithFileName>
+      <PathWithFileName>..\bsp\font\glyph_cache.c</PathWithFileName>
       <FilenameWithoutPath>glyph_cache.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -507,7 +507,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\font\lvgl_font.c</PathWithFileName>
+      <PathWithFileName>..\bsp\font\lvgl_font.c</PathWithFileName>
       <FilenameWithoutPath>lvgl_font.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -519,7 +519,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\font\stb_adapter.c</PathWithFileName>
+      <PathWithFileName>..\bsp\font\stb_adapter.c</PathWithFileName>
       <FilenameWithoutPath>stb_adapter.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -531,7 +531,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Bsp\font\ttf_reader.c</PathWithFileName>
+      <PathWithFileName>..\bsp\font\ttf_reader.c</PathWithFileName>
       <FilenameWithoutPath>ttf_reader.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -539,7 +539,7 @@
   </Group>
 
   <Group>
-    <GroupName>Application</GroupName>
+    <GroupName>app/ui</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -551,7 +551,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\app_main.c</PathWithFileName>
+      <PathWithFileName>..\app\app_main.c</PathWithFileName>
       <FilenameWithoutPath>app_main.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -563,7 +563,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\app_ui.c</PathWithFileName>
+      <PathWithFileName>..\app\app_ui.c</PathWithFileName>
       <FilenameWithoutPath>app_ui.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -575,7 +575,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\ui_common.c</PathWithFileName>
+      <PathWithFileName>..\app\ui_common.c</PathWithFileName>
       <FilenameWithoutPath>ui_common.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -587,7 +587,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\ui_page_boot.c</PathWithFileName>
+      <PathWithFileName>..\app\ui_page_boot.c</PathWithFileName>
       <FilenameWithoutPath>ui_page_boot.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -599,7 +599,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\ui_page_fault.c</PathWithFileName>
+      <PathWithFileName>..\app\ui_page_fault.c</PathWithFileName>
       <FilenameWithoutPath>ui_page_fault.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -611,7 +611,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\ui_page_font.c</PathWithFileName>
+      <PathWithFileName>..\app\ui_page_font.c</PathWithFileName>
       <FilenameWithoutPath>ui_page_font.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -623,7 +623,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\Application\ui_page_info.c</PathWithFileName>
+      <PathWithFileName>..\app\ui_page_info.c</PathWithFileName>
       <FilenameWithoutPath>ui_page_info.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -631,7 +631,7 @@
   </Group>
 
   <Group>
-    <GroupName>Middlewares/FatFs</GroupName>
+    <GroupName>third_party/FatFs</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -1007,7 +1007,7 @@
   </Group>
 
   <Group>
-    <GroupName>Middlewares/LVGL</GroupName>
+    <GroupName>third_party/LVGL</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>

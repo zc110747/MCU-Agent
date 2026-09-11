@@ -143,7 +143,7 @@ Cortex-M7 Thumb）。它与 CMake 工程共享同一套源码，**源文件组 /
 1. **OV5640 驱动不用 ST BSP 的初始化表。**
    ST BSP 组件表 `0x3814=0x31`（水平 2× 抽样）却未使能 `0x3821 bit0`（水平
    binning），是 OV5640 的非法组合——列地址不推进，DVP 整行反复输出同一像素。
-   改用手动移植的 **`ov5640_ref.c`**（来自同款硬件的已验证参考驱动），仅改两项用于 UVC：
+   改用手动移植的 **`bsp_ov5640_ref.c`**（来自同款硬件的已验证参考驱动），仅改两项用于 UVC：
    - `0x4300`：0x6F → **0x30**（RGB565 → YUV422/YUYV）
    - `0x501F`：0x01 → **0x00**（ISP RGB → YUV422）
 2. **DCMI 极性**：`PCK=RISING / VSYNC=LOW / HSYNC=LOW`，对应传感器 `0x4740=0x21`。
@@ -214,7 +214,7 @@ Y≈7↔120（17 倍差），同时抓「同步快照」与「非同步拷贝」
 
 ## 8. 调试经验 / 坑
 
-- **ST BSP OV5640 水平 binning bug**：见第 5 节，必须用 `ov5640_ref.c`。
+- **ST BSP OV5640 水平 binning bug**：见第 5 节，必须用 `bsp_ov5640_ref.c`。
 - **DCMI 地址**：`0x48020000`（AHB2），曾误用 `0x40050000` 浪费大量时间。
 - **OpenOCD `libusb_open()` 失败**：残留 `openocd.exe` 占用 ST-Link，先结束旧进程。
 - **SDE 负片（`0x5580`）对 YUV 输出无效**：做 A/B 调制请改用**手动曝光**
@@ -308,7 +308,7 @@ python tools/fps_test.py --interval 1 --count 10
 - [x] DCMI 像素数据正确（参考驱动移植 + 极性修正）
 - [x] USB UVC 实时显示图像
 - [x] 剧烈变化拼接（tearing）修复 —— 消隐期相位锁存 + 三缓冲，A/B 验证通过
-- [x] Keil MDK-ARM（UV4 / ARMCLANG V6.14）零错误零警告构建（排除 syscalls.c）
+- [x] Keil MDK-ARM（UV4 / ARMCLANG V6.16）零错误零警告构建；源文件组 / include / 宏定义已与 `CMakeLists.txt` 同步（`app/` + `bsp/`，排除 `app/syscalls.c`）
 - [x] 最终帧率（吞吐）测试 —— 固件实时 fps(`uvc_fps_x10`) + `tools/fps_test.py` 就绪；真机实测见 §10.3
 
 ---

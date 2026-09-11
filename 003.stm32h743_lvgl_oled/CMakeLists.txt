@@ -56,12 +56,12 @@ message(STATUS "Font engine: ${LV_FONT_ENGINE} (2 = CTF+TTF, 1 = HarmonyOS TTF, 
 
 # ---- Compile options --------------------------------------------------------
 #  -fdebug-prefix-map maps the absolute source root to "." so the debug info
-#    embedded in the .elf references "./Core/Src/main.c" instead of a full
+#    embedded in the .elf references "./app/main.c" instead of a full
 #    path -> portable debug files (no absolute paths).
 #  -finput-charset=UTF-8 (and NO -fexec-charset): LVGL parses label text as
 #    UTF-8, so the literals must stay UTF-8 in flash.  The UTF-8 code point is
 #    translated to the GBK index the GBKxx.FON files use inside the font
-#    driver - see Bsp/lv_gbk_map.c.
+#    driver - see bsp/lv_gbk_map.c.
 add_compile_options(
   ${MCU_FLAGS}
   -fdata-sections
@@ -99,10 +99,9 @@ set(CMAKE_EXE_LINKER_FLAGS
 #  third_party/lvgl must be on the path so that the __has_include("lv_conf.h")
 #  probe inside lv_conf_internal.h finds our third_party/lvgl/lv_conf.h.
 include_directories(
-  Core/Inc
-  Bsp
-  Bsp/font
-  Application
+  app
+  bsp
+  bsp/font
   Drivers/CMSIS/Include
   sys_startup
   Drivers/STM32H7xx_HAL_Driver/Inc
@@ -159,44 +158,44 @@ set(PROJECT_SRCS
   sys_startup/gcc/startup_stm32h743xx.s
   sys_startup/system_stm32h7xx.c
   # Board / application
-  Core/Src/main.c
-  Core/Src/stm32h7xx_hal_msp.c
-  Core/Src/stm32h7xx_it.c
-  Core/Src/syscalls.c
+  app/main.c
+  app/stm32h7xx_hal_msp.c
+  app/stm32h7xx_it.c
+  app/syscalls.c
   # BSP: OLED driver + SD-backed Chinese font reader + SDIO glue + RTC
-  Bsp/drv_spi_oled.c
-  Bsp/drv_oled_fonts.c
-  Bsp/drv_oled_text.c
-  Bsp/drv_sdio.c
-  Bsp/drv_rtc.c
-  Bsp/disk_interface.c
+  bsp/drv_spi_oled.c
+  bsp/drv_oled_fonts.c
+  bsp/drv_oled_text.c
+  bsp/drv_sdio.c
+  bsp/drv_rtc.c
+  bsp/disk_interface.c
   # BSP: crash-safe formatted logger (PRINT_LOG -> uart_write on USART1)
-  Bsp/bsp_log.c
+  bsp/bsp_log.c
   # BSP: LVGL glue - display flush, cached FatFs driver, font engines
-  Bsp/lv_port_disp.c
-  Bsp/lv_port_fs.c
-  Bsp/lv_font_gbk.c
-  Bsp/lv_font_harmony.c
-  Bsp/lv_font_provider.c
-  Bsp/lv_gbk_map.c
+  bsp/lv_port_disp.c
+  bsp/lv_port_fs.c
+  bsp/lv_font_gbk.c
+  bsp/lv_font_harmony.c
+  bsp/lv_font_provider.c
+  bsp/lv_gbk_map.c
   # BSP: CTF index + cached TTF reader (HarmonyOS font backend, Phase 3/4/5)
-  Bsp/font/blkcache.c
-  Bsp/font/ttf_reader.c
-  Bsp/font/ctf_reader.c
+  bsp/font/blkcache.c
+  bsp/font/ttf_reader.c
+  bsp/font/ctf_reader.c
   # BSP: LRU glyph cache (160 KB, RAM_D2) + TTF glyph preload
-  Bsp/font/glyph_cache.c
+  bsp/font/glyph_cache.c
   # BSP: CTF font engine (Phase 6 stb adapter + Phase 7 LVGL backend)
-  Bsp/font/stb_adapter.c
-  Bsp/font/lvgl_font.c
+  bsp/font/stb_adapter.c
+  bsp/font/lvgl_font.c
   # Demo application
-  Application/app_main.c
-  Application/app_ui.c
+  app/app_main.c
+  app/app_ui.c
   # UI pages (each page in its own file; shared primitives in ui_common)
-  Application/ui_common.c
-  Application/ui_page_info.c
-  Application/ui_page_font.c
-  Application/ui_page_boot.c
-  Application/ui_page_fault.c
+  app/ui_common.c
+  app/ui_page_info.c
+  app/ui_page_font.c
+  app/ui_page_boot.c
+  app/ui_page_fault.c
   # FatFs (dispatch + core + unicode + system + our disk interface)
   third_party/FatFs/diskio.c
   third_party/FatFs/ff.c
