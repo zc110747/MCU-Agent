@@ -5,9 +5,10 @@
   *
   *  This is a faithful port of the 003 LVGL panel: same 240x240 layout,
   *  same colour palette and the same boot/FONT-missing fault page.  The only
-  *  difference is the colour encoding: emWin's GUICC_565 stores a GUI_COLOR as
-  *  0x00BBGGRR (GUI_USE_ARGB=0), while the 003 literals are 0x00RRGGBB, so
-  *  ui_col() swaps R and B before the value reaches GUI_SetColor().
+  *  difference is the colour encoding: with GUICC_M565 emWin stores a
+  *  GUI_COLOR as 0x00BBGGRR (GUI_USE_ARGB=0) and emits it as R5G6B5, while
+  *  the 003 literals are 0x00RRGGBB, so ui_col() swaps R and B before the
+  *  value reaches GUI_SetColor().  (Why M565 and not 565: see LCDConf.c.)
   ******************************************************************************
   */
 #include "app_ui.h"
@@ -56,8 +57,8 @@
 #define INFO3_Y    206
 #define INFO4_Y    226
 
-/* emWin GUICC_565 (GUI_USE_ARGB=0) stores colour as 0x00BBGGRR, so swap R/B
-   relative to the 0x00RRGGBB literals above. */
+/* emWin GUICC_M565 (GUI_USE_ARGB=0) stores colour as 0x00BBGGRR and emits it
+   as R5G6B5, so swap R/B relative to the 0x00RRGGBB literals above. */
 static GUI_COLOR ui_col(uint32_t c)
 {
     return (GUI_COLOR)((((c) & 0x000000FFU) << 16) |

@@ -86,15 +86,15 @@ set(CMAKE_EXE_LINKER_FLAGS
 # ---- Include directories (all relative to the source root) ------------------
 include_directories(
   Core/Inc
-  Bsp
-  Application
+  bsp
+  app
   sys_startup
   Drivers/CMSIS/Include
   Drivers/STM32H7xx_HAL_Driver/Inc
   third_party/FatFs
   third_party/STemWin/inc
   third_party/STemWin/Config
-  Bsp/emWin
+  bsp/emWin
 )
 
 # ---- HAL driver sources (glob, then drop the HAL template files) ------------
@@ -113,28 +113,28 @@ set(PROJECT_SRCS
   # Startup / system (local device layer in sys_startup, not Drivers/CMSIS/Device)
   sys_startup/gcc/startup_stm32h743xx.s
   sys_startup/system_stm32h7xx.c
-  # Board / application
+  # Board / app
   Core/Src/main.c
   Core/Src/stm32h7xx_hal_msp.c
   Core/Src/stm32h7xx_it.c
   Core/Src/syscalls.c
-  # BSP: OLED driver + SD-backed Chinese font reader + SDIO glue + RTC
-  Bsp/drv_spi_oled.c
-  Bsp/drv_oled_fonts.c
-  Bsp/drv_oled_text.c
-  Bsp/drv_sdio.c
-  Bsp/drv_rtc.c
-  Bsp/disk_interface.c
-  # BSP: emWin glue - LCD/Lin driver, No-OS system layer, custom GBK font
-  Bsp/emWin/GUIConf.c
-  Bsp/emWin/GUI_X.c
-  Bsp/emWin/LCDConf.c
-  Bsp/emWin/emwin_font_gbk.c
+  # bsp: OLED driver + SD-backed Chinese font reader + SDIO glue + RTC
+  bsp/drv_spi_oled.c
+  bsp/drv_oled_fonts.c
+  bsp/drv_oled_text.c
+  bsp/drv_sdio.c
+  bsp/drv_rtc.c
+  bsp/disk_interface.c
+  # bsp: emWin glue - LCD/Lin driver, No-OS system layer, custom GBK font
+  bsp/emWin/GUIConf.c
+  bsp/emWin/GUI_X.c
+  bsp/emWin/LCDConf.c
+  bsp/emWin/emwin_font_gbk.c
   # Unicode -> GBK bridge (compiled table)
-  Bsp/lv_gbk_map.c
-  # Demo application (emWin port of the 003 LVGL panel)
-  Application/app_main.c
-  Application/app_ui.c
+  bsp/lv_gbk_map.c
+  # Demo app (emWin port of the 003 LVGL panel)
+  app/app_main.c
+  app/app_ui.c
   # FatFs (dispatch + core + unicode + system + our disk interface)
   third_party/FatFs/diskio.c
   third_party/FatFs/ff.c
