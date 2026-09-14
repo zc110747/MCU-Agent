@@ -51,7 +51,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
 ✅ 009.基于zephyr系统实现lvgl显示功能  
-✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader
+✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
 ✅ 011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)  
 ✅ 012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)  
 
@@ -78,7 +78,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/doc/prompter.md)  
 
-**AI开发**：项目框架、tinyusb移植、复合设备
+**AI开发**：项目框架、tinyusb移植、复合设备  
 **个人参与**: 仿真环境、提示词
 
 工作量：
@@ -95,8 +95,8 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、UVC驱动实现
-**个人参与**: 仿真环境、提示词、OV5640驱动 
+**AI开发**：项目框架、tinyusb移植、UVC驱动实现  
+**个人参与**: 仿真环境、提示词、OV5640驱动  
 
 工作量：
 
@@ -112,7 +112,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./003.stm32h743_lvgl_oled/prompter.md)
 
-**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植
+**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植  
 **个人参与**: 仿真环境、提示词、OLED驱动
 
 工作量：
@@ -129,7 +129,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./004.stm32h743_sd_oled_img/prompter.md)
 
-**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持
+**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持  
 **个人参与**: 仿真环境、提示词、OLED驱动
 
 工作量：
@@ -146,7 +146,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./005.stm32h743_person_detect/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示 
+**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示  
 **个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
 
 工作量：
@@ -163,7 +163,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./006.stm32h743_face_detect/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示
+**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示    
 **个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
 
 工作量：
@@ -180,7 +180,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./007.stm32h743_cmsis_dap/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持
+**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持  
 **个人参与**: 仿真环境、提示词、jtag/swd接口处理(找到arm官方例程) 
 
 工作量：
@@ -213,7 +213,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./008.stm32h743_lvgl_mos/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现
+**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现  
 **个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动
 
 工作量：
@@ -229,7 +229,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [009.基于zephyr实现lvgl界面](./009.stm32h743_zephyr/README.md)
 
-**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持
+**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持  
 **个人参与**: 仿真环境、提示词、oled驱动、功能引导
 
 - **lvgl界面**
@@ -280,7 +280,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)](./012.stm32h743_usb_serial/README.md)
 
-**AI开发**：桥接架构、环形缓冲、USB CDC 描述符与调度、流控自管理、PC 侧压测/延迟工具
+**AI开发**：桥接架构、环形缓冲、USB CDC 描述符与调度、流控自管理、PC 侧压测/延迟工具  
 **个人参与**: 仿真环境、提示词、真机压测验收
 
 工作量：
@@ -298,7 +298,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)](./101.stm32f429_net/README.md)
 
-**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端
+**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端  
 **个人参与**: 仿真环境、提示词、基础驱动、功能引导
 
 - **web访问http**
@@ -327,7 +327,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板](./102.stm32f429_tinyusb_ui/README.md)
 
-**AI开发**：工程骨架、TinyUSB USB Host(MSC)、FatFs exFAT、LVGL、GT911/GT9147 软件I2C触摸、FreeRTOS+SDRAM、PRINT_LOG 日志系统
+**AI开发**：工程骨架、TinyUSB USB Host(MSC)、FatFs exFAT、LVGL、GT911/GT9147 软件I2C触摸、FreeRTOS+SDRAM、PRINT_LOG 日志系统  
 **个人参与**: 仿真环境、提示词、真机验收
 
 工作量：
@@ -342,7 +342,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)](./201.esp32s3_rtos/README.md)
 
-**AI开发**：FreeRTOS 多任务骨架（任务/队列/信号量/互斥量/软件定时器）、ESP32-S3 Arduino Core
+**AI开发**：FreeRTOS 多任务骨架（任务/队列/信号量/互斥量/软件定时器）、ESP32-S3 Arduino Core  
 **个人参与**: 仿真环境、提示词
 
 工作量：
@@ -355,7 +355,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享](./202.esp32s3_hw_detect/README.md)
 
-**AI开发**：ESP32-S3 自带 Wi-Fi + USB Device 实现 RNDIS 网卡（lwIP + USB RNDIS），CH343 串口下载
+**AI开发**：ESP32-S3 自带 Wi-Fi + USB Device 实现 RNDIS 网卡（lwIP + USB RNDIS），CH343 串口下载  
 **个人参与**: 仿真环境、提示词
 
 工作量：
