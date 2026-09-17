@@ -8,8 +8,7 @@ agent_created: true
 
 在 STM32（无外部 SDRAM、内部 RAM ~1 MB）上用 **LVGL** 显示中文/多语言，字库放 **SD 卡（FatFs）**，
 核心是 **CTF 磁盘索引 + 原 TTF 流式栅格化**，绝不把整个 TTF/CTF 装进 RAM。本 skill 沉淀的是
-`003.stm32h743_lvgl_oled` 项目经实机验证的完整设计、不可违反约束与踩坑，可直接用于重建或移植
-（如 Zephyr + LVGL 项目 009、NES+LVGL 项目）。
+经实机验证的完整设计、不可违反约束与踩坑，可直接用于重建或移植到其它 STM32/Zephyr + LVGL 工程。
 
 > 配套：环境见 `stm32-ai-dev-environment`；构建/验收见 `stm32-verification-acceptance`；
 > 外设驱动见 `stm32-peripheral-drivers`；总方法论见 `stm32-vibe-coding-workflow`。
@@ -122,10 +121,10 @@ glyph_cache.c (200 KB, .ram_d2)   ← 已栅格化字形池：LRU + epoch 钉扎
 7. **运行时计数直读（无命令接口时）**：烧录 Debug 构建 + gdb 直读 `glyph_cache.c` 静态量
    `s_hits/s_misses/s_evicts/s_free_bytes`（`x/1uw &'glyph_cache.c'::s_hits`），比串口更准。
 
-## 六、移植提示（到 Zephyr 009 / 其它 STM32 LVGL）
+## 六、移植提示（到 Zephyr / 其它 STM32 LVGL）
 
 - 字体引擎逻辑（`Bsp/font/*`）与 LVGL 版本弱耦合，主要依赖 `lv_font_t` 两个回调，可整体搬。
-- Zephyr 下 SD 卡/FatFs 路径、SPI6/ST7789 显示对接需对齐裸机参考实现（本工程即 009 的参考）。
+- Zephyr 下 SD 卡/FatFs 路径、SPI6/ST7789 显示对接需对齐裸机参考实现（详见 `zephyr-stm32-porting`）。
 - RAM 预算需按目标芯片重算：200 KB 字形缓存放 RAM_D2（或等价非主力 RAM 区），避免挤占主 AXI-SRAM。
 - 首帧预热依赖 `lv_disp_t::driver::flush_cb` 可被临时替换；不同 LVGL 版本 API 名可能微调。
 - 验证脚本的 `[PAGE]` 日志格式依赖固件侧 DWT 计时打印，移植时同步移植该日志。

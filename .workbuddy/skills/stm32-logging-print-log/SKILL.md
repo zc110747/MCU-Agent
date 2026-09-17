@@ -1,6 +1,6 @@
 ---
 name: stm32-logging-print-log
-description: 把裸 printf 替换为 PRINT_LOG 全局可控日志系统的完整方法：单宏编译期零成本关闭、栈缓冲格式化避免重入 UART 发送锁、RTOS 下调度器前后双 TX 路径+懒互斥量、裸机（无 RTOS）下 TX 中断驱动环形缓冲（写缓冲时关 TX 中断避免竞争）、CMake 选项一键开关、串口不可用时用 SWD 读 TX 环验证开关是否真生效。含固件上板验收踩坑（CRLF 行尾安全编辑、openocd -c 多词命令引号、PowerShell 环境块重复键、先开串口再复位抓 banner）。适用于"去掉裸 printf""统一加日志开关""编译关日志省 FLASH""UART 日志时有时无""ISR 里不能打日志""裸机 TX 中断日志""构建层控制日志"打印。触发词：PRINT_LOG、printf 替换、日志开关、关日志省 FLASH、uart_write、TX 环形缓冲、调度器前后、懒互斥量、UART 互斥、SWD 验证日志、编译期关闭日志、TX 中断、裸机日志。
+description: 把裸 printf 替换为 PRINT_LOG 全局可控日志系统的完整方法：单宏编译期零成本关闭、栈缓冲格式化避免重入 UART 发送锁、RTOS 下调度器前后双 TX 路径 + 懒互斥量、裸机（无 RTOS）下 TX 中断驱动环形缓冲（写缓冲时关 TX 中断避免竞争）、**单文件 bsp_log.c 范式让 GCC 与 Keil(MDK-ARM) 共用同一份日志源码**、CMake 选项一键开关、串口不可用时用 SWD 读 TX 环验证开关是否真生效。含固件上板验收踩坑（CRLF 行尾安全编辑、openocd -c 多词命令引号、PowerShell 环境块重复键、先开串口再复位抓 banner）。
 agent_created: true
 ---
 
@@ -85,8 +85,8 @@ void printf_log(const char *fmt, ...)
 
 ## 五、uart_write 双 TX 路径 + 懒互斥量（RTOS 场景，最易踩坑）
 
-`BSP_UART_Init()` 在 102 工程里**早于 SDRAM / `vPortDefineHeapRegions()` 之前**调用，
-此时堆尚未定义。所以 **TX 互斥量不能在 init 里创建**——创建会落在未定义的堆上。
+`BSP_UART_Init()` 常在 **SDRAM / `vPortDefineHeapRegions()` 之前**调用，此时堆尚未定义。
+所以 **TX 互斥量不能在 init 里创建**——创建会落在未定义的堆上。
 
 正解：调度器运行后、第一次 `uart_write()` 时才惰性创建互斥量，且用临界区包住创建，
 保证线程安全。
@@ -110,7 +110,7 @@ int uart_write(const uint8_t *data, int len)
       (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING))
   {
     if (g_uart_ready == 0) return 0;
-    HAL_UART_Transmit(&huart3, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huartX, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
     return len;
   }
 
@@ -128,7 +128,7 @@ int uart_write(const uint8_t *data, int len)
   }
   if (g_tx_busy == 0 && g_tx_head != g_tx_tail) {
     g_tx_busy = 1;
-    SET_BIT(huart3.Instance->CR1, USART_CR1_TXEIE);
+    SET_BIT(huartX.Instance->CR1, USART_CR1_TXEIE);
   }
   taskEXIT_CRITICAL();
 
@@ -137,8 +137,8 @@ int uart_write(const uint8_t *data, int len)
 }
 ```
 
-- `UART_TX_BUF_SIZE` 至少 **2048**（512 在 115200 下任意连续打印即爆，见
-  `stm32-peripheral-drivers` §十一）。
+- `UART_TX_BUF_SIZE` 至少 **2048**（512 在 115200 下任意连续打印即爆，
+  见 `stm32-peripheral-drivers` 的「USART 非阻塞日志输出」节）。
 - 批量打印（如 dump U 盘）必须限流：>阈值文件只列目录项、整轮遍历设总字节预算，
   否则静默丢其它任务日志。
 
@@ -161,35 +161,36 @@ endif()
 ## 七、验收
 
 1. **双构建零警告**：`ENABLE_PRINT_LOG=ON` 与 `OFF` 都要 `-Wall -Wextra` 干净。
-   102 工程实测 Release 开 298,120 B (28.43%) / 关 291,960 B (27.84%)——关日志省约 6 KB FLASH。
-2. **开关真的生效（串口不可用时用 SWD）**：见 `stm32-swd-forensics` 与
-   `verify_log_switch.py`——关掉后 `g_tx_head` 必须恒为 0（一个字节都没进 TX 环）。
+   实测关日志可省约 **6 KB FLASH**（绝对值随工程规模变化，验收时报差值即可）。
+2. **开关真的生效（串口不可用时用 SWD）**：见 `stm32-swd-forensics` —— 关掉后
+   TX 环写指针必须恒为 0（一个字节都没进 TX 环），判据 `g_tx_head == 0 && g_tx_busy == 0`。
 3. 替换范围：全工程 `printf(` 改 `PRINT_LOG(`，保留 `snprintf` 这类字符串格式化；
    ISR 内 `printf` 改成 `uart_write`/`uart_puts`。
 
 ---
 
-## 八、裸机（无 RTOS）TX 中断驱动变体（003 工程实测）
+## 八、裸机（无 RTOS）TX 中断驱动变体
 
 无 RTOS 时不能用 FreeRTOS 互斥量保护 TX 环。改用一个**发送（TXE）中断驱动的环形缓冲**，
-临界区用 **关闭串口 TX 中断** 而非互斥量——这正是用户要求的"写入要关闭串口中断避免出错"。
+临界区用 **关闭串口 TX 中断** 而非互斥量。
 
 ### 8.1 组件
 - `log.h`：`PRINT_LOG_ENABLE` 开关 + `printf_log()` / `vprintf_log()` + `log_uart_tx_irq()`（ISR 侧）+ `log_uart_init()`（使能 NVIC）。
 - `log.c`：
   - 栈缓冲 `LOG_BUF_SIZE=256` 格式化（保留）；
   - TX 环形缓冲 `UART_TX_BUF_SIZE=1024`，索引 `uart_tx_w/r/n` 用 `volatile`；
-  - `uart_write()`：写前 `__HAL_UART_DISABLE_IT(&huart1, UART_IT_TXE)` 关 TX 中断保护临界区；
-    若发送器空闲（`uart_tx_active==0`）则把首字节 prime 进 `Instance->TDR`，再 `__HAL_UART_ENABLE_IT(..., UART_IT_TXE)` 重开；
+  - `uart_write()`：写前 `__HAL_UART_DISABLE_IT(&huartX, UART_IT_TXE)` 关 TX 中断保护临界区；
+    若发送器空闲（`uart_tx_active==0`）则把首字节 prime 进 `Instance->TDR`，再
+    `__HAL_UART_ENABLE_IT(..., UART_IT_TXE)` 重开；
   - `log_uart_tx_irq()`：TXE 事件里逐字节取缓冲发送，发完（`uart_tx_n==0`）自动关 TXE 并清 `uart_tx_active`；
-  - `log_uart_init()`：幂等 `HAL_NVIC_SetPriority(USART1_IRQn,5,0)` + `HAL_NVIC_EnableIRQ(USART1_IRQn)`。
+  - `log_uart_init()`：幂等 `HAL_NVIC_SetPriority(<USART_IRQn>,5,0)` + `HAL_NVIC_EnableIRQ(<USART_IRQn>)`。
 
 ### 8.2 接线（裸机关键三步）
-1. `Core/Src/stm32h7xx_it.c`：原 `USART1_IRQHandler` 走 `Default_Handler`，新增
-   `void USART1_IRQHandler(void){ log_uart_tx_irq(); }` 并 `#include "log.h"`。
-2. `Core/Src/main.c`：`MX_USART1_UART_Init()` 之后调用 `log_uart_init();`（也可在
+1. `Core/Src/stm32h7xx_it.c`：原 `USARTx_IRQHandler` 走 `Default_Handler`，新增
+   `void USARTx_IRQHandler(void){ log_uart_tx_irq(); }` 并 `#include "log.h"`。
+2. `Core/Src/main.c`：`MX_USARTx_UART_Init()` 之后调用 `log_uart_init();`（也可在
    `uart_write()` 里懒使能 NVIC 作兜底）。
-3. `CMakeLists.txt`：注册 `Bsp/log.c`。
+3. `CMakeLists.txt`：注册 `bsp/log.c`。
 
 ### 8.3 为什么"关 TX 中断"是对的
 - 裸机没有互斥量；TX 环索引被**线程上下文（uart_write）**与**中断上下文（ISR）**共享，
@@ -198,16 +199,90 @@ endif()
   误读旧数据。首字节写 TDR 是安全的（TDR 空时写即触发移位输出）。
 - **不要**在 ISR 里调 `PRINT_LOG`/`printf_log`（会重入同一环）；ISR 只允许 `log_uart_tx_irq()`。
 
-### 8.4 验收（003 实测）
-- Debug FLASH 338528B / RAM_D1 262440B；Release FLASH 342500B；**均 0 warning**。
-- OpenOCD 烧录 `build/lvgl_oled.elf` **Verified OK**。
-- COM6（ST-Link VCP）抓到完整启动 banner，证明 TX 中断驱动 `PRINT_LOG` 在硬件上真实输出。
+### 8.4 验收
+- Debug 与 Release 双构**均 0 warning**；核对 FLASH / RAM 占用与上一版无意外增长。
+- OpenOCD 烧录 `build/xxx.elf` **Verified OK**；串口（115200 8N1）抓到完整启动 banner，
+  证明 TX 中断驱动 `PRINT_LOG` 在硬件上真实输出。
 
 ---
 
-## 九、验证踩坑（固件日志上板验收）
+## 九、单文件 `bsp/bsp_log.c` 范式（推荐，GCC + MDK 双工具链共用同一份日志源码）
 
-### 9.1 CRLF 行尾安全编辑（极易静默破坏）
+把「日志 + 串口 + printf 重定向」三件事收进 **一个 `bsp_log.c`**，使 **CMake(GCC) 与
+Keil(MDK-ARM) 编译同一份源文件**，不再需要 `Core/Src/syscalls.c` 与 `MDK-ARM/mdk_target.c`
+两套割裂的垫片。**这是多工具链工程的首选形态。**
+
+### 9.1 文件布局与 API
+- `bsp/bsp_log.h`（宏 + 声明）+ `bsp/bsp_log.c`（实现）；
+- 外设 handle（如 `huart1`）定义在 `Core/Src/main.c`，头里 `extern` 引用。
+- API：`bsp_log_init()` / `bsp_log_write(data,len)` / `printf_log(fmt,...)` /
+  `vprintf_log(fmt,ap)` / `log_uart_tx_irq()`（ISR 侧）/ `log_uart_init()`；
+  宏形态 `PRINT_LOG(fmt, ...)` —— **注意是 2 参形态，无 level/tick**。
+
+### 9.2 printf 重定向用「替换」而非「补 `fputc`」
+
+```c
+/* bsp_log.c 尾部：GCC/newlib 下把 _write 接到自己的非阻塞环；
+ * ARMCLANG(MDK) 下不编译此段 —— 所以 **MDK 侧这一路根本不存在**。 */
+#if defined(__GNUC__) && !defined(__ARMCC_VERSION)
+int _write(int file, char *ptr, int len)
+{
+    (void)file;
+    uart_write((const uint8_t *)ptr, len);
+    return len;
+}
+#endif
+```
+- 应用代码**不再直接 `printf()`**，一律 `PRINT_LOG(...)` → `printf_log()` → `uart_write()`
+  （自带 TX 环，非阻塞）。这样 **两个工具链都走同一条非阻塞路径**，不需要在 Keil 里
+  额外补 `fputc`/`_sys_write`。
+- `bsp_log_init()` 里 `setvbuf(stdout, NULL, _IONBF, 0)`：**只对 GCC/newlib 有效**；
+  ARMCLANG 的 stdout 是另一套，此行在 MDK 下形同 no-op。
+- `PRINT_LOG` 仍是 **2 参**：`PRINT_LOG("...: %d", v)`。若旧代码是 4 参形态
+  `PRINT_LOG(LOG_INFO, tick, "...")`（源自早期 `logger.h`），迁移时**必须改调用点**，不是改宏。
+
+### 9.3 ⚠️ 但 `MDK-ARM/mdk_target.c` **不能因此删除**（易误判）
+
+**这是本 skill 最容易搞错的一条，与「删 syscalls.c」方向相反。**
+
+- `syscalls.c` 是 GCC/newlib 专用垫片 → **必须从 Keil 工程排除**。
+- `mdk_target.c` 提供 ARMCLANG 的**半主机抑制**（`__use_no_semihosting` / `__ARM_use_no_argv`
+  + `FILE __stdout` + `_sys_exit` + `_ttywrch`）→ **必须保留**。
+
+**为什么 9.2 不能替代它**：9.2 的 `_write()` 被
+`#if defined(__GNUC__) && !defined(__ARMCC_VERSION)` 挡住，**MDK 侧根本不编译这段**；
+MDK 侧的 `PRINT_LOG` 走的是 `uart_write()` 直出，与半主机无关。
+但只要工程里出现**任何**直接调 `printf`/`fprintf`/`scanf`/`fopen` 的代码（包括第三方库、
+以及将来新加的调试语句），ARMCLANG 就会链入半主机实现 → 运行到 `_sys_open`/`_sys_write`
+时执行 **`BKPT`** → 停机/HardFault，表现为「串口无输出 / 程序莫名停住」。
+
+⚠️ **这是延迟暴露的坑**：删掉后编译链接**可能照过**（无裸 `printf` 时符号被 `--gc-sections`
+丢弃），所以不会被编译期拦住，最易被误删。**结论：`bsp_log.c` 与 `mdk_target.c` 职责不同，
+必须共存**（详见 `stm32-keil-port` 的前置确认一节）。
+
+验证：`fromelf --text -c Objects/*.axf | grep -c " BKPT"` 期望 **0**。
+
+### 9.4 迁移清单（把旧 logger.h / drv_uart / syscalls 收敛到 bsp_log）
+1. 新增 `bsp/bsp_log.c` + `bsp/bsp_log.h`（可整份从同族工程复制）。
+2. **删除**：`Core/Src/syscalls.c`、`bsp/drv_uart.c`、`bsp/drv_uart.h`、`bsp/logger.h`。
+   **保留 `MDK-ARM/mdk_target.c`**（见 9.3）。
+3. 所有 `PRINT_LOG(LEVEL, tick, fmt, ...)` → `PRINT_LOG(fmt, ...)`（改调用点，去掉前两参）。
+4. `Core/Src/stm32h7xx_it.c` 增加 `USARTx_IRQHandler` → `log_uart_tx_irq();`。
+5. `Core/Src/main.c`：`drv_uart_init()` → `bsp_log_init()`。
+6. `CMakeLists.txt`：`PROJECT_SOURCES` 去掉 `syscalls.c`/`drv_uart.c`，加入 `bsp/bsp_log.c`。
+   ⚠️ 去掉 `syscalls.c` 后，`--specs=nosys.specs` 仍在，`_write` 由 `bsp_log.c` 提供，
+   链接不冲突（`nosys` 的 `_write` 是 weak）。
+7. `MDK-ARM/*.uvprojx`：`Core/Src` 组删 `syscalls.c`，`Bsp` 组加 `bsp_log.c`；
+   **`mdk_target.c` 保持在组内**。
+8. 删除 `logger.h` 后确认无残留 `#include "logger.h"`。
+
+**验证**：双构建（GCC + Keil）均 0 error 0 warning；串口（115200 8N1）能抓到启动 banner。
+
+---
+
+## 十、验证踩坑（固件日志上板验收）
+
+### 10.1 CRLF 行尾安全编辑（极易静默破坏）
 仓库 `.c/.h` 多为 **CRLF**。naive `text.split("\n")` 再 `"\r\n".join(...)` 会把行尾变成
 `\r\r\n`，**翻倍**的 CR 会破坏 `#if` 行的 `\` 续行（报 "operator '&&' has no right operand"）。
 修法（二选一）：
@@ -215,25 +290,26 @@ endif()
 - 或按**锚点局部二进制替换**（只在已知串前后插入），完全不碰行尾。
 **严禁**用 `sed -i` 或整体 `"\n".join` 重写 CRLF 文件。
 
-### 9.2 openocd `-c` 多词命令必须再套一层引号
+### 10.2 openocd `-c` 多词命令必须再套一层引号
 PowerShell / 某些 shell 下 `openocd -f openocd.cfg -c "init; reset run; exit"` 会被按空格
 拆成多个 token，报 `Unexpected command line argument: reset`。
 正确写法：`openocd -f openocd.cfg -c '"init; reset run; exit"'`（外层单引号包住整个多词命令）。
-命令行直接跑时也可：`openocd -f openocd.cfg -c "program build/xxx.elf verify reset exit"`（单命令无需内引号）。
+命令行直接跑时也可：`openocd -f openocd.cfg -c "program build/xxx.elf verify reset exit"`
+（**单命令**无需内引号）。
 
-### 9.3 PowerShell 5.1 `Start-Process` 环境块大小写重复键崩溃
-WorkBuddy 会话会注入 `http_proxy`/`HTTP_PROXY` 等大小写变体；PS 5.1 用大小写不敏感字典组装
-子进程环境块时会撞重复键，抛 "已添加项"。`Get-ChildItem Env:` 会把变体折叠成一项导致去重无效。
+### 10.3 PowerShell 5.1 `Start-Process` 环境块大小写重复键崩溃
+会话可能注入 `http_proxy`/`HTTP_PROXY` 等大小写变体；PS 5.1 用大小写不敏感字典组装子进程
+环境块时会撞重复键抛「已添加项」，而 `Get-ChildItem Env:` 会把变体折叠成一项导致去重无效。
 修法（脚本顶部，干净终端下是 no-op）：
 ```powershell
 $all = [System.Environment]::GetEnvironmentVariables('Process')   # 真实大小写变体名
-foreach ($k in $all.Keys) { [System.Environment]::SetEnvironmentVariable($k, $null, 'Process') }  # 大小写不敏感，清一个即清全部
+foreach ($k in $all.Keys) { [System.Environment]::SetEnvironmentVariable($k, $null, 'Process') }
 # 然后按需重建需要的变量（如 Path）
 ```
 PS 7 无此问题；5.1 必须显式清理。
 
-### 9.4 抓取启动 banner：先开串口再复位
-LOG 只在启动时打印一次。顺序必须：**先打开串口（如 COM6, 115200 8N1）再复位目标**，
-否则 banner 已经刷过、抓不到。pyserial 不可用时用 .NET `System.IO.Ports.SerialPort`
-（PowerShell）读；若端口被拒，多半是上一次捕获句柄未释放或 ST-Link VCP 复位后重枚举，
-重试 + 短暂 `Start-Sleep` 即可。
+### 10.4 抓取启动 banner：先开串口再复位
+LOG 只在启动时打印一次。顺序必须：**先打开串口（115200 8N1）再复位目标**，
+否则 banner 已经刷过、抓不到。pyserial 不可用时可用 .NET `System.IO.Ports.SerialPort`
+读；若端口被拒，多半是上一次捕获句柄未释放，或 ST-Link VCP 复位后重枚举——
+**重试 + 短暂等待即可**（见 `stm32-verification-acceptance` 的 ST-Link VCP 重试坑）。

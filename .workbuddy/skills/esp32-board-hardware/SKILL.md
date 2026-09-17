@@ -1,11 +1,6 @@
 ---
 name: esp32-board-hardware
-description: >
-  ESP32-S3 板级硬件（用户 LED / 按键 / 串口）与真机烧录 + 串口验证的完整配方。
-  涵盖：板载 WS2812B RGB LED（GPIO48，GRB 800kHz，不能用 digitalWrite）的标准驱动方案
-  （Adafruit_NeoPixel + RMT）、BOOT 按键（GPIO0 active-low）、板载 USB-Serial-JTAG
-  烧录/调试口（VID 0x303a PID 0x1001）识别、flash-esp32.bat 烧录、pyserial 串口验证验收。
-  适用于"ESP32 LED 不亮""WS2812 怎么驱动""ESP32 怎么烧录验证""GPIO48 WS2812"等请求。
+description: ESP32-S3 板级硬件（用户 LED / 按键 / 串口）与真机烧录 + 串口验证的完整配方。 涵盖：板载 WS2812B RGB LED（GPIO48，GRB 800kHz，不能用 digitalWrite）的标准驱动方案 （Adafruit_NeoPixel + RMT）、BOOT 按键（GPIO0 active-low）、板载 USB-Serial-JTAG 烧录/调试口（VID 0x303a PID 0x1001）识别、flash-esp32.bat 烧录、pyserial 串口验证验收。 适用于"ESP32 LED 不亮""WS2812 怎么驱动""ESP32 怎么烧录验证""GPIO48 WS2812"等请求。
 agent_created: true
 ---
 
@@ -14,7 +9,7 @@ agent_created: true
 适用：ESP32-S3（N16R8：OPI PSRAM + 16MB Flash），Arduino Core `esp32:esp32@3.3.11`。
 调试链路（openocd/gdb/launch.json）见配套 skill **`esp32-cortex-debug`**。
 
-## 1. 板级硬件事实（本项目 201.esp32s3_rtos 实测）
+## 1. 板级硬件事实（ESP32-S3 N16R8 实测）
 
 | 元件 | 连接 | 软件可控 |
 |------|------|---------|
@@ -109,4 +104,4 @@ for cmd in ("led on\r\n","led off\r\n","led toggle\r\n"):
 - [ ] COM 口：pyserial 识别 `303A:1001` 口（动态，勿硬编码）
 - [ ] 烧录：`[FLASH] PASS` + `Hash of data verified.` + `[RESET] PASS`
 - [ ] 串口：启动横幅 + 任务列表可见，`led on/off/toggle` 回显正常
-- [ ] 硬件：GPIO48 WS2812B 实际亮灭符合命令（本项目实测功能 ok ✅）
+- [ ] 硬件：GPIO48 WS2812B 实际亮灭符合命令（实测功能 ok ✅）

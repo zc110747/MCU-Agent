@@ -93,9 +93,9 @@ tasklist | findstr openocd
 tasklist | findstr arm-none-eabi-gdb
 taskkill /F /PID <pid>     # 结束残留再重试
 ```
-推荐常驻一个 openocd 调试服务器（见 `stm32-verification-acceptance` 第八节），避免重复实例抢 ST-Link。
+推荐常驻一个 openocd 调试服务器（见 `stm32-verification-acceptance` 第三节），避免重复实例抢 ST-Link。
 
-### 4.7.1 双 openocd 实例端口冲突（Git Bash 看不到进程）
+### 4.8 双 openocd 实例端口冲突（Git Bash 看不到进程）
 若 GDB 报 `Target not examined yet / refuse gdb connection`，先查是否有两个 `openocd.exe` 都绑了
 `3333/4444`。**Git Bash 的 `ps` 看不到 Windows 原生进程**，必须用：
 ```bash
@@ -106,24 +106,32 @@ taskkill /F /PID <pid>
 ```
 最后只起一个 OpenOCD（或复用常驻服务器），端口冲突即解。
 
-### 4.8 PowerShell 把 stderr 包装成「红色报错」的误报
+### 4.9 PowerShell 把 stderr 包装成「红色报错」的误报
+
 `west build` / `cmake` 等把进度/警告打到 **stderr**，PowerShell 会将其包装成
 `RemoteException` / `NativeCommandError`（红色报错外观），但**实际 `BUILD_EXIT=0`、elf 正常生成**
 ——属 PowerShell 的 stderr→error 误报，并非真失败。
+
 - 判定真失败以**退出码**为准：脚本里 `echo %ERRORLEVEL%` / `exit /b %ERR%`，看 `BUILD_EXIT`，别被红色吓到。
-- 在 `.bat` 里把 `pause` 改成 `exit /b %ERR%`，把阻塞 `pause` 去掉，便于 PowerShell/CI 拿到真实错误码（阻塞 `pause` 在 PowerShell 下会卡死或返回 255）。
-- 想在 PowerShell 看真实输出，用 `python -m west build ... 2>&1 | Tee-Object -Variable out` 后查 `BUILD_EXIT`。
+- 在 `.bat` 里把阻塞 `pause` 去掉、收尾用 `exit /b %ERR%`，便于 PowerShell/CI 拿到真实错误码
+  （阻塞 `pause` 在 PowerShell 下会卡死或返回 255）。
+- **本环境 PowerShell 工具还会吞掉原生子进程的 stdout**（`& python.exe --version` 返回空、
+  `Start-Process -RedirectStandardOutput` 落 0 字节文件、`ExitCode` 为空），所以长构建一律走
+  **Bash 工具**；诊断姿势（原生 PowerShell + 落文件再读）见 `soc-debug-verification` 的「调试环境铁律」节。
 
-### 4.9 编辑 Windows .bat 后必须保持 CRLF + 纯 ASCII（Agent 高频翻车）
-Edit/Write 工具常把 `.bat` 重写成 **LF（Unix）行尾 + 中文（UTF-8）**，而 cmd.exe 解析 .bat **必须 CRLF**：
-- 纯 LF 时 cmd 无法正确断行，把整文件按空格/换行碎片化成命令执行 → 报一串
-  `'-click' 不是内部或外部命令` / `'ject' ...` / `'rrorlevel' ...`（token 碎片），`%%T` 退化成 `%T`。
-- 注释里混中文（UTF-8 字节）在中文 Windows GBK 控制台同样干扰解析（本项目 .bat 一律全英文）。
-- 修复：`tr -d '\r' | awk '{ printf "%s\r\n", $0 }'` 转回 CRLF；删除所有非 ASCII。
-- 改完必须复查：`tr -cd '\r' < x.bat | wc -c`（应等于行数）+ `grep -P '[^\x00-\x7F]' x.bat`（应为空）。
-- 相关：`.bat` 六大坑（含 PowerShell 工具吞子进程输出的正确诊断姿势）见 `soc-debug-verification`。
+### 4.10 编辑 .bat 后必须保持 CRLF + 纯 ASCII（Agent 高频翻车）
 
-### 4.10 Agent 沙箱创建的 build/ 目录 ACL 异常 → 用户侧重跑报 ninja 权限错
+Edit/Write 工具默认写 **LF 行尾 + UTF-8**，而 cmd.exe 解析 `.bat` **必须 CRLF + 纯 ASCII**：
+- 纯 LF 会让 cmd 按空格/换行**碎片化**整文件执行 → 报一串 `'-click' 不是内部或外部命令`
+  这类 token 碎片，`%%T` 退化成 `%T`。
+- 注释里混中文（UTF-8 字节）在 GBK 控制台同样干扰解析。
+
+改完必须复查：`tr -cd '\r' < x.bat | wc -c` 应等于行数；`grep -P '[^\x00-\x7F]' x.bat` 应为空。
+
+> **`.bat` 全部 27 条坑的唯一主副本**：`soc-debug-verification/references/bat-pitfalls.md`
+> （坑 19 = 非 ASCII；坑 27 = LF 行尾）。写/改 `.bat` 前先读那份。
+
+### 4.11 Agent 沙箱创建的 build/ 目录 ACL 异常 → 用户侧重跑报 ninja 权限错
 Agent 在沙箱/提权模式下创建的 `build/` `build-rel/`，其文件 ACL 可能只授予沙箱令牌写权限；
 用户态 cmd/cmake 重跑时 cmake Generate 阶段报：
 `ninja: error: failed recompaction: Permission denied` → `CMake Generate step failed.`
@@ -133,7 +141,7 @@ Agent 在沙箱/提权模式下创建的 `build/` `build-rel/`，其文件 ACL �
 
 ## 五、编译期零警告约束
 
-本项目强约束 **Debug / Release 双构零警告**：
+约定强约束 **Debug / Release 双构零警告**：
 ```cmake
 add_compile_options(-Wall -Wextra)
 ```
@@ -163,4 +171,5 @@ dangerous relocation: unsupported relocation
   把编译器/链接器/ar 等**全部以绝对路径 `FORCE` 写入 CMake 缓存**，并追加 `-B<tc_bin>`
   让 gcc 驱动优先在该 `bin` 解析 `ld`/`as`。
 - 经验：凡用到**厂商预编译 `.a`**（emWin / 某些 DSP / 闭源协议栈），先确认其 binutils 兼容性，
-  必要时准备一个 binutils <2.44 的降级工具链，不要默认 newest（见 `stm32-peripheral-drivers` 十）。
+  必要时准备一个 binutils <2.44 的降级工具链，不要默认 newest
+  （具体案例见 `stm32-peripheral-drivers` 的「emWin (STemWin) GUI 栈」节）。

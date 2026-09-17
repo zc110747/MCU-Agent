@@ -78,27 +78,19 @@ AI Agent 要在 Windows 下**直接构建、烧录、仿真**，必须满足：
 
 ## 三、分阶段验收节奏（端到端工作流）
 
-每个功能模块都按这条链走，缺一不可：
-
 ```
 需求确认（完整上下文：路径 + 硬件细节 + 验收标准）
-   ↓
-实现计划（先出计划获确认，再动手 —— 不要直接写代码）
-   ↓
-编码实现（app/ + bsp/ + tools/ 同步）
-   ↓
-Debug + Release 双构零警告（ninja）
-   ↓
-仿真 / 真机验证（openocd 烧录 + 串口/网络）
-   ↓
-扩展 verify 脚本（python / C#，给出 pass/fail 计数）
-   ↓
-交付清单（增量汇报，✅ 状态收尾）
+   ↓  实现计划（先出计划获确认，再动手 —— 不要直接写代码）
+   ↓  编码实现（app/ + bsp/ + tools/ 同步）
+   ↓  Debug + Release 双构零警告  →  仿真/真机验证  →  verify 脚本 pass/fail  →  交付清单
 ```
 
 - **任何新模块动手前必须先出实现计划并获确认**（用户强约束）。
 - 每完成一模块**立即增量汇报**，不要等全部做完。
 - 验收以**数字显式列出**：RAM/FLASH 占比、零警告、pass/fail 计数。
+
+> 每一步的**具体做法、模板与判据**（含零警告构建、OpenOCD 烧录、verify 脚本形态、
+> 交付清单模板）见 `stm32-verification-acceptance`——**以该 skill 为准**，本节只给节奏。
 
 ## 四、必须人工干预的时机
 
@@ -108,7 +100,7 @@ Debug + Release 双构零警告（ninja）
 - **外部器件调试死循环**：CMOS/OLED 参数错，AI 反复试错不收敛 —— 此时提供已验证驱动源码。
 - **硬件接线确认**：如 CMSIS-DAP 的"三根线"分清（烧写线/USB上行线/SWD目标线）。
 
-## 五、UI 风格约定（本项目默认）
+## 五、UI 风格约定（本方法论默认）
 
 - 极简深色：**深色背景 + 深色卡片 + 统一浅色文字**，不要色彩点缀或状态色变化。
 - 通过快速视觉反馈迭代；不满意时**回退到上一版**。
@@ -125,20 +117,26 @@ Debug + Release 双构零警告（ninja）
 
 ## 七、项目经验沉淀位置
 
-- 总纲：`README.md`（项目索引 + 开发经验总结）
-- 硬件配置：`document/stm32h7_hw.md`、`document/stm32f4_hw.md`（示例，按实际文档结构放置）
-- 环境说明：`document/support.md`
-- 各项目提示词：`*/prompter.md`（可直接复制微调）
+在一个多工程仓库里，把经验固定到下面几类文件（文件名按各仓约定，关键是**分层不乱**）：
+
+- **总纲**：仓库根 `README.md`（工程索引 + 开发经验总结）。
+- **硬件配置**：`document/` 下的硬件说明文档（每类板子一份）。
+- **环境说明**：`document/support.md`（工具链与依赖安装）。
+- **各工程提示词**：`<proj>/prompter.md`（可直接复制微调，是"给 Agent 的完整上下文"的存档）。
+- **各工程说明**：`<proj>/README.md`（结构约定见 `stm32-project-scaffold` 的 README 节）。
 
 ## 八、跨平台延伸（ESP32-S3）
 
 同一套 Vibe Coding 方法论（环境就绪 → 计划 → 编码 → 双构零警告 → 真机/仿真验证 → verify 脚本
-→ 交付清单）同样适用于 STM32 之外的 MCU。本仓 `201`/`202` 即 **ESP32-S3 (N16R8)**：
+→ 交付清单）同样适用于 STM32 之外的 MCU。以 **ESP32-S3 (N16R8)** 为例，差异只在工具链层：
 
-- 工具链不同：用 **arduino-cli / ESP-IDF** 而非 arm-none-eabi-gcc；构建/烧录走
+- **工具链不同**：用 **arduino-cli / ESP-IDF** 而非 arm-none-eabi-gcc；构建/烧录走
   `arduino-cli compile/upload`（FQBN `esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M`）
-  + CH343 串口下载，**不依赖 OpenOCD/ST-Link**。
-- 同样要求零警告构建、串口命令验证、pass/fail 计数脚本（见 `201` 的 `[SYS]/[MEM]/[TASK]` 状态上报）。
-- `202` 用 ESP32-S3 自带 Wi-Fi + USB Device 实现 **RNDIS** 网卡（lwIP + USB RNDIS），
-  是 USB 网络共享方向，与 STM32 的 USB 设备/主机栈思路可互参。
-- 验收思路完全一致：环境可构建 → 真机烧录 → 串口日志/命令断言 → 增量交付。
+  + 串口下载（CH343/内置 USB-Serial-JTAG），**不依赖 OpenOCD/ST-Link**。
+- **状态上报范式**：串口周期打印 `[SYS]/[MEM]/[TASK]` 形式的运行态快照，便于脚本断言。
+- **外设方向差异**：ESP32-S3 自带 Wi-Fi + USB Device，可做 **RNDIS 网卡**（lwIP + USB RNDIS）
+  等 USB 网络共享方向，与 STM32 的 USB 设备/主机栈思路可互参。
+- **验收思路完全一致**：环境可构建 → 真机烧录 → 串口日志/命令断言 → 增量交付。
+
+> 平台专属配方见 `esp32-arduino-cli-build` / `esp-idf-windows-build` / `esp32-board-hardware`
+> / `esp32-cortex-debug`；RTOS 方向的移植见 `zephyr-stm32-porting`。

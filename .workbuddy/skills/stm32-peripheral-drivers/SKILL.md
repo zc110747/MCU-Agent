@@ -1,6 +1,6 @@
 ---
 name: stm32-peripheral-drivers
-description: STM32 外设驱动速查表与实测踩坑：STM32H743 / STM32F429 引脚映射、OV5640(DCMI) 多缓冲采集、ST7789(SPI6) OLED 显示、SD 卡 FatFs + GBK 中文点阵字库、QSPI(W25Q64) Flash、USB OTG_FS 的 VDD33USB 供电坑、LAN8720A(RMII) 网络、I2C 总线锁死恢复、emWin(STemWin) GUI 栈、USB Host + exFAT U 盘、USART1 非阻塞日志输出（环形缓冲 + TXE 中断）。适用于"查 STM32 引脚""移植摄像头/OLED/SD 卡驱动""GBK 字库渲染""USB 设备枚举不上""I2C 死锁""emWin 移植""exFAT 挂载""printf 阻塞改非阻塞"。触发词：STM32H7 引脚、STM32F4 引脚、OV5640、DCMI、ST7789、SPI6、FatFs 字库、GBK 字库、QSPI、W25Q64、VDD33USB、USB 枚举不上、LAN8720、RMII、I2C 锁死、PCF8574、SDRAM、FMC、H7 DCMI 基地址 0x48020000、F429 LCD 8080 NT35510、GT911 触摸中断风暴、SDIO 4字节对齐、TJpgDec swap、MPU9250、EXFAT 字库挂载、emWin STemWin、USB Host TinyUSB、exFAT U盘、USART 日志、非阻塞日志、PRINT_LOG、环形缓冲、TXE 中断。
+description: STM32 外设驱动速查表与实测踩坑：STM32H743 / STM32F429 引脚映射、OV5640(DCMI) 多缓冲采集、ST7789(SPI6) OLED 显示、SD 卡 FatFs + GBK 中文点阵字库、QSPI(W25Q64) Flash、USB OTG_FS 的 VDD33USB 供电坑、LAN8720A(RMII) 网络、I2C 总线锁死恢复、emWin(STemWin) GUI 栈、USB Host + exFAT U 盘、USART1 非阻塞日志输出（环形缓冲 + TXE 中断）。
 agent_created: true
 ---
 
@@ -142,95 +142,16 @@ SWCLK=PA0 / SWDIO=PA1 / nRESET=PA2 / SWO=PA3 / 闲置=PA5 / 目标供电检测=P
 **三处线勿混**：烧写线 / USB 上行线 / SWD 目标线。SWD 时序延时不可用 Keil `__asm` `_DELAY`，
 改用 DWT 周期计数（`DELAY_SLOW_CYCLES=1` 级）做精确延时。
 
-## 八、LAN8720A (RMII) 网络 + I2C 锁死恢复（F4）
+## 八、STM32H7 内部 Flash 升级引擎（Bootloader 实战坑）
 
-### 8.1 ETH 配置
-- RMII，PHY addr 0；REF_CLK 来自 PA1（需 PHY 提供 50MHz 时钟或 H7/F4 输出）。
-- 复位经 PCF8574T P7（高有效，经三极管反相 → 写 1 时 ETH_RESET=0 释放，写 0 时复位）。
-- **ETH RX 零拷贝缓冲必须留内部 SRAM**：ETH DMA 写 SDRAM 分片突发丢包
-  （`ping -l 1473` 起不稳定）；memp 池也在 SRAM。发送侧放 SDRAM 无碍。
+H7 内部 Flash 是**双 Bank（16×128KB）**。做 Bootloader 升级时，DTCM 不可执行、双 Bank 取指、
+RWW 语义、跳转 App 序列各有一条独立铁律，任一条错了都是"擦写函数一跑就死"。
+完整六条（含可直接抄的 HAL 原语调用序列）见 `references/h7-flash-bootloader.md`。
 
-### 8.2 I2C 总线锁死恢复（运行期必装）
-从设备把 SDA 拉低锁死（噪声/复位中途打断事务）→ HAL 读永久超时 → 数据冻结为 0。
-`BSP_I2C_Recover()`：检测 SDA 低/BUSY/错误标志 → SCL 配 GPIO 推挽翻转 ≥9 次释放从设备
-→ 发 STOP → `HAL_I2C_DeInit+Init` → 还原 AF_OD。纯 `__NOP()` 延时，**调度器启动前也安全**，
-须在 `BSP_ETH_PHY_Reset()` 前调用（防启动期死等）。
+## 九、emWin (STemWin) GUI 栈（H7 + ST7789，无 OS）
 
-### 8.3 SDRAM (FMC) 初始化必须最先
-FreeRTOS heap / LwIP 池 / mbedTLS 池都在 SDRAM，任何 `xTaskCreate` 在 SDRAM 前会写
-未初始化内存 → `heap_4.c:269` 下溢断言。FMC 配置 → SDRAM 初始化序列 → 刷新率 → 内存自测，
-全部早于一切 RTOS 对象。
-
-### 8.4 F429 LCD 8080 总线（正点原子 800×480 屏，NT35510/ILI9806E）
-- 控制器 NT35510（`0x8000`）/ ILI9806E 回退；FMC Bank1 NE1 8080 16-bit，`RS=A18`
-  （`LCD_BASE = 0x60000000 | 0x0007FFFE`）。
-- **`lcd_scan_dir` 的宽高交换逻辑是正点原子原版、正确，切勿改反/删除**：`DFT_SCAN_DIR=L2R_U2D`(MV=0)
-  下因 `lcd_width(800) > lcd_height(480)` 触发交换 → 有效 GRAM 窗口 **480×800**（即 NT35510 模块铺满
-  物理 800×480 屏所需的窗口）。屏幕尺寸只由 `LCD_WIDTH/LCD_HEIGHT` 决定，不要动交换逻辑。
-- **LVGL 画布 = GRAM 窗口 = 480×800**（不是 800×480）；UI 布局从 `lv_disp_get_hor_res/ver_res()`
-  自适应取，不要硬编码 800×480，否则渲染错位。
-- **LCD 地址窗口必须用 MIPI-DCS 时序**：命令写一次 + 跟 4 数据字节；不可把 `0x2A/0x2B/0x2C`
-  当连续寄存器拆写，否则渲染带写错乱 GRAM → 文字重叠。
-
-### 8.5 电容触摸 GT911/GT9147（软件位绑定 I2C）
-- 芯片**只有 I2C 模式（无 SPI）**，走软件位绑定 I2C：排针 `T_SCK(PH6)=CT_SCL`、`T_MOSI(PI3)=CT_SDA`、
-  `T_CS(PI8)=CT_RST`、`T_PEN(PH7)=CT_INT`。板上实贴 GT911（`product ID="911"`，addr `0x14`，自报 480×800 与画布一致）。
-- **184B 配置块是 9147 专用，绝不能给 GT911 上传**；GT911 用恒等映射即可。
-- **`T_PEN(PH7)` 极易产生中断风暴**：浮空输入 + 紧邻 PH6(位绑定 SCL 165kHz) 串扰，实测 ~46925 次/秒；
-  必须上拉，且 ISR 内立即屏蔽 line 7、任务侧消抖后重新武装（噪声中断正解是「ISR 内屏蔽 + 任务侧延时重新武装」，
-  不是在 ISR 里做软件滤波）。给所有外部中断加「1s 速率看门狗」把风暴变成数字，最划算。
-- **GT9xx 中断后必须轮询到抬手**：INT 行为因模组而异（单次/持续脉冲），中断只当唤醒，任务随后 15ms 轮询直到连续 3 次无触点。
-- 无需手指即可验证 EXTI 链路：OpenOCD `halt` → `mww 0x40013C10 0x80`（`EXTI->SWIER`）→ `resume`，产生与引脚边沿等价的中断。
-
-### 8.5.1 GT911/GT9147 中断风暴三层防护（来自 102 真机教训）
-
-**症状**：PH7 浮空 + 紧邻 PH6（位绑定 SCL 165 kHz）串扰 → 实测 **~46925 次/秒** 中断；
-触摸任务优先级高于传感器任务 → 轮询式 `HAL_I2C_Mem_Read` 被抢占 → HAL 超时 → 从机拉住 SDA
-→ I2C 总线 BUSY 锁死（之后每次都失败）。**三层防护缺一不可**：
-
-| 层 | 措施 |
-|---|---|
-| 源头 | PH7 改 `GPIO_PULLUP`（仅地址锁存一瞬 NOPULL）；位绑定 I2C 事务期间屏蔽 EXTI line 7 |
-| 隔离 | 传感器读取用 `vTaskSuspendAll()/xTaskResumeAll()` 包成原子操作（中断仍开），传输不被抢占 |
-| 容错 | I2C 超时 10ms→50ms；失败先 `BSP_I2C_Recover()` 再立即重试一次；ISR 内立即屏蔽 line 7、任务侧消抖后重新武装（速率 ~47kHz→~20Hz）；触摸轮询上限 `TOUCH_MAX_POLLS` 兜底；IRQ 速率看门狗超 1000/s 打 WARNING |
-
-验证：`tools/verify_serial/verify_sensors.py` 经 SWD 直读 `s_data`，**7/7 PASS**
-（`errors=0`、`|a|=1.00g`）；`verify_touch_irq.py` 经 `EXTI_SWIER` 软注入 line 7，**7/7 PASS**。
-
-## 九、STM32H7 内部 Flash 升级引擎（Bootloader 实战坑）
-
-H7 内部 Flash 是**双 Bank（16×128KB）**，做 Bootloader 升级时，下面每一条都能让"擦写函数一跑就死"：
-
-### 9.1 DTCM 不可执行（最高频致命坑）
-Cortex-M7 的 **I-Code 总线无法从 DTCM(0x20000000) 取指**。把"从 RAM 执行"的擦写引擎放进 DTCM → 一调用就 BusFault → `Default_Handler`(Infinite_Loop)。
-**引擎必须放 AXI SRAM(0x24000000)** 或 SRAM1-4（可执行且非 bank1）。MPU 的 XN=0 管不到 TCM 硬件约束 —— 改 MPU 没用。
-
-### 9.2 双 Bank 擦写取指
-擦/写 bank1 时 CPU 不能从 bank1 取指。擦写引擎须整体在独立可执行 RAM 内，且调用链（含所有 static helper，如 `addr_to_bank_sector`）都得带 RAM 段属性，不能残留 bank1 Flash 调用。
-
-### 9.3 RWW 只 stall 不 fault
-H7 的 read-while-write 会让总线停滞但**不 HardFault**。所以从 bank1 取指编程 bank1 不会进 `Infinite_Loop` —— 这正好解释为什么参考代码能直接调用位于 bank1 的 `HAL_FLASH_Program`。
-
-### 9.4 手搓寄存器不可靠 → 用 HAL
-自写 `FLASH->CR` 序列极易踩 PSIZE/时序细节。改用**经验证 HAL 原语**：
-- 擦除：`HAL_FLASHEx_Erase()`（`VoltageRange = FLASH_VOLTAGE_RANGE_3`）
-- 编程：`HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD, addr, (uint32_t)src)`（一次写 256 位 = 8×32bit）
-- **每次操作前清双 Bank 错误标志**：`__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_ALL_ERRORS_BANK1 | FLASH_FLAG_ALL_ERRORS_BANK2)`
-- 用 `__disable_irq()`+`HAL_FLASH_Unlock()` 包住、`HAL_FLASH_Lock()`+`__enable_irq()` 收尾。
-
-### 9.5 两阶段长度擦除
-不要整片擦 1..14。先 `BFLASH_EraseApp(len)` 按 App 长度只擦实际占用（不含末扇区），末扇区由 `BFLASH_EraseAppLastSector(len)` 在**编程前即时擦**（避免整片先擦 + 中途掉电变砖）。
-
-### 9.6 跳转 App 序列（缺一不可）
-跳前必须：`HAL_DeInit` / 关全局中断 / 关 MPU / 关 I-D Cache / 设 MSP / 重定位 VTOR / `__enable_irq`（清 PRIMASK 残留）。
-- **App 工程必须提供 `SysTick_Handler`** 且 `main()` 开头 `__enable_irq()`，否则 `HAL_Delay` 卡死（缺 handler → 链到 `Default_Handler` 死循环；bootloader 留 PRIMASK=1 未恢复 → 全局中断关死）。
-- 验证链路见 `stm32-verification-acceptance` 第八、九节；黄金外部参考样本：`7.stm32h7_iap`
-  （同芯片已验证的 `drv_flash.c` / `upload_frame.c`，可作为外部参考，非本仓 skill）。
-
-## 十、emWin (STemWin) GUI 栈（H7 + ST7789，无 OS）
-
-STemWin（Segger emWin 的 ST 版）是 LVGL 之外的另一套 GUI 方案，在 `003` 的 LVGL 版基础上
-1:1 重做了整套 H7 ST7789 OLED 信息面板（见 `011.stm32h743_freertos_emwin`）。
+STemWin（Segger emWin 的 ST 版）是 LVGL 之外的另一套 GUI 方案，可 1:1 复刻同一套
+H7 + ST7789 OLED 信息面板。
 
 - **预编译库必须 binutils < 2.44**（见 `stm32-ai-dev-environment` 六）：`STemWin_CM7_wc16.a`
   不能塞进 `add_executable` 源列表（CMake 会静默丢弃 `.a`），改为
@@ -244,81 +165,47 @@ STemWin（Segger emWin 的 ST 版）是 LVGL 之外的另一套 GUI 方案，在
 - **显示管线**：`GUI_DispString*` → 本地 VRAM `gui_vram[240*240]`(RGB565) → `OLED_CopyBuffer()`
   刷写 ST7789（与 LVGL 版相同的 SPI6 驱动）。
 - **中文字体**：同 `003` 的 GBK 点阵方案（UNIGBK 双段 + GBKxx.FON），经 Unicode→GBK 取模。
-- 资源（Debug）：FLASH 133532B/2MB(6.37%)、RAM 271808B/512KB(51.84%)，双构零警告。
+- 资源：Debug 构型贴出 FLASH / RAM 占比（用于对比上一版），**双构零警告**。
 
 ## 十一、USB Host (TinyUSB, F4 U 盘 + 真正的 exFAT)
 
-`102.stm32f429_tinyusb_ui` 用 **TinyUSB 主机栈**把 U 盘（MSC→SCSI→FatFs）读出来，
-并支持 **真正的 exFAT**（ChaN FatFs R0.15，`FF_FS_EXFAT=1`，非 FAT32 伪装）。
+用 **TinyUSB 主机栈**把 U 盘（MSC→SCSI→FatFs）读出来，并支持 **真正的 exFAT**
+（ChaN FatFs R0.15，`FF_FS_EXFAT=1`，非 FAT32 伪装）。以下为 F4 + FreeRTOS + SDRAM 平台验证结论：
 
 - **USB 初始化必须在 `vTaskStartScheduler()` 之后**：`tusb_init()` 使能 OTG FS 中断，
   其 ISR 调用 FreeRTOS `xQueueSendToBackFromISR` 等 FromISR API —— 调度器未启动时非法，
   会把系统跑飞。故 `tusb_init()` 放 `usbh_host_task` 任务体内（该任务创建于调度器启动后）。
-- **SDRAM / FreeRTOS 堆必须先于任何 RTOS 对象**（同 §8.3）：U 盘文件系统对象、LVGL draw buffer
+- **SDRAM / FreeRTOS 堆必须先于任何 RTOS 对象**：U 盘文件系统对象、LVGL draw buffer
   都落在外部 SDRAM，初始化顺序错会写未初始化内存 → heap 下溢断言。
 - **FatFs 并发死锁**：两任务并发访问同一 U 盘（一个遍历 dump、一个挂载读字模），底层
   `disk_read/write` 用单个全局 busy 标志 + 自旋等完成回调 → 并发丢唤醒死锁。修复：用
   FreeRTOS 互斥量串行化所有 FatFs 入口（`fs_lock()/fs_unlock()`）。
-- **exFAT 真实性**：`f_mkfs(FM_EXFAT, ...)` + 解析原始卷，验证 VBR 引导签名、簇堆 128KB 对齐、
-  分配单元 128KB（见 `102/verify_exfat/harness.c`，PC 端 gcc 编译，`12 passed`）。
-- **GT911/GT9147 触摸中断风暴**：见 §8.5.1（ISR 内屏蔽 line + 任务侧重新武装 + 速率看门狗）。
+- **exFAT 真实性**：`f_mkfs(FM_EXFAT, ...)` + 解析原始卷，验证 VBR 引导签名、簇堆对齐、
+  分配单元大小（PC 端 gcc 编译的 harness 可给出 pass/fail 计数）。
+- **GT911/GT9147 触摸中断风暴**：见 §四 与 `references/lan8720a-rmii.md`。
 
-## 十二、USART1 非阻塞日志输出（环形缓冲 + TXE 中断）
+## 十一、USART1 非阻塞日志输出（环形缓冲 + TXE 中断）
 
 裸 `printf` → `HAL_UART_Transmit` 会**阻塞调用线程直到整行发完**，在高速/中断密集场景拖累实时性。
-落地范本：`003.stm32h743_lvgl_oled/Bsp/bsp_log.{c,h}`（H743 裸机，可原样复制到其他 STM32 工程），
-把 `printf` 系统性替换为 `PRINT_LOG`，**输出内容与原来逐字节一致**（不自动加前缀），调用方永不阻塞。
 
-> 本节是**速查摘要**。日志系统的完整规范（三层架构、CMake 开关、裸机 TX 中断环形缓冲、
-> 串口不可用时的 SWD 取证、移植步骤与回归清单）见独立 skill **`stm32-logging-print-log`**
-> ——两者冲突时以该 skill 为准。
+> 本节只是速查摘要。日志系统的完整规范（三层架构、CMake 开关、裸机 TX 中断环形缓冲、
+> RTOS 双 TX 路径 + 懒互斥量、串口不可用时的 SWD 取证、移植步骤与回归清单）见独立 skill
+> **`stm32-logging-print-log`** —— **两者冲突时以该 skill 为准**。
 
+三个最容易搞错的点：
 - **中断源选 TXE，不要选 TC**：`TXE` = 发送数据寄存器空（可写下一字节），是逐字节 drain 环形缓冲的
   正确中断源；`TC` = 整帧移出、线路空闲，只在 RS485 方向切换等"线路空闲"场景用。
-- **数据流**：`PRINT_LOG → vsnprintf` 进栈缓冲（`LOG_BUF_SIZE` 一般 192~256B，超长截断）→
-  `uart_write()` 拷进环形缓冲 → ISR 逐字节写 TDR。
-- **临界区**：`uart_write()` 先在**关闭 `UART_IT_TXE`** 的临界区内改 `w/r/n` 索引，改完再开中断，
-  使 ISR 与写者不可能同时竞争索引。裸机单线程已足够；**RTOS 下需再包一层 `taskENTER_CRITICAL()`**
-  防两个任务重入 `uart_write()`。
-- **首字节触发 + 自动停机**：仅当发送空闲（`uart_tx_active==0`）时由 `uart_write()` 写 TDR 触发首字节；
-  ISR 发现缓冲耗尽立即 `__HAL_UART_DISABLE_IT(TXE)` 并清 active，做到"有数据才走中断"。
+- **临界区 = 关闭 `UART_IT_TXE`**（裸机）或再加 `taskENTER_CRITICAL()`（RTOS）：
+  `uart_write()` 先在临界区内改 `w/r/n` 索引，改完再开中断，使 ISR 与写者不可能同时竞争索引。
 - **ISR 内禁止调 `PRINT_LOG`**（内部可能取互斥量），中断上下文一律直接 `uart_write()`。
-- **编译期开关**：`PRINT_LOG_ENABLE=0` 时宏展开为 `((void)0)`、函数体早返回，零 FLASH/零 UART 流量；
-  可用 SWD 读 TX 环形缓冲写指针验证"关日志 = 串口零字节"（见 `stm32-verification-acceptance` 4.3）。
 
-## 十三、UART 物理层与桥接踩坑（CDC↔UART 透明桥，012 实战）
+## 十二、本 skill 的参考文件
 
-做一个 **USB CDC ↔ UART 透明转发桥**（无任何 in-band 配置通道）时，串口侧最容易出的三个问题，
-全部来自"物理层/寄存器语义"而非逻辑设计。
+按需读，不必一次全看：
 
-### 13.1 环形缓冲满/空二义性 → 必须"故意少用一个字节"
-`head == tail` 既表示空也表示满。若 `rb_free()` 用 `cap - used` 计算，会把「满」误判为「空」，
-生产者覆盖未消费数据——实测首轮压测丢字节达 3.6e10。
-**可用容量必须是 `cap - 1`**（保留 1 字节不用），这是环形缓冲的标准约定，实现前务必确认。
-
-### 13.2 7 数据位 + 校验时，校验位会污染数据字节
-STM32 的字长是**含校验位**的总长：7 数据位 + 校验 = **8 位字长**（`M=00`），
-此时 RDR 的 **bit7 就是校验位**，DMA 按字节搬运会把它一起读进来。
-- 修法：按数据位算掩码 `rx_data_mask = (1 << data_bits) - 1`，在排空时对已消费的 DMA 缓冲**就地掩蔽**
-  （8 数据位时掩码为 `0xFF`，可跳过，不影响主路径性能）。
-- 现象特征：**7N1 通过，但 7E1 / 7O1 全部失败**；而 8E1 / 8O1 不受影响（它们是 9 位字长，
-  校验位落在 bit8，超出字节范围）。
-- 另注意：7 数据位模式无法承载任意二进制（每字节 MSB 在线路上不存在），只能用 7 位安全 ASCII 验证。
-
-### 13.3 RTS/CTS 流控：引脚模式必须与 `HwFlowCtl` 成对，否则悬空
-- **`RTS` 若配成 `GPIO_MODE_AF_PP` 而 `HwFlowCtl=UART_HWCONTROL_NONE`，USART 并不驱动它**，
-  且复用模式下 `HAL_GPIO_WritePin`（写 BSRR）对该引脚无效 → 引脚高阻悬空。
-  典型症状：对端 CTS 被悬空的 RTS 牵连读成"未就绪"，而软件状态变量却显示已断言，**一帧都不通**。
-- 推荐配置：**RTS 用 `GPIO_MODE_OUTPUT_PP` 由软件按接收环余量驱动**（硬件 RTS 只跟踪 1 字节 RDR 标志，
-  对 KB 级 ring 毫无意义）；**CTS 用 `GPIO_MODE_AF_PP` + PULLDOWN** —— PULLDOWN 让"对端不驱动 CTS（悬空）"
-  读作**就绪**，TX 永不被门控，对端主动拉高才暂停 TX，这才是标准透明行为。
-- 流控宜做成**连接门控**（USB 端口打开时使能 CTSE + 软件驱动 RTS），断开自动还原 115200/8N1/无校验。
-
-### 13.4 Windows `usbser.sys` 不转发 RTS（只转发 DTR）
-实测 `EscapeCommFunction(CLRRTS/SETRTS)` **不会**触发 `tud_cdc_line_state_cb`，而 `CLRDTR/SETDTR` 会。
-⇒ "由主机 RTS 切换流控开关"在 Windows 上位机**不可行**；因此流控必须**固件自管理**。
-（属主机驱动限制，非固件缺陷；Linux/macOS 行为不同。）
-
-### 13.5 D-Cache 与 DMA（若不用 MPU）
-桥接类 DMA 缓冲在 D-Cache 开启时务必处理一致性：要么按 `soc-cache-mpu` 配置 MPU 区域，
-要么在 DMA 读写前后做 Cache clean/invalidate；**不要既开 Cache 又什么都不做**。
+- `references/lan8720a-rmii.md` — LAN8720A (RMII) 网络配置 + I2C 总线锁死恢复 +
+  SDRAM/FMC 初始化顺序 + F429 LCD 8080 总线 + GT911 触摸（含中断风暴三层防护）
+- `references/uart-physical-bridge.md` — UART 物理层与 CDC↔UART 透明桥踩坑
+  （环形缓冲二义性 / 7bit+校验位污染 / RTS-CTS 成对配置 / Windows 不转发 RTS / D-Cache 与 DMA）
+- `references/h7-flash-bootloader.md` — H7 内部 Flash 升级引擎六条铁律
+  （DTCM 不可执行 / 双 Bank 取指 / RWW 语义 / HAL 原语 / 两阶段擦除 / 跳转 App 序列）

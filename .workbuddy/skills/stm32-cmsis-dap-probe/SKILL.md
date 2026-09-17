@@ -1,18 +1,18 @@
 ---
 name: stm32-cmsis-dap-probe
-description: 自研 CMSIS-DAP / SWD / JTAG 调试探针固件（STM32H7 + TinyUSB，或 ESP32-S3 + ESP-IDF + TinyUSB HID）的移植、参数调优与主机侧验收：SWD 位带时序（DWT 周期计数替代 Keil 内联汇编、IRAM_ATTR 热点、GPIO 驱动强度）、v1 over HID 的 1 kHz 轮询协议限制（JTAG 下载慢不可救，日常用 SWD）、USB/Wi-Fi 仲裁必须用 tud_mounted 而非 tud_connected、VDD33USB 供电导致 USB 不枚举、双主机同时挂目标读出确定性坏值、空 Flash 导致 Cortex-M lockup 的假故障、逐级验收链。适用于“自研 DAP 探针”“OpenOCD 找不到 CMSIS-DAP”“JTAG Invalid ACK(4) FAULT”“下载速度慢”“无线调试探针”“探针 USB 不枚举”。触发词：CMSIS-DAP、DAP v1、SWD 位带、JTAG_DP、IRAM_ATTR、tud_mounted、VDD33USB、OpenOCD verify cfg、IDCODE 0x6BA00477、DPIDR lockup、DAP-over-WiFi、ESP32-S3 探针、DWT CYCCNT 延时。
+description: 自研 CMSIS-DAP / SWD / JTAG 调试探针固件（STM32H7 + TinyUSB，或 ESP32-S3 + ESP-IDF + TinyUSB HID）的移植、参数调优与主机侧验收：SWD 位带时序（DWT 周期计数替代 Keil 内联汇编、IRAM_ATTR 热点、GPIO 驱动强度）、v1 over HID 的 1 kHz 轮询协议限制（JTAG 下载慢不可救，日常用 SWD）、USB/Wi-Fi 仲裁必须用 tud_mounted 而非 tud_connected、VDD33USB 供电导致 USB 不枚举、双主机同时挂目标读出确定性坏值、空 Flash 导致 Cortex-M lockup 的假故障、逐级验收链。
 agent_created: true
 ---
 
 # 自研 CMSIS-DAP / SWD / JTAG 调试探针
 
 把一块 MCU 变成可被 OpenOCD / Keil / VSCode 直接使用的 **CMSIS-DAP 调试探针**的实操配方。
-本仓两条已验证实现：
+两条已验证实现路线（同一套 DAP 核心，平台/传输不同）：
 
-| 平台 | 项目 | 传输 | 特点 |
-|---|---|---|---|
-| **STM32H743 + TinyUSB**（无 RTOS / FreeRTOS） | `007.stm32h743_cmsis_dap` | USB FS HID/Bulk | 已端到端验证：用本探针给 **STM32F429** 下载与仿真 |
-| **ESP32-S3 N16R8 + ESP-IDF + TinyUSB** | `203.esp32s3_wireless_debug` | USB FS HID + **Wi-Fi 兜底** | SWD/JTAG 双模，热点 `ESP32-DAP-XXXX` @192.168.4.1 TCP 50000 |
+| 平台 | 传输 | 特点 |
+|---|---|---|
+| **STM32H743 + TinyUSB**（无 RTOS / FreeRTOS） | USB FS HID/Bulk | 已端到端验证：用本探针给 **STM32F429** 下载与仿真 |
+| **ESP32-S3 N16R8 + ESP-IDF + TinyUSB** | USB FS HID + **Wi-Fi 兜底** | SWD/JTAG 双模，SoftAP + TCP 自定义端口做 DAP-over-WiFi |
 
 ## 一、何时使用
 - 从零实现 CMSIS-DAP v1 固件，或把 ARM 官方 `CMSIS-DAP` 源码移植到 GCC / Cortex-M7 / Xtensa。
@@ -114,7 +114,7 @@ bool usb_device_is_connected(void) { return tud_mounted(); }   // 正确
 2. **HID 直发裸命令**：跑脚本期望 **IDCODE0 = `0x6BA00477`**（H7 侧身份参考），不经过 OpenOCD 协议层。
 3. **接目标跑 OpenOCD**：`transport select swd` → `reset halt` → `mdw` 读回
    （H743 DPIDR=`0x6ba02477`，F429 DPIDR=`0x2ba01477`）。
-4. **热点是否广播**（无线模式）：`netsh wlan show networks mode=bssid | findstr ESP32-DAP`
+4. **热点是否广播**（无线模式）：`netsh wlan show networks mode=bssid | findstr <热点前缀>`
    （USB 模式下应为空；Windows 扫描有缓存，拔线后等 20–30 s 再查）。
 
 ## 七、常见主机侧假故障

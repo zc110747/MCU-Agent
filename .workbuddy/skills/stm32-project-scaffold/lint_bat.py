@@ -3,7 +3,7 @@
 """
 lint_bat.py — STM32 一键编译脚本 (build_oneclick.bat) 规范校验器
 
-对应 stm32-project-scaffold 技能第十节「一键编译 bat 规范」。
+对应 stm32-project-scaffold 技能 references/oneclick-scripts.md「一键编译 bat 规范」。
 在真正运行 .bat 之前先跑本脚本，主动拦截 `此时不应有 .` / `此时不应有 into。` 等
 cmd 解析错误，避免双击/PowerShell 一跑就崩。
 
@@ -20,7 +20,7 @@ cmd 解析错误，避免双击/PowerShell 一跑就崩。
     报 `此时不应有 .` / `此时不应有 into。`
 * REM / :: 注释行里的 `( )` 实测【不会】崩，按 INFO 提示，不计入失败。
 * `cd /d "%~dp0"` 与 `for` 块内 `2>&1`（原"致命坑 4"）在本机实测【不崩】
-  （001 工程保留原始写法仍编译通过），按 INFO 提示，不计入失败。
+  （保留原始写法仍可编译通过），按 INFO 提示，不计入失败。
   -> 仅当路径含特殊字符且确证报错时再处理，避免无谓改动。
 
 因此：只有 PIT3(echo) 与 PIT1 算 ERROR，其余为 INFO。

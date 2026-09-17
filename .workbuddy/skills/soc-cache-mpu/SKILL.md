@@ -58,7 +58,7 @@ agent_created: true
 3. 缓存状态：`SCB_EnableDCache()` 是否调用；MPU Region0 是否把 AXI-SRAM 标 cacheable。
 4. **结论自洽检查**：若代码是"非 DMA + D-Cache 开" → 无一致性问题，现状正确，不要去关缓存。
 
-> 实测案例（003 工程）：`main.c:48` 实际 `SCB_EnableDCache()`（D-Cache 开着），
+> 实测案例：`main.c` 实际调了 `SCB_EnableDCache()`（D-Cache 开着），
 > `drv_sdio.c` 用 `HAL_SD_ReadBlocks()` 轮询（非 DMA），注释却写"D-Cache 关 / SD 用内部 DMA"——
 > 注释是**过时错误**，已订正为符合现状的文字。真实状态 = 用户原则的正确体现。
 

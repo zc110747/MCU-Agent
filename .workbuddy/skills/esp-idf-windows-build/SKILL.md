@@ -37,13 +37,13 @@ cat "C:/Espressif/tools/eim_idf.json"        # eim 安装器记录：path / pyth
 ls "C:/Espressif/tools/"                      # cmake / ninja / xtensa-esp-elf / python 都在这
 ```
 
-关键路径（版本号会变，务必 `ls` 确认）：
+关键路径（**版本号与安装根都会变，务必以 `eim_idf.json` 与 `ls` 实测为准**）：
 
-- IDF：`eim_idf.json` 里的 `path` 字段（曾见 `D:\data\agent-tools\esp32\v6.1\esp-idf`）
-- 工具链根：`C:\Espressif\tools`
-- venv python：`C:\Espressif\tools\python\<ver>\venv\Scripts\python.exe`
-- cmake：`C:/Espressif/tools/cmake/<ver>/bin`　ninja：`C:/Espressif/tools/ninja/<ver>`
-- xtensa：`C:/Espressif/tools/xtensa-esp-elf/<ver>/xtensa-esp-elf/bin`
+- IDF：`eim_idf.json` 里的 `path` 字段（可指向任意自定义目录，不要硬编码）
+- 工具链根：eim 默认 `C:\Espressif\tools`
+- venv python：`<toolroot>\python\<ver>\venv\Scripts\python.exe`
+- cmake：`<toolroot>/cmake/<ver>/bin`　ninja：`<toolroot>/ninja/<ver>`
+- xtensa：`<toolroot>/xtensa-esp-elf/<ver>/xtensa-esp-elf/bin`
 
 ## 2. Git Bash 下跑 idf.py（两个办法）
 
@@ -113,7 +113,7 @@ esp_err_t wifi_xxx_init(void)
 ## 6. 烧录与串口
 
 ```bash
-source ./env.sh && "$PY" idf_runner.py flash -p COM21 -b 460800
+source ./env.sh && "$PY" idf_runner.py flash -p <COMx> -b 460800
 ```
 
 - **识别 COM 口必须用 pyserial**（`Get-WmiObject` / `GetPortNames()` 会漏掉 USB 串口），口号会变别硬编码。

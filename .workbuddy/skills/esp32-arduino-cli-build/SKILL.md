@@ -7,7 +7,7 @@ agent_created: true
 # ESP32 + Arduino CLI 构建速查
 
 当 ESP32 工程用 **Arduino CLI + VS Code**（而非 PlatformIO / ESP-IDF）构建模块化 C++ 代码时，
-必须处理 Arduino 构建模型的两个特殊约束。本 skill 沉淀 **201 / 202 / 203** 项目验证过的配方。
+必须处理 Arduino 构建模型的两个特殊约束。本 skill 沉淀多个 ESP32-S3 工程验证过的配方。
 
 ## 何时使用
 - 新建 ESP32 Arduino 多文件工程，想保持 `app/ network/ bsp/ ...` 模块化目录。
@@ -19,7 +19,7 @@ agent_created: true
 
 | 规则 | 说明 | 违反后果 |
 |------|------|----------|
-| 根 `.ino` 文件名 **必须** 与工程目录同名 | `202.esp32s3_hw_detect/202.esp32s3_hw_detect.ino` | `main file missing from sketch` |
+| 根 `.ino` 文件名 **必须** 与工程目录同名 | `<proj>/<proj>.ino` | `main file missing from sketch` |
 | 子目录 `.cpp` **不会**被自动编译 | 在 `.ino` 里统一 `#include "xxx.cpp"` 拼成**单一编译单元** | 链接期 `undefined reference` |
 | 头文件用 `#ifndef/#define/#endif` | arduino-cli 会复制工程到 `.build/sketch/` 用不同路径解析，`#pragma once` 失效 | `redefinition of class/enum` |
 | 每个 `.h` 自带它需要的所有 include | 单编译单元下 include 顺序敏感，靠间接包含必翻车 | `'xxx' was not declared` |
@@ -62,7 +62,7 @@ esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,UploadSpeed=
 arduino-cli compile -j 8 -b "<FQBN>" --build-path ".build" .
 arduino-cli upload  -b "<FQBN>" -p COM22 --build-path ".build" .
 ```
-- ESP32 Arduino Core 3.3.11 已装于 `D:\software\arduino-cli\data\packages\esp32`。
+- ESP32 Arduino Core 装于 `<arduino-cli data>/packages/esp32`（`arduino-cli config dump` 查 data 目录）。
 - **增量编译**：core/库缓存在 arduino-cli data 目录自动生效；只要**保留 `--build-path .build/` 不删**，
   改动文件即可增量（首次全量约 6–7 分钟，增量十几秒）。
 - arduino-cli ≥1.5 **已移除 `--build-cache-path`**（会警告并忽略，`config dump` 无等价配置键）；
@@ -117,7 +117,7 @@ ledcDetach(pin);
 - **启动早期读 MAC → 必须用 eFuse API**：`WiFi.macAddress()` / `WiFi.softAPmacAddress()` 在 WiFi 驱动
   初始化前返回**全 0**（实测先 `WiFi.mode(WIFI_MODE_AP)` 再读 softAPmacAddress 仍全 0，开机仅 ~200ms 处）。
   正确做法：`esp_read_mac(mac, ESP_MAC_WIFI_STA)`（读 eFuse，无需 WiFi 启动），需 `#include <esp_mac.h>`。
-  器件 ID 与 SSID 尾部宜同源（如 Device ID `esp32s3-F6FFA118` → AP 名 `wifi-A118`）。
+  器件 ID 与 SSID 尾部宜同源（取 MAC 末两字节，如 Device ID `esp32s3-XXXXABCD` → AP 名 `wifi-ABCD`）。
   **症状**：AP SSID 变成 `wifi-0000` / 设备名全 0 → 一律先怀疑"驱动未起就读 MAC"。
 
 ## 4. 一键脚本（.bat）铁律
@@ -235,7 +235,7 @@ git check-ignore -v <工程>/<新目录>/probe.txt
 
 - **`esp32-web-ui-state-push`**（互补）：本技能管"构建/烧录/库/环境"，那个技能管"运行时网页 + 无硬件前端验证"。
   做带网页的 ESP32 固件时两个一起看。
-- **全仓未跟踪审计**：`audit_untracked.py`（位于 `202.esp32s3_hw_detect/tools/`）按风险分级扫描
-  "文件在磁盘但不在版本库"的目录，复跑：`python 202.esp32s3_hw_detect/tools/audit_untracked.py .`
+- **全仓未跟踪审计**：`audit_untracked.py`（放工程 `tools/`）按风险分级扫描
+  "文件在磁盘但不在版本库"的目录，复跑：`python <proj>/tools/audit_untracked.py .`
 - STM32 系列技能（`stm32-*`）与本技能平台不同，勿混用；但"事件总线解耦""零警告验收"等
   方法论可平移，见 `stm32-verification-acceptance` / `stm32-vibe-coding-workflow`。

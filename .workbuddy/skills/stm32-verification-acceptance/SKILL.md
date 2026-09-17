@@ -1,6 +1,6 @@
 ---
 name: stm32-verification-acceptance
-description: STM32 嵌入式项目的端到端验收方法论：Debug/Release 双构零警告、OpenOCD 烧录、串口/网络真机验证、Python/C# verify 脚本 pass/fail 计数模式、增量交付清单。适用于"验收 STM32 固件""写嵌入式自测脚本""定义项目验收标准""真机烧录后如何确认功能正常""整理交付清单""串口抓取失败/拒绝访问""LVGL 首帧卡顿定位"。触发词：验收流程、零警告构建、OpenOCD 烧录验证、串口自测、verify 脚本、pass/fail 计数、交付清单、真机验证、嵌入式测试、snmp_verify、serial_test、openocd 烧录必须用 elf 非 bin、mdw 4字节对齐读取、没报错不等于有数据、COM code-31、LIBUSB_ERROR_ACCESS、PRINT_LOG 全局日志开关、SWD 验证日志开关行为、串口拒绝访问、ST-Link VCP 重试、COM 端口占用、gdb 计数直读、LVGL 首帧性能测量、离屏预热、脚本榫化回归。
+description: STM32 嵌入式项目的端到端验收方法论：Debug/Release 双构零警告、OpenOCD 烧录、串口/网络真机验证、Python/C# verify 脚本 pass/fail 计数模式、增量交付清单。适用于"验收 STM32 固件""写嵌入式自测脚本""定义项目验收标准""真机烧录后如何确认功能正常""整理交付清单""串口抓取失败/拒绝访问""LVGL 首帧卡顿定位"。触发词：验收流程、零警告构建、OpenOCD 烧录验证、串口自测、verify 脚本、pass/fail 计数、交付清单、真机验证、嵌入式测试、snmp_verify、serial_test、openocd 烧录必须用 elf 非 bin、mdw 4字节对齐读取、没报错不等于有数据、COM code-31、LIBUSB_ERROR_ACCESS、PRINT_LOG 全局日志开关、SWD 验证日志开关行为、串口拒绝访问、ST-Link VCP 重试、COM 端口占用、gdb 计数直读、LVGL 首帧性能测量、离屏预热、脚本僵化回归、e2e 脚本假 FAIL、断言前提、零位移无状态帧、一条断言只证一件事。
 agent_created: true
 ---
 
@@ -27,6 +27,8 @@ Debug + Release 双构零警告        ← 用数字显式列出 RAM/FLASH 占�
 ```
 
 **铁律**：任何新模块动手前必须先出实现计划并获确认；每完成一模块立即增量汇报。
+（这条链与 `stm32-vibe-coding-workflow` 的「分阶段验收节奏」是同一件事，
+**以本 skill 为准**；总方法论 skill 只保留图示与非验收类内容。）
 
 ## 二、双构零警告（构建验收）
 
@@ -43,7 +45,7 @@ cmake --build build-release
   - FLASH：字节 / 总容量 / 百分比
   - RAM（内部）：字节 / 总容量 / 百分比
   - SDRAM 池：占用大小
-  - 例：`FLASH 310808B / 1024KB (29.79%)`、`RAM 85992B / 192KB (43.74%)`
+  - 例：`FLASH <n>B / <总>KB (<p>%)`、`RAM <n>B / <总>KB (<p>%)`
 - 仅 RWX 段良性提示可豁免（裸机/链接脚本特性），其余警告须清零。
 
 ### 2.1 构建目录清理（沙箱 safe-delete 拦截坑）
@@ -78,17 +80,14 @@ openocd -f openocd/stm32h743_stlink.cfg \
 - **改完代码后先烧录再抓串口**：只 `reset` 不复烧会看到旧固件行为，误判。
 
 ### 3.1 OpenOCD `mdw` 内存直读（正向验证）
-- **`mdw` 读非 4 字节对齐地址会报 `Failed to read memory`**。读 `uint8/uint16` 混排的静态变量时
-  按 4 字节对齐整字读（`mdw <addr_aligned>`），再在 Python 里切字节。
-- 用 `arm-none-eabi-nm` 取符号地址 → OpenOCD `mdw` 直读目标内存里的数据结构，是「没报错≠有数据」的
-  正向验证手段（见 8.6）。
 
-⚠️ **一次性 `-c "init; ...; mdw ...; shutdown"` 读数会被缓冲吞掉**：在 `shutdown` 前 OpenOCD 常不 flush
- stdout，成功 mdw 行在管道里丢失，只透出错误/PC 行。两种稳法：
-- 落盘：`openocd ... -c "...; mdw 0x..; resume; shutdown" > ocd.log 2>&1`，再 `grep 0x2000 ocd.log`；
-- 或分两步：先 `halt` 做完 mdw，最后单独 `shutdown`，不要在一行里紧跟 mdw 后 shutdown。
-- **`halt` 后必须 `wait_halt` + 短 `sleep` 再 `mdw`**：刚 halt 瞬间目标还在跑，读 SRAM 会报
-  `Failed to read memory`；`wait_halt` 等停稳再读即正常（详见 `stm32-swd-forensics` 第三节）。
+**模板与全部时序细节的唯一起点在 `stm32-swd-forensics`**（`halt` 后必须 `wait_halt`、
+`mdw` 只能 4 字节对齐整字读、一次性 `-c` 脚本的 stdout 会被 `shutdown` 前缓冲吞掉）。
+验收侧只需要记住两条结论：
+
+- `mdw` 读**非 4 字节对齐**地址会报 `Failed to read memory`；读 `uint8/uint16` 混排的静态变量
+  要按 4 字节对齐整字读，再在 Python 里切字节。
+- 用 `arm-none-eabi-nm` 取符号地址 → `mdw` 直读目标内存，是「没报错 ≠ 有数据」的正向验证手段（见 3.2）。
 
 ### 3.2 「没报错 ≠ 有数据」铁律（验收必守）
 错误日志常被限流，且「调用返回 0」不等于「数据正确」。正向验证要用：
@@ -112,16 +111,16 @@ openocd -f openocd/stm32h743_stlink.cfg \
 
 ### 4.3 全局日志开关 PRINT_LOG（可 SWD 验证）
 工程内所有应用日志统一走 `PRINT_LOG(...)`（编译期可整体关闭成 `((void)0)`），不再裸调
-`printf`（约定见 `102.stm32f429_tinyusb_ui`）。这带来一个**可 SWD 直读验证**的特性：
-关掉日志后，UART TX 环形缓冲写指针必须一个字节都没动过（见 `102` 的 `verify_log_switch.py`，
-`6/6 PASS`：`g_tx_head==0 && g_tx_busy==0`）。
+`printf`（完整方案见 `stm32-logging-print-log`）。这带来一个**可 SWD 直读验证**的特性：
+关掉日志后，UART TX 环形缓冲写指针必须一个字节都没动过（用一次性脚本断言
+`g_tx_head==0 && g_tx_busy==0`，应全 PASS）。
 - 符号地址用 `arm-none-eabi-nm` 取，OpenOCD `mdw` 读（非 4 字节对齐先整字读再切字节，见 3.1）。
 - 串口不可用（如 CH340 code-31）时，这条「日志关 = 串口零字节」正是用 **SWD 取证代替串口抓日志**的范例。
 - 约定：ISR 内禁止调 `PRINT_LOG`（内部拿互斥量），中断上下文用 `uart_write()`。
 
 ## 五、verify 脚本模式（可复制模板）
 
-**核心原则：脚本给出 pass/fail 计数**，而非人肉看日志。本项目实测有效的几种形态：
+**核心原则：脚本给出 pass/fail 计数**，而非人肉看日志。实测有效的几种形态：
 
 ### 5.1 Python 串口自测（例：某 NES 菜单项目，28/28 PASS）
 ```python
@@ -149,6 +148,22 @@ sys.exit(0 if passed==checks else 1)
 ### 5.4 视觉渲染测试（桌面仪表盘）
 - PrintWindow 截图 + Pillow 亮像素检测，验证每页非空白（例：6/6 PASS）。
 
+### 5.5 ★ 验收脚本的「前提」纪律 —— 假 FAIL 先怀疑脚本自己
+
+脚本报 FAIL 时，**先怀疑"前提没成立"，再怀疑产品代码**。最常见的四类自造 FAIL：
+
+1. **动作不产生可观测变化**（目标 == 当前位置 / 已贴着边界）⇒ "等收敛"拿到 `NaN`/空集。
+2. **造前提的常量写死**，没从真值（限位、容量、量程）里挑 ⇒ 撞边界后把"边界现象"
+   误报成"机制缺陷"。
+3. **一条断言证多件事** ⇒ 失败无法归因，只能猜；也别把"后来的合理变化"断言成"没收敛"。
+4. **断言的机制窗口窄到脚本摸不着**（竞态/优先级闸门）⇒ 该由单测构造在途态来证，
+   e2e 只证外部可观测后果。
+
+> 完整的四条展开、实例与「写任何 e2e 脚本前过一遍」的检查表，见
+> `robotics-multiphysics-vmodel-workflow/references/e2e-script-premise-discipline.md`。
+> 与 3.2「没报错 ≠ 有数据」同源：**否定性结论一律先查"工具的观测能力"**，
+> 别把"我没观测到"直接当成"它没发生"。
+
 ## 六、交付清单（增量汇报模板）
 
 每个模块完成即汇报，用 ✅ 状态收尾：
@@ -167,172 +182,40 @@ sys.exit(0 if passed==checks else 1)
 
 - 压测前后各查一次 CFSR/HFSR=0（无总线故障）。
 - 连续数十次业务请求无失败（验 pbuf/pcb 无泄漏）。
-- 长运行浸泡（如 SNMP 30s 轮询 `sensor_valid` 恒为 1），确认无数据冻结。
-- I2C 锁死恢复与 SDRAM 初始化顺序见 `stm32-peripheral-drivers` 第八节。
+- 长运行浸泡（如周期轮询某状态量，确认 `*_valid` 恒定不冻结）。
+- I2C 锁死恢复与 SDRAM 初始化顺序见 `stm32-peripheral-drivers/references/lan8720a-rmii.md`。
 
-## 八、高级调试：openocd + gdb 函数级验证与挂死定位
-
-当某个函数（如 Flash 擦写引擎）在真机上一跑就死、靠加日志难以定位时，用 **gdb 直调该函数** 做隔离验证，并用 **超时挂死检测** 自动抓 PC。这是 Bootloader 项目验证 `BFLASH_ProgramBlock` 是否修复的核心手段（详见 `stm32-peripheral-drivers` 第九节）。
-
-### 8.1 起常驻 openocd 调试服务器（gdb :3333 / tcl :6666 / telnet :4444）
-```bash
-openocd -s <openocd scripts dir> -f openocd.cfg > ocd.log 2>&1 &
-# openocd.cfg: interface/stlink.cfg + transport select swd + target/stm32h7x.cfg
-```
-后续 gdb / telnet 烧写都连这个服务器，**不要重复起 openocd**（ST-Link 被独占，第二个实例会失败）。
-
-### 8.2 gdb 直调函数（先 relocate RAM 引擎再 call）
-很多函数依赖"从 RAM 执行的引擎"，必须先让 relocate 跑完。用 hw-breakpoint 命中 relocate 函数，`finish` 执行完它，再 `call` 目标函数：
-```gdb
-target extended-remote :3333
-monitor reset halt
-file build/stm32h7_boot.elf          # 载入符号表
-break BFLASH_Relocate                # hw-bp 命中 relocate
-continue                             # 跑到 relocate
-finish                               # 执行完 relocate（引擎已搬到 AXI SRAM）
-call flash_erase_sector(1,2)         # 返回 0 = OK
-call BFLASH_ProgramBlock(0x08040000, 0x24070000, 32)
-x/8xw 0x08040000                    # 回读 8 字，应等于写入 pattern
-```
-若 `call` 后 gdb 长时间不返回 → 真机挂死（见 8.3 抓 PC）。
-
-⚠️ **GDB 可靠性边界（来自真机教训）**：`-O2`/Release 下 GDB 读取局部变量不可靠，
-且 Cortex-M **勿用 `call` 触发复杂函数**（易 HardFault，尤其涉及 OS 调度/中断/浮点）。隔离验证
-优先用 hw-bp + `finish` + `call` 简单函数；复杂路径改用"直调 + 8.3 超时挂死检测"而非交互式 `call`。
-
-⚠️ **GDB 断点打在「含 FreeRTOS 互斥量获取」的函数会死锁**（真机教训）：这类函数内部
- `xSemaphoreTake` 在调度器未起或已有任务持锁时 `call` 会永久阻塞 gdb。隔离验证时：
-- 断点打在 `vTaskStartScheduler()` **之前**，或确认该函数此刻无持锁窗口；
-- 否则改用「hw-bp 命中该函数入口 → `finish` 跑完 → 看返回值」而非交互式 `call`，避免 gdb 卡死。
-
-### 8.3 挂死自动检测驱动（python 包 gdb）
-```python
-p = subprocess.Popen([GDB, "-q", "-batch", "-ex", "target extended-remote :3333", ...])
-try:
-    p.wait(timeout=45)               # 超时则视为挂死
-except subprocess.TimeoutExpired:
-    p.kill()
-    # 再起一个 gdb 连服务器，monitor halt，读 PC
-    # info registers / bt 定位卡在哪个函数
-```
-- 读 `pc` / `lr` / `sp` 定位。本例卡在 `BFLASH_ProgramBlock` → 引擎放 DTCM 不可执行 / 手搓寄存器序列错。
-- **铁律**：Cortex-M7 的 DTCM(0x20000000) 不可执行代码（I-Code 总线取不到指令）→ 从 DTCM 跑函数立即 BusFault→`Default_Handler`(Infinite_Loop)。凡"从 RAM 执行"的引擎**绝不放 DTCM**，必须放 AXI SRAM(0x24000000)。
-
-### 8.4 Flash 回读校验（gdb 直接读内存）
-升级/跳转后，用 gdb 读关键区确认结果，不依赖串口：
-```gdb
-x/1xw 0x08021000     # 版本槽，应 == 0x06000001 (v1.0.0.6)
-x/2xw 0x08020000     # App 向量：SP / reset
-x/4xw 0x081E0000     # 配置区 magic(0xB0075EED) + crc32
-```
-gdb 会剥前导零，比对时按 32 位值判断。
-
-### 8.5 复用 running openocd 烧写（telnet 4444）
-```python
-s = socket.create_connection(('127.0.0.1', 4444))
-send('reset halt')
-send('flash write_image erase build/stm32h7_boot.bin 0x08000000')
-send('verify_image build/stm32h7_boot.bin 0x08000000')   # 期望 verified N bytes
-send('reset run')
-```
-避免再起 openocd 冲突 ST-Link。
-
-### 8.6 串口捕获与端口占用排查
-```python
-import serial
-s = serial.Serial('<COM端口>', 115200, timeout=0.3)   # H7: ST-Link VCP
-```
-- 若 `serial.Serial` 抛 `PermissionError` → 端口被**残留 python/捕获进程**占用。先 `tasklist` / `wmic process` 找占用者并结束，再抓。曾因后台 capture 进程未退出导致串口抓不到。
-- 抓日志要在 `reset run` **之后**开始，否则错过启动 banner。
-- **ST-Link 被 openocd/gdb 残留占用**：烧录报 `Error: init mode failed` / `ST-Link not found` →
-  `tasklist | findstr openocd`（或 `findstr arm-none-eabi-gdb`）找残留 PID，`taskkill /F /PID <pid>`
-  结束后再起新实例。同一时刻只能有一个 openocd 持有 ST-Link（见 8.1 常驻服务器做法可避免冲突）。
-- **`libusb_open() failed with LIBUSB_ERROR_ACCESS`**：反复用 openocd/gdb 后 USB 被残留进程占用，
-  先 `Get-Process openocd | Stop-Process -Force`（PowerShell）或 `taskkill /F /IM openocd.exe` 再烧。
-- **COM 口 `code-31 / PermissionError(13)`**：CH340 等会周期性进入「设备未发挥作用」状态，需重新插拔 USB
-  才能恢复；串口挂掉时可用 SWD 读内存取证（见 3.2）代替串口抓日志。
-
-### 8.6.1 ST-Link 虚拟串口「拒绝访问」重试坑（真机教训，高概率）
-当用 OpenOCD 经 libusb 触碰过 ST-Link 后，**首次打开其 VCP（COMx，即 USART1 PA9/PA10）常报
-「拒绝访问 / PermissionError」**——即使 `tasklist` 查无占用者、没有残留 python/捕获进程（与上面
-"端口被残留进程占用"是**两种不同根因**）。根因是 ST-Link 的 VCP 在 OpenOCD 释放后仍被 Windows 短暂持锁。
-**解法**：串口捕获脚本对 `serial.Serial(...)` 做 **5~7 次重试（指数退避 0.2~1.5s）**，重试几次后必然成功；
-若仍失败，重插 ST-Link 或重启 OpenOCD 后再重试即可。切勿误判为"端口被占用去 kill 进程"——那种做法无效。
-- 端口号依本机分配（H7 多为 COM19 之类）；Git Bash 下近似 `/dev/ttyS<N-1>`，原生 python 用 `COM<N>`。
-- 抓日志要在 `reset run` **之后**开始，否则错过启动 banner（见 8.6 顺序铁律）。
-
-### 8.6.2 ⚠️ 主机侧读数方式会造成"固件很慢"的假象（30 ms 假延迟）
-压测/延迟脚本里最常见的写法藏着一个数量级陷阱：
-```python
-data = ser.read(self.ser.in_waiting or 4096)   # ❌ 错
-```
-`in_waiting == 0` 时此处会**请求 4096 字节**；pySerial/Windows 的读语义是
-「尽量凑满所请求字节数，凑不满就等到读超时」，于是**每次无数据时都要空等整整一个 timeout**，
-把本该 0.2 ms 返回的字节拖到 ~30 ms 才交出来。
-
-实测对照（`012.stm32h743_usb_serial` 1 字节小包延迟）：
-
-| 路径 | 错误读数 | 修正后 |
-|---|---|---|
-| 软件回环 `AT+LOOP=1`（**完全绕过 UART**） | 31.91 ms | 0.22–0.24 ms |
-| 经 UART4 真实回环（PA0↔PA1） | 34.24 ms | **1.43 ms** |
-
-关键点：**软件回环根本不碰 UART/DMA，却同样有 31.91 ms** → 这 30 ms 与固件无关。
-
-**正确写法**：`data = ser.read(self.ser.in_waiting or 1)`（有读多少，无则最多等 1 字节）。
-- 方法论：任何"固件延迟异常"先做**双路径对照**（绕过外设 vs 经过外设），
-  两者差异才是外设真实开销；两者共同的开销一定在主机侧（与 §10 LVGL 首帧"先排除伪性能"同理）。
-- 吞吐压测的 `平均延迟` 还受**在途窗口**（默认 2048 B）与波特率主导，不代表固件固有延迟：
-  真实往返延迟要看 pacing 模式（无在途窗口）。
-
-### 8.7 沙箱 / 环境局限（验收设计必知）
-- **QSPI 直写不可行**：openocd `stmqspi` 在本类环境常拉不起 H743 QSPI（probe 后 timeout / No QSPI）。升级包改走**设计的 U 盘路径**（QSPI FatFs + TinyUSB MSC，用户机器拷包）。
-- **COM 映射**：Windows 下串口号近似 `/dev/ttyS<N-1>`（Git Bash）；原生 python 用 `COM<N>`，端口号依本机分配。
-
-### 8.8 运行时计数直读（验证缓存命中率 / 算法行为，无需串口命令接口）
-当固件没有 UART 命令接口、却要确认某个模块（如 Glyph Cache）的 hit/miss/evict 计数是否真实生效时，
-**烧录 Debug 构建 + gdb 直读静态变量** 是最硬的证据。比串口打印更准（不受日志时序/缓冲干扰）。
-
-```bash
-# 1) 烧录 Debug 构建（带 -g 符号），让目标跑起来
-openocd -f openocd.cfg -c "program build-debug/xxx.elf verify reset exit"
-# 2) 起常驻 openocd 服务器（见 8.1）
-openocd -f openocd.cfg > ocd.log 2>&1 &
-# 3) gdb 脚本（或 -x）：reset 让目标跑 N 秒触发业务，再 halt 直读
-cat > read_counters.gdb <<'EOF'
-set pagination off
-target remote :3333
-monitor reset run          # 重新启动，跑自动业务（如页面切换 demo）
-shell sleep 20             # 让缓存/算法充分运行
-monitor halt               # 冻结
-x/1uw &'glyph_cache.c'::s_hits      # 直读真实内存地址
-x/1uw &'glyph_cache.c'::s_misses
-x/1uw &'glyph_cache.c'::s_evicts
-x/1uw &'glyph_cache.c'::s_free_bytes
-detach
-quit
-EOF
-arm-none-eabi-gdb -batch -x read_counters.gdb build-debug/xxx.elf
-```
-- 读数即权威：`s_hits=1319 / s_misses=210 → 命中率 86%` 这类数字直接证明缓存生效；
-  `s_evicts=0` 若符合预期（缓存未填满）也一并坐实。
-- **必须用 `x/1uw &'file.c'::symbol` 直读符号真实地址**，不要 `call func(&$h)`：
-  gdb 便利变量 `$h` 不能取地址，会报 `Attempt to take address of value not located in memory`；
-  `x/1uw` 直接剥符号地址读内存，100% 可靠。
-- gdb 偶发 `This normally should not happen, please file a bug report` 多为 `printf` 路径噪声，
-  不影响 `x/1uw` 结果，可忽略。
-- 验证完把板子刷回 Release 构建（生产态），并删掉临时 `.gdb` 脚本。
-
-## 九、双固件 Bootloader 端到端验证
+## 八、双固件 Bootloader 端到端验证
 
 Bootloader + App 是**两套独立构建、固定地址共存**，验收分三层：
 
-1. **跳转验证（Golden path）**：直烧 App+配置 → 复位 → Bootloader 挂载 → 配置 CRC/向量/HMAC/版本全过 → 8s 窗口；USB 连则 U-disk（符合设计），未连则跳 App。
-2. **升级验证（U 盘路径）**：把 `stm32h7_test.bin`+`verify.json` 拷 U 盘 → 复位 → Bootloader 检测包 → `BFLASH_EraseApp`+`BFLASH_ProgramBlock` → 重启 → 打印新 App 版本。Flash 读回版槽/配置 CRC 确认。
-3. **引擎级验证**：见第八节 gdb 直调 `BFLASH_ProgramBlock`，确认不再挂死、回读一致。
+1. **跳转验证（Golden path）**：直烧 App+配置 → 复位 → Bootloader 挂载 → 配置 CRC/向量/HMAC/版本全过 → 等待窗口；USB 连则 U-disk（符合设计），未连则跳 App。
+2. **升级验证（U 盘路径）**：把 `*_test.bin` + `verify.json` 拷 U 盘 → 复位 → Bootloader 检测包 → `BFLASH_EraseApp` + `BFLASH_ProgramBlock` → 重启 → 打印新 App 版本。Flash 读回版槽/配置 CRC 确认。
+3. **引擎级验证**：见「GDB 函数级调试」reference，gdb 直调 `BFLASH_ProgramBlock`，确认不再挂死、回读一致。
 
 - 任何校验失败都**在擦写前 abort**，已运行 App 不会被破坏（防砖设计，验收时重点确认"坏包不破坏"）。
-- 黄金外部参考样本：`7.stm32h7_iap`（同芯片已验证的 `drv_flash.c` / `upload_frame.c`，可作为外部参考，非本仓 skill）。
-- 防砖设计与坏包验证见 `stm32-project-scaffold` 第八节。
+- 防砖设计与内存分区见 `stm32-project-scaffold` 的「双固件镜像 Bootloader」节。
 
-## 十、LVGL 首帧/首绘性能测量与预热回归（STM32 + LVGL）
+## 九、LVGL 首帧/首绘性能测量与预热回归（STM32 + LVGL）
+
+**结论先行**：首帧卡顿的常见根因**不是**字库缓存 miss，而是 **LVGL 一个 screen 第一次被实际
+绘制时的一次性 CPU 开销**（样式计算 / label 排版 / draw-task 构建，可达 ~200 ms，纯 CPU、零 IO）。
+
+- **判据要先排除"伪性能"**：光看 `refr` 变长会误判成缓存未命中。必须同时打印
+  `glyph_cache` 的 `bmp_miss/hit/evict` 与 SD/TTF 侧 `ctf_sd / ttf_fill / ttf_read` **增量**；
+  若增量为 0 → **零 IO**，问题在 CPU，加缓存无用。
+- **正解是"抑制 flush 的离屏预热"**：把 `disp->flush_cb` 临时换成 dummy（吞帧 + 立即
+  `lv_disp_flush_ready`），在启动加载页背后把每页渲染一次，把首绘开销提前吃掉。
+- **回归脚本**：抓串口 → 解析每次 `[PAGE] switch` → 断言首帧 `bmp_miss == 0`、零 SD 读、
+  `|首帧 refr − warm 均值| ≤ 阈值`，退出码 0/1（CI 友好），并支持 `--in <文件>` 离线复跑。
+
+> 完整设计（CTF 索引 + TTF 块缓存的硬约束、Latin 预取误假设、字形缓存 LRU + epoch 钉扎）
+> 见 `stm32-lvgl-font-engine`。**本节只保留验收判据；机制与实现以该 skill 为准。**
+
+## 十、本 skill 的参考文件
+
+- `references/gdb-function-level-debug.md` — **GDB 函数级调试配方**（常驻 openocd 服务器、
+  gdb 直调函数做隔离验证、超时挂死检测抓 PC、Flash 回读、复用 running openocd 烧写、
+  串口占用排查、运行时计数直读）。
+  其它 skill 里写的「见 `stm32-verification-acceptance` 的 gdb 直调」指的就是它。
+

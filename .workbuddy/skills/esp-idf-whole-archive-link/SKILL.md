@@ -1,6 +1,7 @@
 ---
 name: esp-idf-whole-archive-link
 description: ESP-IDF 链接陷阱：组件编译成 .a 后，未被直接引用的目标文件（如 tinyusb 的 tud_descriptor_* 回调）会被静态链接器丢弃导致 undefined reference；同时强定义的 __weak 覆盖会被 tinyusb 的弱桩静默取代，造成运行时异常。用 --whole-archive 包裹组件归档，让所有目标文件无条件链接，彻底消除这两类问题。适用于 ESP-IDF + tinyusb，或任何提供回调 / 弱符号覆盖的自定义组件。
+agent_created: true
 ---
 
 # ESP-IDF 组件链接：用 --whole-archive 避免 .a 丢弃与 __weak 误链
@@ -52,7 +53,7 @@ xtensa-esp32s3-elf-nm -C build/esp32s3_debug_probe.elf | grep -iE "tud_descripto
 期望这些是 `T`（强定义、已链接），而非缺失或被 `W`（弱桩）取代。仍存在的 `W` 符号若是你确实未实现、
 可接受用 tinyusb 默认桩的回调（如 tud_suspend_cb / tud_resume_cb / tud_sof_cb），不是问题。
 
-## 构建命令（本项目）
+## 构建命令
 ```bash
 cd <proj> && source env.sh && "$PY" idf_runner.py build
 ```

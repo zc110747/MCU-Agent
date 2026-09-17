@@ -1,11 +1,7 @@
 ---
 name: esp32-cortex-debug
-description: >
-  ESP32-S3 (Arduino/ESP-IDF) 通过 VSCode Cortex-Debug + openocd-esp32 + xtensa-gdb
-  搭建断点调试链路的完整配方与排错清单。涵盖 launch.json 正确写法、JTAG 驱动安装
-  (eim install-drivers)、以及 15 类常见报错（Arg list too long / LIBUSB_ERROR_ACCESS /
-  GDB Server Quit / No symbols for FreeRTOS 等）的根因与修复。适用于"ESP32 怎么用
-  VSCode 调试""openocd 报 Arg list too long""F5 断连""ESP32-S3 JTAG 驱动"等请求。
+description: ESP32-S3 (Arduino/ESP-IDF) 通过 VSCode Cortex-Debug + openocd-esp32 + xtensa-gdb 搭建断点调试链路的完整配方与排错清单。涵盖 launch.json 正确写法、JTAG 驱动安装 (eim install-drivers)、以及 15 类常见报错（Arg list too long / LIBUSB_ERROR_ACCESS / GDB Server Quit / No symbols for FreeRTOS 等）的根因与修复。适用于"ESP32 怎么用 VSCode 调试""openocd 报 Arg list too long""F5 断连""ESP32-S3 JTAG 驱动"等请求。
+agent_created: true
 ---
 
 # ESP32-S3 Cortex-Debug 调试链路配方
@@ -19,14 +15,15 @@ description: >
 
 ## 1. 工具链路径（随 ESP32 Core 内置，无需另装）
 
-以 `esp32:esp32@3.3.11`、data 目录 `D:\software\arduino-cli\data` 为例，按实际版本号替换：
+记 `<DATA>` = `arduino-cli config dump` 里的 data 目录，`<ESP32>` = `<DATA>/packages/esp32/tools`。
+版本号（`v0.12.x-esp32-*` / `esp-x32/<ver>` / `<ver>_<date>`）随 core 版本变化，**以 `ls <ESP32>` 实测为准**：
 
 | 组件 | 路径 |
 |------|------|
-| openocd-esp32 | `...\esp32\tools\openocd-esp32\v0.12.0-esp32-20260424\bin\openocd.exe` |
-| xtensa gdb | `...\esp32\tools\xtensa-esp-elf-gdb\17.1_20260402\bin\xtensa-esp32-elf-gdb.exe` |
-| binutils (nm/objdump) | `...\esp32\tools\esp-x32\2601\bin` —— **nm/objdump 在此，不在 gdb 目录** |
-| openocd scripts | `...\openocd-esp32\v0.12.0-esp32-20260424\share\openocd\scripts` |
+| openocd-esp32 | `<ESP32>\openocd-esp32\<ver>\bin\openocd.exe` |
+| xtensa gdb | `<ESP32>\xtensa-esp-elf-gdb\<ver>\bin\xtensa-esp32-elf-gdb.exe` |
+| binutils (nm/objdump) | `<ESP32>\esp-x32\<ver>\bin` —— **nm/objdump 在此，不在 gdb 目录** |
+| openocd scripts | `<ESP32>\openocd-esp32\<ver>\share\openocd\scripts` |
 
 > ⚠️ Cortex-Debug 的 `armToolchainPath` 要指向 **esp-x32 binutils 目录**（取 nm/objdump），
 > 而 `gdbPath` 指向 **gdb 目录**。两者不同，少了前者会报 `xtensa-esp-elf-nm.exe ENOENT`。
@@ -71,11 +68,11 @@ eim install-drivers
             "cwd": "${workspaceFolder}",
             "executable": "${workspaceFolder}\\.build\\<project>.ino.elf",
             "toolchainPrefix": "xtensa-esp32-elf",
-            "armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\esp-x32\\2601\\bin",
-            "gdbPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp-32-elf-gdb.exe",
-            "serverpath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+            "armToolchainPath": "<ESP32>\\esp-x32\\2601\\bin",
+            "gdbPath": "<ESP32>\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp-32-elf-gdb.exe",
+            "serverpath": "<ESP32>\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
             "configFiles": ["board/esp32s3-builtin.cfg"],
-            "searchDir": ["D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"],
+            "searchDir": ["<ESP32>\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"],
             "overrideLaunchCommands": [],
             "runToEntryPoint": "app_init",
             "showDevDebugOutput": "none",
@@ -89,11 +86,11 @@ eim install-drivers
             "cwd": "${workspaceFolder}",
             "executable": "${workspaceFolder}\\.build\\<project>.ino.elf",
             "toolchainPrefix": "xtensa-esp32-elf",
-            "armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\esp-x32\\2601\\bin",
-            "gdbPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp-32-elf-gdb.exe",
-            "serverpath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+            "armToolchainPath": "<ESP32>\\esp-x32\\2601\\bin",
+            "gdbPath": "<ESP32>\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp-32-elf-gdb.exe",
+            "serverpath": "<ESP32>\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
             "configFiles": ["board/esp32s3-builtin.cfg"],
-            "searchDir": ["D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"],
+            "searchDir": ["<ESP32>\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"],
             "overrideLaunchCommands": [],
             "showDevDebugOutput": "none",
             "serverArgs": ["-d2"]
@@ -106,11 +103,11 @@ eim install-drivers
             "cwd": "${workspaceFolder}",
             "executable": "${workspaceFolder}\\.build\\<project>.ino.elf",
             "toolchainPrefix": "xtensa-esp32-elf",
-            "armToolchainPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\esp-x32\\2601\\bin",
-            "gdbPath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp-32-elf-gdb.exe",
-            "serverpath": "D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
+            "armToolchainPath": "<ESP32>\\esp-x32\\2601\\bin",
+            "gdbPath": "<ESP32>\\xtensa-esp-elf-gdb\\17.1_20260402\\bin\\xtensa-esp-32-elf-gdb.exe",
+            "serverpath": "<ESP32>\\openocd-esp32\\v0.12.0-esp32-20260424\\bin\\openocd.exe",
             "configFiles": ["board/esp32s3-ftdi.cfg"],
-            "searchDir": ["D:\\software\\arduino-cli\\data\\packages\\esp32\\tools\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"],
+            "searchDir": ["<ESP32>\\openocd-esp32\\v0.12.0-esp32-20260424\\share\\openocd\\scripts"],
             "overrideLaunchCommands": [],
             "runToEntryPoint": "app_init",
             "showDevDebugOutput": "none",
@@ -119,6 +116,10 @@ eim install-drivers
     ]
 }
 ```
+
+> ⚠️ 示例中 `<ESP32>` 是占位（= `arduino-cli config dump` 的 data 目录 + `packages/esp32/tools`，见第 1 节）。
+> 复制进工程时**必须替换为绝对路径**（Cortex-Debug 不做变量展开）；若不想在仓库里暴露本机路径，
+> 可改写成 `${env:ESP32_TOOLS}` 并在系统环境变量里定义。
 
 ### 关键字段铁律
 
@@ -130,7 +131,7 @@ eim install-drivers
 | `rtos` | **不要写** | Arduino elf 无 FreeRTOS 符号 → openocd 线程查询拖垮 gdb 连接（`GDB server session ended`） |
 | `armToolchainPath` | esp-x32 binutils 目录 | nm/objdump 在此，Cortex-Debug 拼 `toolchainPrefix-nm` 取符号 |
 
-> 入口符号核对：`nm <elf> | grep -E "app_init|app_main"`。本项目 elf 同时存在
+> 入口符号核对：`nm <elf> | grep -E "app_init|app_main"`。Arduino core 的 elf 通常同时存在
 > `app_init`(`_Z8app_initv`) 与 `app_main`(`_Z8app_mainv`) 两个合法符号，任选其一即可。
 
 ## 5. 15 类报错根因速查表
@@ -161,9 +162,9 @@ eim install-drivers
 4. **扩展冲突**：确认未装 probe-rs-debug。
 5. **看日志**：DEBUG CONSOLE 看不到服务端崩溃原因，必须看 **TERMINAL 标签页 gdb-server 输出**。
 
-## 7. 实测验证结论（本项目 201.esp32s3_rtos）
+## 7. 实测验证结论（ESP32-S3 工程）
 
-- 构建体积：程序 314768 B / 24%，动态内存 22880 B / 6%。
+- 构建体积：把程序占用 / 动态内存占比与**上一版**对比（回归只看趋势，不记绝对值）。
 - F5 选 `ESP32-S3 Debug (内置USB-Serial-JTAG)` → openocd 自动 halt（Flash 已映射）→
   `runToEntryPoint: app_init` 自动停在入口 → 断点/单步/变量/调用栈全部正常 ✅。
 - 代价：无 RTOS 线程视图（删 `rtos` 所致），对应用调试无影响。
