@@ -63,7 +63,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 🚀 **esp32s3项目**
 
 ✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)  
-✅ 202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享  
+✅ 202.ESP32-S3 USB 远程硬件仿真器
 ✅ 203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)  
 
 具体项目效果和提示词说明如下。
@@ -351,17 +351,9 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 2. 4 任务 + 1 软件定时器构成设备监控器，UART 命令查看/控制
 3. 零警告构建 + CH343 串口下载 + 双核信息/任务表验收
 
-#### ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享
+#### 202.ESP32-S3 USB 远程硬件仿真器
 
-🚀 [202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享](./202.esp32s3_hw_detect/README.md)
-
-**AI开发**：ESP32-S3 自带 Wi-Fi + USB Device 实现 RNDIS 网卡（lwIP + USB RNDIS），CH343 串口下载  
-**个人参与**: 仿真环境、提示词
-
-工作量：
-
-1. 参考 github 已有项目复刻 USB Wi-Fi 网络适配器
-2. ESP32-S3 STA 连 Wi-Fi，经 lwIP 桥接到 USB RNDIS，Windows 枚举为 RNDIS 网卡
+🚀 [202.202.ESP32-S3 USB 远程硬件仿真器](./202.esp32s3_hw_detect/README.md)
 
 #### ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)
 
