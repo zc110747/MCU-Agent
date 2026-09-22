@@ -1,0 +1,14 @@
+# Component manifest for the `main` component.
+# The ESP-IDF component manager resolves these into ./managed_components.
+dependencies:
+  idf:
+    version: ">=5.3"
+
+  # LVGL graphics library (v9 API, RGB565 16-bit colour depth).
+  lvgl/lvgl:
+    version: "~9.3.0"
+
+  # Espressif's LVGL glue: owns the LVGL task/tick and the
+  # esp_lcd -> LVGL display + input-device adapters.
+  espressif/esp_lvgl_port:
+    version: "^2.9.0"

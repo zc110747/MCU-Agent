@@ -1,0 +1,96 @@
+# ===========================================================================
+#  Ebook LVGL -- Waveshare ESP32-S3-Touch-LCD-4.3B
+#  Default build configuration (ESP-IDF v6.1)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Target
+# ---------------------------------------------------------------------------
+CONFIG_IDF_TARGET="esp32s3"
+
+# ---------------------------------------------------------------------------
+# CPU / caches  (values recommended by the Waveshare board documentation)
+# ---------------------------------------------------------------------------
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# ---------------------------------------------------------------------------
+# Flash: ESP32-S3-WROOM-1-N16R8 -> 16 MB
+# ---------------------------------------------------------------------------
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# ---------------------------------------------------------------------------
+# Partitions: single 4 MB factory app, no OTA (see partitions.csv)
+# ---------------------------------------------------------------------------
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ---------------------------------------------------------------------------
+# PSRAM: 8 MB octal SPI
+#   FETCH_INSTRUCTIONS/RODATA copy hot code+rodata into PSRAM, which frees
+#   internal SRAM for the RGB DMA descriptors and the LVGL heap.
+# ---------------------------------------------------------------------------
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=8192
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# ---------------------------------------------------------------------------
+# Console on the native USB port.
+#   GPIO43/GPIO44 are wired to the on-board RS485 transceiver on this board,
+#   so the UART0 console MUST NOT be used.
+# ---------------------------------------------------------------------------
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# ===========================================================================
+#  LVGL 9 (managed component lvgl/lvgl)
+# ===========================================================================
+
+# Use the Kconfig options below instead of looking for an lv_conf.h.
+CONFIG_LV_CONF_SKIP=y
+
+# 16 bit per pixel: the RGB panel is wired as RGB565 and the frame buffer is
+# streamed straight to the LCD, so anything else would only cost PSRAM.
+CONFIG_LV_COLOR_DEPTH_16=y
+
+# Use newlib for memory / string / printf instead of LVGL's own copies:
+# smaller image and it lets LVGL allocate from the same heap the rest of the
+# application uses (large blocks land in PSRAM via SPIRAM_MALLOC_ALWAYSINTERNAL).
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+CONFIG_LV_USE_CLIB_STRING=y
+
+# Fonts in use. Theme::font_* maps to exactly these four.
+# (CJK glyphs are NOT available here - the Reader page mounts a subset font
+#  from storage in a later phase.)
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_DEFAULT_MONTSERRAT_16=y
+
+# Observers + system monitor. The performance overlay is available for the
+# soak test (lv_sysmon_show_performance(NULL)) but is not enabled by default.
+CONFIG_LV_USE_OBSERVER=y
+CONFIG_LV_USE_SYSMON=y
+CONFIG_LV_USE_PERF_MONITOR=y
+
+# No demos / examples: this is an application, not a demo runner.
+# (Every LV_USE_DEMO_* option is off by default and is deliberately left at its
+#  default value rather than being restated here.)
+CONFIG_LV_BUILD_EXAMPLES=n
