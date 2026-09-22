@@ -78,9 +78,3 @@ idf_component_register(
         esp_lvgl_port
 )
 
-# ---------------------------------------------------------------------------
-# TEMPORARY: enables the acceptance sweep in app/app_manager.cpp.  Delete this
-# together with that block once the sweep log has been captured.
-# ---------------------------------------------------------------------------
-target_compile_definitions(${COMPONENT_LIB} PRIVATE EBOOK_ACCEPTANCE_SWEEP=1)
-
