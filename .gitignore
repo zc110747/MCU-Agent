@@ -89,3 +89,6 @@ Listings
 Objects
 *.uvguix.*
 *.scvd
+assert
+components
+managed_components

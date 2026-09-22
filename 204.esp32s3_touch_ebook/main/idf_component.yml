@@ -12,3 +12,15 @@ dependencies:
   # esp_lcd -> LVGL display + input-device adapters.
   espressif/esp_lvgl_port:
     version: "^2.9.0"
+
+  # Capacitive touch controller on the 4.3B: a GT911 behind the shared I2C bus.
+  # Pulled in rather than hand-rolled because it carries the register-level
+  # quirks (status-bit gating, coordinate byte order, multi-touch packing) that
+  # are tedious to get right and invisible when wrong.
+  espressif/esp_lcd_touch_gt911:
+    version: "^1.2.0"
+
+  # Common esp_lcd_touch interface that the GT911 driver implements and that
+  # esp_lvgl_port consumes.
+  espressif/esp_lcd_touch:
+    version: "^1.2.0"

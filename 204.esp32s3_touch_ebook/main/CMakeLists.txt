@@ -65,11 +65,22 @@ idf_component_register(
         esp_driver_spi
         esp_driver_sdspi
         esp_lcd
+        esp_lcd_touch
+        esp_lcd_touch_gt911
         esp_timer
         esp_psram
+        esp_app_format
         spi_flash
         nvs_flash
+        sdmmc
         fatfs
         lvgl
         esp_lvgl_port
 )
+
+# ---------------------------------------------------------------------------
+# TEMPORARY: enables the acceptance sweep in app/app_manager.cpp.  Delete this
+# together with that block once the sweep log has been captured.
+# ---------------------------------------------------------------------------
+target_compile_definitions(${COMPONENT_LIB} PRIVATE EBOOK_ACCEPTANCE_SWEEP=1)
+

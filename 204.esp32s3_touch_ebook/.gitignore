@@ -8,6 +8,21 @@ sdkconfig.old
 # every invocation.  Useful locally, pure noise in history.
 build_log.txt
 
+# Capture from tools\serial_probe.py.  Session data: the interesting lines end up
+# in the phase report, the file itself does not belong in the history.
+serial_log.txt
+
+# Scratch files written while investigating (port lists, icon previews, ...).
+# Underscore prefix marks them as "mine, disposable" so a tired reader does not
+# mistake one for a deliverable.
+_*.txt
+
+# CMake/Ninja out-of-source tree and the component manager's download cache.
+# The enclosing repository ignores these too; restated here so that copying this
+# folder somewhere else does not start committing a 200 MB build tree.
+build/
+managed_components/
+
 # Agent working notes (daily log + project conventions).  Local state, not part
 # of the deliverable - flip this if you want the notes to travel with the repo.
 .workbuddy/
