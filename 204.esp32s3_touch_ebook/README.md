@@ -391,19 +391,32 @@ lie, so it is not offered.
 GT911 over the shared I²C bus at `0x5D` (address depends on the reset
 sequence; `0x14` is the alternative), IRQ on GPIO4, reset via CH422G EXIO1.
 
-Two things on this board differ from a stock GT911 bring-up, both handled in
+Three things on this board differ from a stock GT911 bring-up, all handled in
 `main/platform/touch/touch_driver.c`:
 
 * **Reset is not a GPIO.** The line hangs off the expander, so the driver is
   told `rst_gpio_num = GPIO_NUM_NC` and the pulse is issued through
   `io_expander_touch_reset()` instead.
 * **The I²C address is latched at reset release.** The controller samples the
-  interrupt line while reset is de-asserted: held LOW it answers on `0x5D`,
-  HIGH on `0x14`. GPIO4 is therefore driven low as an output for the duration
-  of the reset pulse and only afterwards reconfigured as the controller's
-  interrupt output. That deliberate double configuration makes the driver emit
-  `W (909) gpio: conflict found for GPIO[4]` at every boot — it is expected and
-  documented in the source, not a fault.
+  interrupt line at the instant reset rises: held LOW it answers on `0x5D`,
+  HIGH on `0x14`. The sequence is RST low for 100 ms, *then* the interrupt line
+  driven low, another 100 ms, and only then RST released — the vendor order and
+  durations (`waveshare_rgb_lcd_port.c`, `waveshare_esp32_s3_touch_reset()`),
+  not the datasheet's 10 ms minimum *pulse* width.
+* **The interrupt line is left as an input, with the internal pull-up.** The
+  GT911's interrupt output is open drain, so with the pull-up disabled the line
+  floats whenever the controller is not pulling it down. (The vendor firmware
+  instead parks the pin as a push-pull output driven low for the rest of the
+  run — safe only because that output is open drain, and it leaves the
+  controller believing the host is busy forever.) GPIO4 is an output just long
+  enough to hold the address line low through the reset edge; after that it
+  belongs to the controller. That deliberate double configuration makes the
+  driver emit `W (909) gpio: conflict found for GPIO[4]` at every boot —
+  expected, and documented in the source rather than silenced.
+
+**No interrupt is used for touch.** The driver is handed
+`int_gpio_num = GPIO_NUM_NC` and the controller is polled, which is exactly
+what the vendor example does.
 
 Touch is registered as an LVGL pointer input device with the panel as its
 display and `scale = 1.0`, because the panel runs at its native resolution and

@@ -34,19 +34,27 @@
 
 static const char *TAG = "touch";
 
-#define TOUCH_RST_LOW_MS     (10)
-#define TOUCH_RST_SETTLE_MS  (100)
+/* Reset timing, aligned with the vendor sequence.
+ *
+ * waveshare_rgb_lcd_port.c (examples/ESP-IDF/09_lvgl_v9_demo/components/)
+ * holds RST low for 100 ms, then drives the interrupt line low, waits another
+ * 100 ms, and only then releases RST, giving the controller a further 200 ms.
+ * The 10 ms this file used before is the datasheet's minimum *pulse* width,
+ * not the window a controller needs to come up in. */
+#define TOUCH_RST_LOW_MS     (100)   /* vendor: 100 ms */
+#define TOUCH_INT_ASSERT_MS  (100)   /* vendor: 100 ms, INT low before RST rises */
+#define TOUCH_RST_SETTLE_MS  (200)   /* vendor: 200 ms */
 #define TOUCH_INT_RELEASE_MS (100)
 
 static esp_lcd_touch_handle_t s_touch = NULL;
 static lv_indev_t *s_indev = NULL;
 
-static esp_err_t int_gpio_mode(gpio_mode_t mode)
+static esp_err_t int_gpio_mode(gpio_mode_t mode, gpio_pullup_t pull_up)
 {
     const gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << BOARD_TOUCH_IRQ_GPIO,
         .mode = mode,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_up_en = pull_up,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
@@ -81,19 +89,30 @@ esp_err_t touch_init(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* ---- 1. hold the interrupt line low, then pulse reset ------------- */
-    ESP_RETURN_ON_ERROR(int_gpio_mode(GPIO_MODE_OUTPUT), TAG, "IRQ gpio as output failed");
-    gpio_set_level(BOARD_TOUCH_IRQ_GPIO, 0);
-    vTaskDelay(pdMS_TO_TICKS(2));
-
+    /* ---- 1. reset, with the interrupt line choosing the I2C address ----
+     * 0x5D is latched from the *level* of the interrupt line at the instant RST
+     * rises, so that line has to be low and settled before the edge - which is
+     * why the vendor holds it low for a full 100 ms first. */
+    ESP_RETURN_ON_ERROR(int_gpio_mode(GPIO_MODE_OUTPUT, GPIO_PULLUP_DISABLE), TAG,
+                        "IRQ gpio as output failed");
     ESP_RETURN_ON_ERROR(io_expander_touch_reset(false), TAG, "CTP_RST low failed");
     vTaskDelay(pdMS_TO_TICKS(TOUCH_RST_LOW_MS));
+
+    gpio_set_level(BOARD_TOUCH_IRQ_GPIO, 0);          /* -> address 0x5D */
+    vTaskDelay(pdMS_TO_TICKS(TOUCH_INT_ASSERT_MS));
+
     ESP_RETURN_ON_ERROR(io_expander_touch_reset(true), TAG, "CTP_RST high failed");
-    /* Address is latched during this window, with IRQ still driven low. */
     vTaskDelay(pdMS_TO_TICKS(TOUCH_RST_SETTLE_MS));
 
-    /* ---- 2. hand the line back to the controller ---------------------- */
-    ESP_RETURN_ON_ERROR(int_gpio_mode(GPIO_MODE_INPUT), TAG, "IRQ gpio release failed");
+    /* ---- 2. hand the line back to the controller ----------------------
+     * As an input, and *with* the internal pull-up: the GT911's interrupt
+     * output is open drain, so with the pull-up disabled the line floats
+     * whenever the controller is not pulling it down.  (The vendor firmware
+     * instead parks this pin as a push-pull output driven low for the rest of
+     * the run, which is only safe because that output is open drain - and
+     * leaves the controller believing the host is busy forever.) */
+    ESP_RETURN_ON_ERROR(int_gpio_mode(GPIO_MODE_INPUT, GPIO_PULLUP_ENABLE), TAG,
+                        "IRQ gpio release failed");
     vTaskDelay(pdMS_TO_TICKS(TOUCH_INT_RELEASE_MS));
 
     /* ---- 3. panel IO + driver ----------------------------------------- */
