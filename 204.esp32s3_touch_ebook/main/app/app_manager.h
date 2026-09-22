@@ -30,11 +30,23 @@ namespace app {
 
 /** @brief Every page of the application. Order is the navigation order. */
 enum class PageId : uint8_t {
-    DisplayTest = 0,   /* Phase 1: LCD bring-up test page */
-    /* Phase 2+: Home, Reader, FileManager, Photos, Notes, Drawing,
-     *           Clock, Calendar, Weather, Settings */
+    Home = 0,        /* the root page; never popped away           */
+    Reader,
+    Photos,
+    Notes,
+    Weather,
+    Clock,
+    Calendar,
+    Drawing,
+    FileManager,
+    Settings,
+    TouchTest,       /* Phase 3 acceptance page                    */
+    DisplayTest,     /* Phase 1 acceptance page                    */
     Count
 };
+
+/** @brief Human readable page name, for logs. */
+const char *page_id_name(PageId id);
 
 class AppManager {
 public:
@@ -58,8 +70,14 @@ public:
     /** @brief Go one step back in history. No-op at the root page. */
     void pop();
 
+    /** @brief Throw the history away and make @p id the new root. */
+    void reset_to(PageId id);
+
     /** @brief The visible page, or NULL before init(). */
     Page *current() const { return current_; }
+
+    /** @brief Id of the visible page. */
+    PageId current_id() const { return depth_ > 0 ? history_[depth_ - 1] : PageId::Count; }
 
     /** @brief Current history depth (1 == root page). */
     int depth() const { return depth_; }
@@ -82,6 +100,24 @@ private:
     int depth_ = 0;
     volatile bool restart_req_ = false;
 };
+
+/* ------------------------------------------------------------------------ */
+/* Navigation for pages                                                      */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * @brief Navigate on the next LVGL cycle.
+ *
+ * Pages must use these rather than AppManager::push() directly.  Switching
+ * pages deletes the widget tree that the calling event callback is currently
+ * running inside, and LVGL would then carry on walking objects that no longer
+ * exist - a crash that only shows up under a real finger.  These wrappers hand
+ * the request to lv_async_call(), which runs it after the event has been fully
+ * dispatched.
+ */
+void navigate(PageId id);
+void go_back();
+void go_home();
 
 }  // namespace app
 

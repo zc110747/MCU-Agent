@@ -11,6 +11,7 @@
 #include "display_test_page.h"
 
 #include "board_config.h"
+#include "display_driver.h"
 #include "test_pattern.h"
 #include "theme.h"
 
@@ -286,4 +287,32 @@ void DisplayTestPage::uptime_cb(lv_timer_t *timer)
     lv_label_set_text_fmt(self->uptime_label_, "LCD OK   LVGL %d.%d.%d   up %u s",
                           LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
                           (unsigned)self->seconds_);
+
+    /* Every 5 s, read the panel frame buffers back and report what is in them.
+     * This is the only acceptance evidence that does not need a human looking
+     * at the screen: LVGL draws straight into these buffers, so their content
+     * is simultaneously (a) proof the render pipeline reached the glass and
+     * (b) proof the RGB565 byte order matches the panel wiring.
+     *
+     * "drawn" is the count of non-zero pixels.  The theme background is very
+     * dark (0x0882) but not black, so a correctly painted screen reports
+     * drawn == sampled, while an untouched buffer reports 0.               */
+    if ((self->seconds_ % 5u) == 0u) {
+        display_fb_report_t rep = {};
+        rep.bg_rgb565      = lv_color_to_u16(lv_color_hex(Theme::kBg));
+        rep.surface_rgb565 = lv_color_to_u16(lv_color_hex(Theme::kSurface));
+        if (display_fb_report(&rep) == ESP_OK) {
+            for (int i = 0; i < BOARD_LCD_NUM_FB; ++i) {
+                const display_fb_census_t *c = &rep.fb[i];
+                ESP_LOGI(TAG,
+                         "fb[%d] present=%d drawn=%u/%u corner=%04X,%04X,%04X,%04X "
+                         "centre=%04X | theme bg=%04X surface=%04X",
+                         i, (int)c->present, (unsigned)c->non_zero, (unsigned)c->sampled,
+                         c->corner[0], c->corner[1], c->corner[2], c->corner[3],
+                         c->centre, rep.bg_rgb565, rep.surface_rgb565);
+            }
+        } else {
+            ESP_LOGW(TAG, "frame buffer read-back failed");
+        }
+    }
 }
