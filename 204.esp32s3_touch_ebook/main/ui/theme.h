@@ -29,6 +29,9 @@ public:
     static constexpr uint32_t kText     = 0xE6E9EF;
     static constexpr uint32_t kTextDim  = 0x9BA3B0;
     static constexpr uint32_t kAccent   = 0x4C8DFF;   /* selection / focus   */
+    static constexpr uint32_t kDanger   = 0xE5534B;   /* destructive actions */
+    static constexpr uint32_t kOk       = 0x3FB950;
+    static constexpr uint32_t kWarn     = 0xE3B341;
 
     /* ---------------- metrics (real pixels on 800x480) ----------------- */
     static constexpr int kSafePad  = 16;              /* screen safe margin  */
@@ -43,6 +46,8 @@ public:
     static constexpr int kHeaderH  = 56;
     static constexpr int kFooterH  = 36;
     static constexpr int kTouchMin = 48;              /* min touch target    */
+    static constexpr int kAppIcon  = 48;              /* Home tile glyph box */
+    static constexpr int kRowH     = 48;              /* list row height     */
 
     /**
      * @brief Initialise the shared styles. Call once, with the LVGL lock held
@@ -54,10 +59,28 @@ public:
     static lv_color_t color(uint32_t rgb) { return lv_color_hex(rgb); }
 
     /* ---------------- fonts ------------------------------------------- */
-    static const lv_font_t *font_small();
-    static const lv_font_t *font_body();
-    static const lv_font_t *font_title();
-    static const lv_font_t *font_h1();
+    static const lv_font_t *font_small();   /* 14 px - captions            */
+    static const lv_font_t *font_body();    /* 16 px - normal text         */
+    static const lv_font_t *font_title();   /* 20 px - section titles      */
+    static const lv_font_t *font_h1();      /* 28 px - page hero           */
+
+    /**
+     * @brief 48 px, for text that is the content rather than a label.
+     *
+     * The clock face and the weather temperature are the two places where the
+     * number *is* the page; at 28 px they read as a caption.  There is no
+     * "scale this font up" path on purpose - LVGL would scale a rasterised
+     * 28 px bitmap and the result would only be a blurrier 28 px font.
+     */
+    static const lv_font_t *font_hero();
+
+    /**
+     * @brief 16 px Source Han Sans SC - the only font with CJK glyphs.
+     *
+     * Falls back for nothing and covers Latin too, so it is usable as a
+     * standalone reading font, not just for a Chinese caption.
+     */
+    static const lv_font_t *font_cjk();
 
     /* ---------------- shared styles (valid after init()) -------------- */
     static lv_style_t *screen();       /* page root: flat background        */
@@ -67,7 +90,16 @@ public:
     static lv_style_t *divider();      /* 1 px separator line               */
     static lv_style_t *btn();          /* interactive surface               */
     static lv_style_t *btn_pressed();
+    static lv_style_t *tile();         /* Home application tile             */
+    static lv_style_t *tile_pressed();
+    static lv_style_t *icon_btn();     /* square, icon-only control         */
+    static lv_style_t *icon_btn_pressed();
+    static lv_style_t *list_row();     /* one row of a list                 */
+    static lv_style_t *list_row_pressed();
+    static lv_style_t *bar_track();    /* progress / slider groove          */
+    static lv_style_t *bar_indic();    /* progress / slider fill            */
     static lv_style_t *text_title();   /* label: section title              */
     static lv_style_t *text_body();    /* label: normal text                */
     static lv_style_t *text_dim();     /* label: secondary text             */
+    static lv_style_t *text_h1();      /* label: hero text                  */
 };
