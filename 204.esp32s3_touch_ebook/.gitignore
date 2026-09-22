@@ -7,3 +7,7 @@ sdkconfig.old
 # Full console mirror of the last build, rewritten by tools\run_idf.bat on
 # every invocation.  Useful locally, pure noise in history.
 build_log.txt
+
+# Agent working notes (daily log + project conventions).  Local state, not part
+# of the deliverable - flip this if you want the notes to travel with the repo.
+.workbuddy/
