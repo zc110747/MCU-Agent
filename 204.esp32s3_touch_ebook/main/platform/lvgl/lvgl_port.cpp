@@ -48,11 +48,33 @@ esp_err_t lvgl_port_start(void)
         return ESP_OK;
     }
 
-    /* ---- 1. the LVGL task / tick ------------------------------------- */
+    /* ---- 1. the LVGL task / tick --------------------------------------
+     * FREERTOS TASK CONTRACT (this is the whole UI's scheduling budget)
+     * -------------------------------------------------------------------
+     * esp_lvgl_port creates exactly one task, named "taskLVGL", which runs
+     * lv_timer_handler() and therefore does *everything* UI: input device
+     * polling, animation stepping, layout invalidation and rendering.
+     *
+     *   priority  6   above the application task (4) and everything the
+     *                 driver layer starts, so a flush is never queued behind
+     *                 background work; still far below the IPC (24) and
+     *                 esp_timer (22) tasks the system needs to stay healthy.
+     *   affinity  1   pinned to core 1 (APP_CPU).  Rendering competes for the
+     *                 same PSRAM bandwidth the RGB DMA engine is streaming a
+     *                 frame from, so keeping the UI on its own core stops it
+     *                 from being time-sliced against app_main and the service
+     *                 work on core 0 as well.
+     *   stack     8192 rendering recurses through the widget tree.
+     *   max_sleep 100  the task never naps longer than this; combined with
+     *                 timer_period_ms below it bounds idle-to-flush latency.
+     *   timer      5  200 Hz LVGL tick.  LVGL's own refresh period
+     *                 (CONFIG_LV_DEF_REFR_PERIOD, 16 ms here) is what gates
+     *                 how often a changed frame is actually flushed.
+     */
     const lvgl_port_cfg_t port_cfg = {
-        .task_priority = 4,
+        .task_priority = 6,
         .task_stack = 8192,          /* rendering happens on this stack */
-        .task_affinity = -1,         /* let the scheduler pick a core */
+        .task_affinity = 1,          /* APP_CPU: keep the UI off core 0 */
         .task_max_sleep_ms = 100,    /* idle sleep cap: snappier input */
         .task_stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DEFAULT,
         .timer_period_ms = 5,        /* 200 Hz tick: touch + animations */
@@ -86,7 +108,13 @@ esp_err_t lvgl_port_start(void)
     disp_cfg.flags.direct_mode  = true;
 
     lvgl_port_display_rgb_cfg_t rgb_cfg = {};
-    rgb_cfg.flags.bb_mode       = false;             /* no bounce buffer      */
+    /* bb_mode must agree with display_driver.c's bounce_buffer_size_px: it
+     * only selects *which* RGB panel event releases the LVGL draw buffer.
+     * With a bounce buffer the frame is finished when the driver has copied
+     * the whole frame buffer into the bounce buffers (on_frame_buf_complete);
+     * without one it is finished at VSYNC.  Getting the pair out of step
+     * leaves LVGL waiting on an event that never arrives. */
+    rgb_cfg.flags.bb_mode       = true;              /* bounce buffer mode   */
     rgb_cfg.flags.avoid_tearing = true;
 
     lvgl_port_acquire(0);

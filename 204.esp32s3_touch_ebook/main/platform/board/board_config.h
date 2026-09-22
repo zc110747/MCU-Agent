@@ -68,26 +68,80 @@ extern "C" {
 /* ------------------------------------------------------------------------- */
 /* RGB timing                                                                 */
 /*                                                                            */
-/* Source: the DPI/RGB timing set that is confirmed working on this exact      */
-/* board model.  They are blanking intervals, i.e. a wrong value shows up as   */
-/* a shifted image, not as a dead panel:                                       */
-/*   image shifted horizontally / diagonal bands  -> HSYNC_* , PCLK polarity   */
-/*   image shifted vertically   / partial frame   -> VSYNC_*                   */
-/*   no image at all                              -> lower PCLK                */
-/* Increase/decrease in small steps and re-flash; keep the panel within its    */
-/* data-sheet limits (max PCLK ~= 30 MHz).                                     */
+/* PROVENANCE: the official Waveshare ESP-IDF demo for this exact board,      */
+/*   github.com/waveshareteam/ESP32-S3-Touch-LCD-4.3B                        */
+/*   examples/ESP-IDF/09_lvgl_v9_demo/components/waveshare_rgb_lcd_port.c     */
+/*   (the 800x480 branch, i.e. ESP_PANEL_USE_1024_600_LCD == 0)               */
+/* Its pin list matches ours above line for line, which is what makes it a    */
+/* usable reference for the rest of the interface as well.                    */
+/*                                                                            */
+/* The panel is driven through its DE pin, so these blanking intervals set    */
+/* the refresh rate far more than they set the phase:                         */
+/*   refresh Hz = PCLK / (h_res + h_pw + h_bp + h_fp)                         */
+/*                       / (v_res + v_pw + v_bp + v_fp)                       */
+/*   = 16 MHz / 820 / 500 = 39 Hz                                             */
+/* Do NOT reach for these numbers when the image is *shifted*: a horizontal   */
+/* offset that wraps the right edge round to the left is not a porch error    */
+/* here, it is the RGB DMA falling behind the LCD controller and losing scan  */
+/* sync - see BOARD_LCD_BOUNCE_BUF_PX below for why and what fixes it.        */
 /* ------------------------------------------------------------------------- */
 #define BOARD_LCD_PCLK_HZ           (16 * 1000 * 1000)
-#define BOARD_LCD_HSYNC_PULSE_WIDTH (8)
-#define BOARD_LCD_HSYNC_BACK_PORCH  (16)
-#define BOARD_LCD_HSYNC_FRONT_PORCH (16)
-#define BOARD_LCD_VSYNC_PULSE_WIDTH (8)
-#define BOARD_LCD_VSYNC_BACK_PORCH  (16)
-#define BOARD_LCD_VSYNC_FRONT_PORCH (16)
+#define BOARD_LCD_HSYNC_PULSE_WIDTH (4)
+#define BOARD_LCD_HSYNC_BACK_PORCH  (8)
+#define BOARD_LCD_HSYNC_FRONT_PORCH (8)
+#define BOARD_LCD_VSYNC_PULSE_WIDTH (4)
+#define BOARD_LCD_VSYNC_BACK_PORCH  (8)
+#define BOARD_LCD_VSYNC_FRONT_PORCH (8)
+
+/* ------------------------------------------------------------------------- */
+/* PCLK sampling edge                                                         */
+/*                                                                            */
+/* The official demo sets this to 1.  We deliberately keep 0: the panel on    */
+/* the bench latches cleanly on this edge already (a wrong edge shows up as   */
+/* per-pixel noise / ghosting, and the picture here is noise-free - it is     */
+/* merely displaced), so flipping it would trade a known-good parameter for   */
+/* an unverified one.  Recorded as a conscious deviation, not an oversight.   */
+/* ------------------------------------------------------------------------- */
+#define BOARD_LCD_PCLK_ACTIVE_NEG   (0)
 
 /* Number of panel frame buffers living in PSRAM (double buffering, needed
  * for tear-free LVGL direct rendering).                                     */
 #define BOARD_LCD_NUM_FB            (2)
+
+/* ------------------------------------------------------------------------- */
+/* Bounce buffer -- the fix for the "permanent shift"                         */
+/*                                                                            */
+/* SYMPTOM: the whole image sits a fixed number of pixels to the right, with  */
+/* the rightmost columns reappearing at the left edge.  It is not a layout    */
+/* bug (LVGL reports full-screen geometry) and not a porch bug (changing the  */
+/* porches does nothing).                                                     */
+/*                                                                            */
+/* CAUSE, in Espressif's own words:                                            */
+/*   esp_lcd_panel_rgb.h, esp_lcd_rgb_panel_restart():                        */
+/*     "the LCD controller is out of sync with the DMA because of             */
+/*      insufficient bandwidth.  To save the screen from a permanent shift"   */
+/*   esp_lcd_panel_rgb.h, bounce_buffer_size_px:                              */
+/*     "DMA fetching from DRAM bounce buffer is much faster than PSRAM        */
+/*      frame buffer."                                                        */
+/*   the driver source, esp_lcd_panel_rgb.c:                                  */
+/*     "Reset the GDMA channel every VBlank to stop permanent desyncs"        */
+/*                                                                            */
+/* The 800x480 frame buffer is 768000 B and cannot live in internal SRAM, so  */
+/* it is in PSRAM - and at 39 Hz the DMA alone wants 768000*39 = 30 MB/s out  */
+/* of the same octal PSRAM that LVGL is rendering into through the cache.     */
+/* When the fetch falls behind, the LCD controller keeps clocking a line it   */
+/* is no longer being fed, which shows up as the cyclic offset above.         */
+/*                                                                            */
+/* The bounce buffer makes the DMA burst from internal DRAM instead, which is */
+/* what the official demo does (EXAMPLE_RGB_BOUNCE_LINES = 10).               */
+/*                                                                            */
+/* Constraint from esp_lcd_panel_rgb.c:                                       */
+/*     fb_size % bb_size == 0                                                 */
+/* 768000 % (800*10*2) == 0, i.e. exactly 48 bounce chunks per frame.         */
+/* Cost: 2 buffers * 8000 px * 2 B = 32 KB of internal DMA-capable DRAM.       */
+/* ------------------------------------------------------------------------- */
+#define BOARD_LCD_BOUNCE_BUF_LINES  (10)
+#define BOARD_LCD_BOUNCE_BUF_PX     (BOARD_LCD_H_RES * BOARD_LCD_BOUNCE_BUF_LINES)
 
 /* ------------------------------------------------------------------------- */
 /* Shared I2C bus  (CH422G expander + GT911 touch + PCF85063 RTC)             */

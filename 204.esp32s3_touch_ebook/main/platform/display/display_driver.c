@@ -73,7 +73,7 @@ esp_err_t display_init(void)
                 .hsync_idle_low = 0,
                 .vsync_idle_low = 0,
                 .de_idle_high = 0,
-                .pclk_active_neg = 0,
+                .pclk_active_neg = BOARD_LCD_PCLK_ACTIVE_NEG,
                 .pclk_idle_high = 0,
             },
         },
@@ -81,7 +81,14 @@ esp_err_t display_init(void)
         .in_color_format = LCD_COLOR_FMT_RGB565,
         .out_color_format = LCD_COLOR_FMT_RGB565,
         .num_fbs = BOARD_LCD_NUM_FB,
-        .bounce_buffer_size_px = 0,
+        /* Non-zero = bounce buffer mode.  This is what stops the
+         * "permanent shift" (see the long note in board_config.h): without it
+         * the RGB DMA reads every line straight out of PSRAM and, once LVGL's
+         * rendering traffic competes for that bandwidth, starts falling
+         * behind the LCD controller's fixed scan rate.  With it the driver
+         * keeps two small chunks in internal DRAM and refills them in bursts,
+         * so the panel is never left clocking a line nobody is feeding it. */
+        .bounce_buffer_size_px = BOARD_LCD_BOUNCE_BUF_PX,
         .dma_burst_size = 64,
         .hsync_gpio_num = BOARD_LCD_HSYNC_GPIO,
         .vsync_gpio_num = BOARD_LCD_VSYNC_GPIO,
@@ -144,4 +151,53 @@ esp_err_t display_backlight_set(bool on)
 bool display_backlight_get(void)
 {
     return s_backlight_on;
+}
+
+esp_err_t display_fb_report(display_fb_report_t *out)
+{
+    if (s_panel == NULL || out == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    void *fb[BOARD_LCD_NUM_FB] = {NULL};
+    esp_err_t err = esp_lcd_rgb_panel_get_frame_buffer(s_panel, BOARD_LCD_NUM_FB,
+                                                       &fb[0], &fb[1]);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const int w = BOARD_LCD_H_RES;
+    const int h = BOARD_LCD_V_RES;
+
+    /* bg_rgb565 / surface_rgb565 are left untouched: the expected colours come
+     * from the UI theme, and the platform layer must not know about it.      */
+    for (int i = 0; i < BOARD_LCD_NUM_FB; ++i) {
+        display_fb_census_t *c = &out->fb[i];
+        memset(c, 0, sizeof(*c));
+        if (fb[i] == NULL) {
+            continue;
+        }
+        c->present = true;
+        c->sampled = (uint32_t)w * (uint32_t)h;
+
+        /* Reading the frame buffer is safe and needs no cache maintenance
+         * dance: LVGL wrote these pixels through the same (write-back) data
+         * cache this read goes through, so the CPU sees its own latest stores.
+         * Only the DMA engine needs the C2M sync, and the RGB driver already
+         * does that itself when the buffer is behind the cache.             */
+        const uint16_t *px = (const uint16_t *)fb[i];
+        uint32_t drawn = 0;
+        for (uint32_t n = 0; n < c->sampled; ++n) {
+            if (px[n] != 0) {
+                ++drawn;
+            }
+        }
+        c->non_zero = drawn;
+        c->corner[0] = px[0];
+        c->corner[1] = px[1];
+        c->corner[2] = px[w];
+        c->corner[3] = px[w + 1];
+        c->centre    = px[(size_t)(h / 2) * w + (w / 2)];
+    }
+    return ESP_OK;
 }

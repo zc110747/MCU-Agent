@@ -45,6 +45,68 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=8192
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
 # ---------------------------------------------------------------------------
+# RGB LCD: belt and braces against a permanent scan-out desync.
+#
+#   The 800x480 frame buffer is 768000 B, so it has to live in PSRAM - the
+#   same PSRAM LVGL renders into and, with SPIRAM_FETCH_INSTRUCTIONS above,
+#   the same PSRAM the CPU fetches hot code from.  The RGB DMA streams the
+#   frame out at a fixed 39 Hz, and if its fetches lose the bandwidth contest
+#   it stops being able to feed the LCD controller, which keeps clocking
+#   regardless: the image ends up displaced by a fixed number of pixels with
+#   the rightmost columns wrapped round to the left edge.
+#
+#   PRIMARY FIX is the bounce buffer (BOARD_LCD_BOUNCE_BUF_PX in
+#   board_config.h), which is what the official Waveshare demo uses.
+#
+#   THIS OPTION is the safety net, and Espressif's own Kconfig text names the
+#   exact condition: "Only need to enable it when in your application, the DMA
+#   can't deliver data as fast as the LCD consumes it."  It resets the GDMA
+#   channel every VBlank, so even if a frame does get behind, the picture
+#   recovers on the next frame instead of staying displaced forever.
+#   esp_lcd_panel_rgb.c is candid about the trade: a late VBlank interrupt can
+#   itself shift a single frame, which is preferable to a permanent shift.
+# ---------------------------------------------------------------------------
+# DELIBERATELY OFF.  Do not turn this back on while the bounce buffer is in use.
+#
+# The first hardware build showed the whole image displaced to the right with the
+# right edge wrapped to the left, and two independent cures were applied at once:
+# the bounce buffer (above) and this option.  Only the bounce buffer is needed,
+# and enabling this one actively works against it:
+#
+#   * esp_lcd_panel_rgb.c:1276 - with CONFIG_LCD_RGB_RESTART_IN_VSYNC set,
+#     lcd_rgb_panel_try_restart_transmission() sets do_restart = true
+#     UNCONDITIONALLY, every VBlank.  The #else branch - the driver's own
+#     detector - is then compiled out, and that detector is the precise one:
+#
+#         if (panel->flags.need_restart) { ... }                    // requested
+#         if (panel->bb_eof_count < panel->expect_eof_count) { ... } // underrun
+#
+#     bb_eof_count/expect_eof_count is the bounce-buffer equivalent of "the DMA
+#     did not finish all 48 chunks this frame", i.e. it fires exactly when the
+#     bus really did fall behind and stays quiet otherwise.  Enabling this option
+#     throws that away and restarts the DMA 39 times a second whether it needs it
+#     or not.
+#
+#   * esp_lcd_panel_rgb.c:1265 - the driver's own comment on the unconditional
+#     restart: "this fix can lead to single-frame desyncs itself, as in: if this
+#     interrupt is late enough, the display will shift as the LCD controller
+#     already read out the first data bytes, and resetting DMA will re-send
+#     those."  That is the same right-shift-with-wrap symptom we set out to cure.
+#
+#   * The two options pull the interrupt budget in opposite directions.  The
+#     bounce-buffer fill is a plain CPU memcpy of the whole 768000 B frame that
+#     runs inside the GDMA EOF ISR - 48 chunks per frame, every frame
+#     (esp_lcd_panel_rgb.c:1042).  That load is what makes a VSYNC interrupt
+#     late, and a late VSYNC interrupt is precisely when an unconditional
+#     restart shifts the picture.  So this option manufactures the condition it
+#     is supposed to protect against.
+#
+# Leaving it off: the bounce buffer gives the DMA the headroom, and the driver
+# restarts the channel on its own only when a frame genuinely underran.
+# ---------------------------------------------------------------------------
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
+
+# ---------------------------------------------------------------------------
 # Console on the native USB port.
 #   GPIO43/GPIO44 are wired to the on-board RS485 transceiver on this board,
 #   so the UART0 console MUST NOT be used.
@@ -75,20 +137,85 @@ CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
 CONFIG_LV_USE_CLIB_STRING=y
 
-# Fonts in use. Theme::font_* maps to exactly these four.
-# (CJK glyphs are NOT available here - the Reader page mounts a subset font
-#  from storage in a later phase.)
+# Fonts in use. Theme::font_* maps to exactly these.
+#  14 / 16 / 20 / 28  body ladder (small / body / title / h1)
+#  48                 hero digits - the clock face and the weather temperature.
+#                     LVGL renders a 48 px glyph from real outlines, so this is
+#                     sharp at any size; the alternative (scaling a 28 px font
+#                     up with lv_image_set_scale) would only magnify the
+#                     aliasing.
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_16=y
+
+# CJK.  There is no system font on an ESP32-S3, so Chinese text needs a real
+# glyph source compiled into the image.  Source Han Sans SC 16 covers the
+# common simplified Chinese set (~1.1 MB of flash) AND carries Latin digits and
+# letters, which is why the Reader uses it as its default reading font for
+# mixed Chinese/English TXT.  Simsun is deliberately not enabled as well: the
+# two would cost ~2 MB together and only one is ever used.
+CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
+
+# ---------------------------------------------------------------------------
+# LVGL file system + image decoders  (Photos / Reader read from the SD card)
+# ---------------------------------------------------------------------------
+# LVGL reaches /sd through newlib, i.e. the same VFS that FatFs registers, so
+# the POSIX driver is enough - no FatFs-specific shim needed.
+#
+# The drive letter is 'A' and the working directory is deliberately empty, so
+# that the LVGL path "A:/sd/x.jpg" resolves to the absolute path "/sd/x.jpg".
+# Leaving the working directory at its default "/" would produce "//sd/x.jpg",
+# and ESP-IDF's VFS matches registered mount points by literal prefix - "//sd"
+# does not match the "/sd" that FatFs registers, and the open would fail with a
+# confusing "file not found" for a file that is plainly there.
+CONFIG_LV_USE_FS_POSIX=y
+CONFIG_LV_FS_POSIX_LETTER=65
+CONFIG_LV_FS_POSIX_PATH=""
+CONFIG_LV_FS_POSIX_CACHE_SIZE=0
+
+# JPEG + PNG + BMP.  LODEPNG and TJPGD are bundled with LVGL and have no
+# external dependencies; libpng would drag in a second component for no gain
+# here.
+CONFIG_LV_USE_LODEPNG=y
+CONFIG_LV_USE_TJPGD=y
+CONFIG_LV_USE_BMP=y
 
 # Observers + system monitor. The performance overlay is available for the
 # soak test (lv_sysmon_show_performance(NULL)) but is not enabled by default.
 CONFIG_LV_USE_OBSERVER=y
 CONFIG_LV_USE_SYSMON=y
 CONFIG_LV_USE_PERF_MONITOR=y
+
+# LVGL's own refresh period: how often lv_timer_handler() is allowed to walk
+# the invalidated areas and flush.  The upstream default is 33 ms, which caps
+# the whole UI at 30 Hz no matter how fast the panel is - a touch is then
+# sampled and answered on a 33 ms grid on top of the panel's own frame period.
+# 16 ms raises that ceiling to 60 Hz; there is nothing above it in the path
+# (the LVGL tick runs at 200 Hz, the panel at ~37 Hz), so this is the last
+# knob that matters before the panel refresh itself becomes the limit.
+CONFIG_LV_DEF_REFR_PERIOD=16
+
+# The performance overlay is compiled in but hidden at start-up (see
+# app_manager.cpp): it is a development instrument, not part of the product.
+# An acceptance build re-shows it because the numbers are the point there.
+
+# ---------------------------------------------------------------------------
+# FreeRTOS introspection
+#   The tasks themselves are described in main.cpp and platform/lvgl/; these
+#   options exist so the scheduler state can be *read back*, which is the only
+#   way to tell a scheduling problem from a rendering problem:
+#     vTaskList()            -> name / state / priority / stack high-water
+#     vTaskGetRunTimeStats() -> CPU time and share per task
+#   Without GENERATE_RUN_TIME_STATS there is no CPU column at all, and "is
+#   taskLVGL being scheduled?" becomes guesswork.
+# ---------------------------------------------------------------------------
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 
 # No demos / examples: this is an application, not a demo runner.
 # (Every LV_USE_DEMO_* option is off by default and is deliberately left at its
