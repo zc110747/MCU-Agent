@@ -30,6 +30,9 @@ private:
     static void net_action_cb(lv_event_t *e);
     static void note_tick(lv_timer_t *t);
 
+    /* Date & Time: the one place that writes the RTC by hand. */
+    static void datetime_cb(lv_event_t *e);
+
     /* WiFi setup overlay.  Two steps in one overlay rather than a pushed page:
      * the access point someone picks is only meaningful next to the list they
      * picked it from, and Home is not where they want to land if they change
@@ -53,12 +56,14 @@ private:
     lv_obj_t *build_storage_card(lv_obj_t *parent);
     lv_obj_t *build_system_card(lv_obj_t *parent);
     lv_obj_t *build_about_card(lv_obj_t *parent);
+    lv_obj_t *build_datetime_card(lv_obj_t *parent);
 
     /** @brief Re-read the SD card and the network state into the rows. */
     void refresh();
     void refresh_display();
     void refresh_storage();
     void refresh_network();
+    void refresh_datetime();
 
     /** @brief Style a stock LVGL widget (keyboard, textarea) from Theme. */
     static void theme_keyboard(lv_obj_t *kb);
@@ -69,6 +74,7 @@ private:
     lv_obj_t *brightness_row_ = nullptr;
     lv_obj_t *net_rows_[4] = {};
     lv_obj_t *storage_rows_[3] = {};
+    lv_obj_t *datetime_val_[6] = {};   /* Year, Month, Day, Hour, Minute, Second */
     lv_obj_t *footer_note_ = nullptr;
     lv_timer_t *note_timer_ = nullptr;
 

@@ -35,6 +35,37 @@ static const char *TAG = "settings";
  * button is "OK". */
 static constexpr uint32_t kNoteMs = 2600;
 
+namespace {
+
+/* Which date/time field a stepper button edits, packed with its direction so a
+ * single handler can serve all twelve buttons.  Field in the high bits, sign in
+ * the low bit. */
+enum class DtField : int { Year, Month, Day, Hour, Minute, Second };
+
+constexpr intptr_t dtcode(DtField f, int d)
+{
+    return (static_cast<intptr_t>(f) << 1) | (d > 0 ? 1 : 0);
+}
+
+static int clamp(int v, int lo, int hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+/* Wrap within [lo, hi] inclusive, so stepping a field past either end lands on
+ * the other end instead of producing an out-of-range value the RTC would reject. */
+static int wrap(int v, int lo, int hi)
+{
+    const int n = hi - lo + 1;
+    int r = (v - lo) % n;
+    if (r < 0) {
+        r += n;
+    }
+    return lo + r;
+}
+
+}  // namespace
+
 void SettingsPage::create(lv_obj_t *parent)
 {
     ui::PageLayout page = ui::page_layout(parent, "Settings", true);
@@ -53,6 +84,7 @@ void SettingsPage::create(lv_obj_t *parent)
     build_display_card(body);
     build_network_card(body);
     build_storage_card(body);
+    build_datetime_card(body);
     build_system_card(body);
     build_about_card(body);
 
@@ -571,6 +603,123 @@ lv_obj_t *SettingsPage::build_about_card(lv_obj_t *parent)
 }
 
 /* ------------------------------------------------------------------------ */
+/* Date & Time                                                              */
+/* ------------------------------------------------------------------------ */
+
+lv_obj_t *SettingsPage::build_datetime_card(lv_obj_t *parent)
+{
+    lv_obj_t *card = ui::app_card(parent, "Date & Time");
+
+    /* One stepper row per field.  The value label is kept (datetime_val_) so
+     * refresh_datetime() can rewrite it after each tap without rebuilding the
+     * row.  Writing goes straight to the PCF85063A, so a change survives a
+     * reboot - the same guarantee the old Clock page made. */
+    static const char *const kNames[6] = {
+        "Year", "Month", "Day", "Hour", "Minute", "Second"
+    };
+
+    for (int f = 0; f < 6; ++f) {
+        lv_obj_t *row = lv_obj_create(card);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                               LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, Theme::kGapSm, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *name = lv_label_create(row);
+        lv_obj_add_style(name, Theme::text_body(), 0);
+        lv_obj_set_style_text_font(name, Theme::font_body(), 0);
+        lv_label_set_text(name, kNames[f]);
+        lv_obj_set_width(name, 84);
+
+        lv_obj_t *val = lv_label_create(row);
+        lv_obj_add_style(val, Theme::text_body(), 0);
+        lv_obj_set_style_text_font(val, Theme::font_body(), 0);
+        lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(val, 56);
+        datetime_val_[f] = val;
+
+        lv_obj_t *minus = ui::app_button(row, "-", datetime_cb, this);
+        lv_obj_set_user_data(minus, reinterpret_cast<void *>(
+                                  dtcode(static_cast<DtField>(f), -1)));
+        lv_obj_t *plus = ui::app_button(row, "+", datetime_cb, this);
+        lv_obj_set_user_data(plus, reinterpret_cast<void *>(
+                                 dtcode(static_cast<DtField>(f), 1)));
+    }
+
+    lv_obj_t *note = lv_label_create(card);
+    lv_obj_add_style(note, Theme::text_dim(), 0);
+    lv_obj_set_style_text_font(note, Theme::font_small(), 0);
+    lv_label_set_text(note, "Step a field with - / +. The new time is written "
+                            "to the RTC and survives a reboot.");
+    lv_obj_set_width(note, LV_PCT(100));
+    lv_label_set_long_mode(note, LV_LABEL_LONG_MODE_WRAP);
+
+    return card;
+}
+
+void SettingsPage::refresh_datetime()
+{
+    services::TimeParts t;
+    services::clock_now(&t);
+    const int vals[6] = {t.year, t.month, t.day, t.hour, t.minute, t.second};
+    char buf[12];
+    for (int f = 0; f < 6; ++f) {
+        if (datetime_val_[f] == nullptr) {
+            continue;
+        }
+        snprintf(buf, sizeof(buf), "%d", vals[f]);
+        lv_label_set_text(datetime_val_[f], buf);
+    }
+}
+
+void SettingsPage::datetime_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    lv_obj_t *btn = lv_event_get_target_obj(e);
+    if (self == nullptr || btn == nullptr) {
+        return;
+    }
+
+    const intptr_t tag = reinterpret_cast<intptr_t>(lv_obj_get_user_data(btn));
+    const DtField field = static_cast<DtField>(tag >> 1);
+    const int delta = (tag & 1) ? 1 : -1;
+
+    services::TimeParts t;
+    services::clock_now(&t);
+
+    switch (field) {
+    case DtField::Year:   t.year   = clamp(t.year + delta, 2000, 2099); break;
+    case DtField::Month:  t.month  = wrap(t.month + delta, 1, 12);     break;
+    case DtField::Day: {
+        const int max = services::clock_days_in_month(t.year, t.month);
+        t.day = clamp(t.day + delta, 1, max);
+        break;
+    }
+    case DtField::Hour:   t.hour   = wrap(t.hour + delta, 0, 23);      break;
+    case DtField::Minute: t.minute = wrap(t.minute + delta, 0, 59);    break;
+    case DtField::Second: t.second = wrap(t.second + delta, 0, 59);    break;
+    }
+
+    /* A new year or month can make the stored day illegal; clamp it so the
+     * write is always a date the RTC will accept rather than a rollover. */
+    const int max_day = services::clock_days_in_month(t.year, t.month);
+    if (t.day > max_day) {
+        t.day = max_day;
+    }
+
+    const esp_err_t err = services::clock_set(&t);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "cannot set the RTC: %s", esp_err_to_name(err));
+        return;
+    }
+    self->refresh_datetime();
+}
+
+/* ------------------------------------------------------------------------ */
 /* lifecycle                                                                */
 /* ------------------------------------------------------------------------ */
 
@@ -638,6 +787,7 @@ void SettingsPage::refresh()
     refresh_display();
     refresh_network();
     refresh_storage();
+    refresh_datetime();
 }
 
 void SettingsPage::notify(const char *text)
