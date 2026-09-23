@@ -1,6 +1,7 @@
 # 四项需求 · 实现计划
 
-> 状态：**F1 / F2 已完成并真机验收**，F3 已完成并真机验收，F4 未开始。
+> 状态：**F1 / F2 / F3 / F4 均已实现并真机验收**；
+> F4 唯一未验项是「连上之后面板是否仍然无位移」——那是人眼看玻璃的事，见 §8.5 结尾。
 > 计划本身保留原样作为记录；与实际实现不符的地方见 §8「实施结果与计划偏离」。
 
 ---
@@ -155,6 +156,77 @@ sdkconfig.defaults 增加 WiFi 相关项（改完必须 del sdkconfig 再构建�
 - `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y` 已是 `y`，WiFi 缓冲优先走 PSRAM
 - 分两步验证：**先只起栈不连接** → 看显示；**再连接** → 再看显示。任何一步出现位移就回退并单变量分析
 
+### 5.4 实际落地（与上面计划的差异）
+
+**① 凭据的归属：驱动不能有自己的副本。**
+`esp_wifi` 默认把凭据也存一份到自己的 NVS 命名空间。一个秘密两个主人＝多一个主人，
+而且 Settings 的 Forget 够不到驱动那份。所以两头都关掉：
+运行期 `esp_wifi_set_storage(WIFI_STORAGE_RAM)`，编译期 `CONFIG_ESP_WIFI_NVS_ENABLED=n`。
+`net_service` 是唯一写凭据的地方，命名空间 `"wifi"`。
+
+**② 状态发布用「快照 + 双缓冲 + 原子索引」。**
+写状态的是 `esp_event` 任务，读的是 LVGL 任务。state / ssid / ip / rssi 四个值必须
+**一起**变，否则会渲染出「A 网络的 SSID + B 网络的 IP」。所以四个字段打成一个小
+`Snapshot`，写者填另一个缓冲再原子翻索引，读者永不看到半写的字符串。
+（残留情形：发布恰好落在读者那次 33 字节拷贝中间并绕回同一槽位 —— 需要微秒内两次发布，
+后果是某一次刷新显示旧值。彻底关掉要读者引用计数，比故障本身更贵，注释里写明了。）
+
+**③ 状态变化只从事件回调发布。**
+`net_wifi_connect()` 只「请求」并立刻报 connecting，终态一律由 handler 发布 ——
+一个事实一个写者，调用方不可能在协议栈之前看到 "connected"。
+
+**④ 本机主动断开（reason 8 / 36）一律不算失败。**（原计划只写「不改变状态」，实测证明不够）
+`WIFI_REASON_ASSOC_LEAVE`(8) 与 `WIFI_REASON_STA_LEAVING`(36) 只可能由我们自己的
+`esp_wifi_disconnect()` 产生，按定义不含任何网络信息。而且三个调用点把它当成**通往链路的一步**：
+`net_wifi_connect()` 重配前先断、`net_scan_start()` 拿射频前先断、Disconnect 按钮主动断。
+只判 `s_want_connected` 会漏掉前两个（那两处意图仍然是「想要链路」），于是扫描自己的那次断开
+被记成失败 #1，真实的重试编号从 2 开始 —— 详见 §8.5。
+
+---
+
+## 5.5 硬件实测发现（计划里没有、编译期看不见的三个坑）
+
+这三条都是烧进去看串口才发现的，全部已修，并已固化成 `tools/verify_wifi.py` 的断言。
+细节见 README 的 *WiFi → Two traps*。
+
+**⑨ 扫描暂停自己的断开被记成失败，重试账目错位。**
+现象：日志里只有 `attempt 2/3`，永远没有 `1/3`；计数器说重试了 3 次，实际只发出 2 次。
+机理：`reason 36` 事件在 `s_want_connected == true` 时走进了失败分支。
+修：见 ④。
+
+**⑩ `esp_timer_start_once()` 对已武装的定时器返回 `ESP_ERR_INVALID_STATE` 且不重启。**
+现象：两次失败之间只隔 184 ms，且第二次武装静默失败 —— 预算被吃掉一格却没买到一次尝试。
+修：`s_retry_pending` 合并同一重试窗口内的重复报告（保险，不是主路径）。
+
+**⑪ 开机自连：配置不跨复位，`esp_wifi_connect()` 空手而归。**
+`WIFI_STORAGE_RAM` + 驱动 NVS 关闭 ⇒ 配置只活在 RAM 里。`WIFI_EVENT_STA_START` 分支
+只调了 `esp_wifi_connect()`，**没有调 `esp_wifi_set_config()`**，于是驱动手里没有 SSID：
+`esp_wifi_connect()` 返回 `ESP_ERR_WIFI_SSID`、不产生任何事件、返回值还被丢弃，
+面板永远停在 connecting。
+实测：开机 18 s 内没有任何 `wifi:state: init -> auth`；同一份凭据走
+`apply_and_connect()` 只要 1.24 s 就进入 auth。
+修：两处入口（boot 与 Connect）合并到唯一的 `apply_and_connect()`，配置只在那里写。
+**这条只有在探针移出、看纯净固件启动日志时才会暴露** —— 有探针时是探针自己调
+`net_wifi_connect()` 把配置写进去的。
+
+**⑤ 重试有界：错密码不重试。**
+最多 3 次、间隔 5 s，且 `AUTH_FAIL` / `4WAY_HANDSHAKE_TIMEOUT` / `HANDSHAKE_TIMEOUT`
+**不重试** —— 密码错了重试只是把一次失败变成四次。
+
+**⑥ 页面轮询而不是推送。**
+`net_generation()` 计数器当闸门：没有新事实就一个控件都不碰。
+`scan_was_busy_` 把「扫描结束」变成**边沿**而不是电平，否则面板开着时每 400 ms 重建一次列表。
+
+**⑦ UI 是两步 overlay，不是推入的页面。**
+Settings 是唯一入口，overlay 里第 0 步选 AP、第 1 步输密码（`lv_keyboard`）。
+「选中的 AP」只在「选它的那个列表」旁边才有意义，而且取消时用户不该被丢回 Home。
+
+**⑧ 键盘/输入框必须自己上主题。**
+`CONFIG_LV_USE_THEME_DEFAULT=y`，`lv_keyboard` 默认是**浅色**控件；项目规则是
+「视觉唯一来源 `ui/theme.*`」。键盘建在 `lv_buttonmatrix` 上，键是**绘制部件不是子控件**，
+所以要用 `LV_PART_ITEMS` 选择器上色，不能遍历 children。
+
+
 ---
 
 ## 6. 执行节奏（两轮构建/烧录）
@@ -162,7 +234,7 @@ sdkconfig.defaults 增加 WiFi 相关项（改完必须 del sdkconfig 再构建�
 | 轮次 | 内容 | 验证点 |
 |---|---|---|
 | **轮 1** | F1（删按钮）+ F3（SD 字库）+ 安全探针（只读取证） | Back 消失；Reader 中文完整无乱码；取回 JPEG 尺寸与堆数据 |
-| **轮 2** | F2b（Photos，基于轮 1 证据）+ F4（WiFi） | Photos 不崩且能看图；WiFi 能扫能连；**显示无位移** |
+| **轮 2** | F2b（Photos，基于轮 1 证据）+ F4（WiFi） | Photos 不崩且能看图；WiFi 能扫能连；**显示无位移（← 这一条未完成，见 §8.5）** |
 
 每轮：构建（零警告）→ 烧录 COM14 → 抓串口 → 逐条对账。
 探针在第 1 轮验证完后**立即移出交付固件**（上次的教训：诊断代码自己变成了故障）。
@@ -244,3 +316,43 @@ lv_tjpgd.c:110  uint8_t workb[TJPGD_WORKBUFF_SIZE];   /* 4096 */
 复合字体（卡字库 + 回退到内嵌）确实是内嵌的**超集** —— 前提是 `fallback` 链挂着，
 它同时负责 ASCII、LVGL 的 `LV_SYMBOL_*`（U+F00D/U+F013… 全在卡字库够不到的
 私用区）以及 cp936 未定义的槽位。**这条链不是可选项。**
+
+### 8.5 F4 WiFi：机器能验的部分全部通过，玻璃上的那一眼还没看
+
+`tools/verify_wifi.py` 读抓回的日志重放状态机，并且**先从源码里读 `kMaxRetries` /
+`kRetryDelayMs`** 再断言 —— 常量被改了脚本会失败，而不是跟着改。三份交付日志
+**28/28**；拿修复前那份日志喂进去是 **8/12**，四条 FAIL 精确对应 §5.5 的 ⑨⑩：
+
+| 断言 | 修复前日志的结果 |
+|---|---|
+| 本机主动断开不算失败 | FAIL（1 条） |
+| 每条主动断开都记成 ignored | FAIL（0 of 1） |
+| 重试编号为 1..3 无缺口 | FAIL（saw `[2, 3]`） |
+| 每次重试都等满间隔 | FAIL（gaps `[184, 5000]` ms） |
+
+真机结果（串口原文）：
+
+```
+I (9933) wifi:connected with test, aid = 3, channel 11, 40D, bssid = f8:8c:21:9f:55:49
+I (9936) net: associated with "test", waiting for DHCP
+I (11943) net: connected, ip 192.168.3.6, rssi -30 dBm
+```
+
+失败路径：`reason 201` → `attempt 1/3`（+5000 ms）→ `2/3` → `3/3` →
+`giving up after 3 retries` → 终态 `error`；Forget 之后 9 s 内没有任何重试，
+`state=not configured has_creds=0`。
+开机自连（纯净固件）：`associating`(1595) → `auth`(2810) → `connected`(3849)，
+全程 2.25 s。
+
+内部 SRAM 代价 **75 172 B**（`213951 -> 138779`），开机结束时
+`heap int=121003 B / largest=79872 B`（加 WiFi 前是 247067 / 204800）。
+PSRAM 侧 `TRY_ALLOCATE_WIFI_LWIP` 接走了约 660 KB 流量缓冲 —— 这正是要它去的地方。
+
+**唯一没验的**：连上之后面板是否仍然无位移。日志能证明面板先拿到内存
+（`RGB panel ready` 914 ms < `station up` 1594 ms，代码里 `display_init()` L94 早于
+`net_init()` L126），但内部 SRAM 从 247 KB 掉到 121 KB，而这块面板历史上正是被
+内部 SRAM 压力搞出过位移。这一步需要人眼看玻璃，**尚未进行**。
+如果真出位移，优先动的是 `sdkconfig.defaults` 里的
+`CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM`(16) 与 `DYNAMIC_RX_BUFFER_NUM`(32)
+—— 两者都高于驱动默认值且都没裁过，现在裁会作废上面的实测数字，
+所以留到有证据再说。

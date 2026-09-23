@@ -115,6 +115,7 @@ lv_obj_t *SettingsPage::build_network_card(lv_obj_t *parent)
     net_rows_[0] = ui::info_row(card, "WiFi", "--");
     net_rows_[1] = ui::info_row(card, "SSID", "--");
     net_rows_[2] = ui::info_row(card, "IP address", "--");
+    net_rows_[3] = ui::info_row(card, "Signal", "--");
 
     lv_obj_t *actions = lv_obj_create(card);
     lv_obj_remove_style_all(actions);
@@ -124,12 +125,10 @@ lv_obj_t *SettingsPage::build_network_card(lv_obj_t *parent)
     lv_obj_set_style_pad_column(actions, Theme::kGapSm, 0);
     lv_obj_clear_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Connect and Disconnect exist as controls because the specification names
-     * them; they report that there are no credentials to use yet.  A button
-     * that lies about connecting would be worse than one that explains. */
+    ui::app_button(actions, "WiFi setup", net_action_cb, this);
     ui::app_button(actions, "Connect", net_action_cb, this);
     ui::app_button(actions, "Disconnect", net_action_cb, this);
-    ui::app_button(actions, "Scan", net_action_cb, this);
+    ui::app_button(actions, "Forget", net_action_cb, this);
 
     return card;
 }
@@ -137,9 +136,344 @@ lv_obj_t *SettingsPage::build_network_card(lv_obj_t *parent)
 void SettingsPage::refresh_network()
 {
     const services::WifiState st = services::net_wifi_state();
+    const char *ssid = services::net_ssid();
+    const char *ip   = services::net_ip();
+    const int   rssi = services::net_rssi();
+
     ui::info_row_set(net_rows_[0], services::net_wifi_state_text(st));
-    ui::info_row_set(net_rows_[1], services::net_ssid());
-    ui::info_row_set(net_rows_[2], services::net_ip());
+    ui::info_row_set(net_rows_[1], (ssid != nullptr && ssid[0] != '\0') ? ssid : "--");
+    ui::info_row_set(net_rows_[2], (strcmp(ip, "0.0.0.0") == 0) ? "--" : ip);
+
+    /* 0 dBm is outside anything a real measurement can be, so it is the
+     * service's "not associated" marker rather than a reading. */
+    if (st == services::WifiState::Connected && rssi != 0) {
+        const int bars = services::net_rssi_bars((int8_t)rssi);
+        char signal[32];
+        /* Text bars rather than a graphic: this is a 30 px row and the meaning
+         * has to survive at that size. */
+        snprintf(signal, sizeof(signal), "%d dBm  %.*s", rssi, bars, "||||");
+        ui::info_row_set(net_rows_[3], signal);
+    } else {
+        ui::info_row_set(net_rows_[3], "--");
+    }
+
+    /* The generation the rows above were drawn from, so the poll timer does not
+     * redraw them again on its next pass. */
+    shown_gen_ = services::net_generation();
+}
+
+/* ------------------------------------------------------------------------ */
+/* WiFi setup overlay                                                       */
+/* ------------------------------------------------------------------------ */
+
+void SettingsPage::theme_keyboard(lv_obj_t *kb)
+{
+    /* lv_keyboard is built on lv_buttonmatrix, so the keys are draw parts of
+     * one object rather than child widgets - which is why they are styled
+     * through the ITEMS selector and not by walking children.  Without this the
+     * default theme paints a light keyboard in the middle of a dark page. */
+    lv_obj_set_style_bg_color(kb, lv_color_hex(Theme::kSurface), LV_PART_MAIN);
+    lv_obj_set_style_border_color(kb, lv_color_hex(Theme::kBorder), LV_PART_MAIN);
+    lv_obj_set_style_border_width(kb, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(kb, Theme::kRadiusMd, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(kb, Theme::kGapSm, LV_PART_MAIN);
+    lv_obj_set_style_pad_gap(kb, Theme::kGapXs, LV_PART_MAIN);
+
+    const lv_style_selector_t items = LV_PART_ITEMS;
+    lv_obj_set_style_bg_color(kb, lv_color_hex(Theme::kSurface2), items);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(Theme::kAccent), items | LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(kb, lv_color_hex(Theme::kBorder), items);
+    lv_obj_set_style_border_width(kb, 1, items);
+    lv_obj_set_style_radius(kb, Theme::kRadiusSm, items);
+    lv_obj_set_style_text_color(kb, lv_color_hex(Theme::kText), items);
+    lv_obj_set_style_text_color(kb, lv_color_hex(Theme::kBg), items | LV_STATE_PRESSED);
+    lv_obj_set_style_text_font(kb, Theme::font_body(), items);
+}
+
+void SettingsPage::open_wifi_overlay()
+{
+    if (wifi_overlay_ != nullptr) {
+        return;
+    }
+
+    /* Full-page overlay as a child of the page root, exempt from the root's
+     * flex column - same construction the file manager's preview uses. */
+    wifi_overlay_ = lv_obj_create(root_);
+    lv_obj_remove_style_all(wifi_overlay_);
+    lv_obj_add_flag(wifi_overlay_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(wifi_overlay_, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(wifi_overlay_, 0, 0);
+    lv_obj_set_style_bg_color(wifi_overlay_, lv_color_hex(Theme::kBg), 0);
+    lv_obj_set_style_bg_opa(wifi_overlay_, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(wifi_overlay_, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* with_close = false: this overlay is not a pushed page, and the header's
+     * exit button goes Home - which would abandon the page the user is still
+     * working in.  Its own Close in the footer is the dismiss that fits. */
+    ui::PageLayout pv = ui::page_layout(wifi_overlay_, "WiFi setup", true, false);
+    wifi_body_ = pv.body;
+    lv_obj_set_flex_flow(wifi_body_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(wifi_body_, Theme::kGapSm, 0);
+
+    ui::app_button(pv.footer_left, "Forget", wifi_forget_cb, this);
+    ui::app_button(pv.footer_right, "Close", wifi_close_cb, this);
+
+    wifi_show_list();
+}
+
+void SettingsPage::close_wifi_overlay()
+{
+    if (wifi_overlay_ != nullptr) {
+        lv_obj_delete(wifi_overlay_);
+    }
+    wifi_overlay_ = nullptr;
+    wifi_body_ = nullptr;
+    wifi_summary_ = nullptr;
+    /* Deleting the textarea takes the keyboard with it: the keyboard is a child
+     * of the body, but clearing the pointers here is what stops a later tick
+     * from touching freed objects. */
+    wifi_password_ = nullptr;
+    wifi_step_ = 0;
+    wifi_target_[0] = '\0';
+}
+
+void SettingsPage::wifi_show_list()
+{
+    wifi_step_ = 0;
+    wifi_password_ = nullptr;
+    lv_obj_clean(wifi_body_);
+
+    wifi_summary_ = lv_label_create(wifi_body_);
+    lv_obj_add_style(wifi_summary_, Theme::text_dim(), 0);
+    lv_obj_set_style_text_font(wifi_summary_, Theme::font_small(), 0);
+    lv_label_set_text(wifi_summary_, "");
+
+    lv_obj_t *actions = lv_obj_create(wifi_body_);
+    lv_obj_remove_style_all(actions);
+    lv_obj_set_width(actions, LV_PCT(100));
+    lv_obj_set_height(actions, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(actions, Theme::kGapSm, 0);
+    lv_obj_clear_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
+    ui::app_button(actions, "Scan", wifi_rescan_cb, this);
+
+    lv_obj_t *list = lv_obj_create(wifi_body_);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_width(list, LV_PCT(100));
+    lv_obj_set_flex_grow(list, 1);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, Theme::kGapXs, 0);
+
+    size_t count = 0;
+    const services::WifiAp *aps = services::net_scan_results(&count);
+    if (count == 0) {
+        ui::empty_state(list, "..", "No networks listed yet",
+                        "Tap Scan. Results appear here, strongest first.");
+        lv_label_set_text(wifi_summary_, services::net_scan_busy() ? "scanning..." : "not scanned");
+        return;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        char subtitle[64];
+        const int bars = services::net_rssi_bars(aps[i].rssi);
+        snprintf(subtitle, sizeof(subtitle), "%d dBm  %.*s  %s", (int)aps[i].rssi, bars, "||||",
+                 aps[i].secure ? "password" : "open");
+        /* The index travels in the object's own user data and `this` in the
+         * event's: list_item() has only one user slot, and it is needed for the
+         * page.  Stored as index+1 so that a zeroed slot is never mistaken for
+         * the first access point. */
+        lv_obj_t *row = ui::list_item(list, nullptr, aps[i].ssid, subtitle, true,
+                                     wifi_row_cb, this);
+        lv_obj_set_user_data(row, (void *)(uintptr_t)(i + 1));
+    }
+
+    lv_label_set_text(wifi_summary_, services::net_scan_busy() ? "scanning..." : "pick a network");
+}
+
+void SettingsPage::wifi_show_password()
+{
+    wifi_step_ = 1;
+    lv_obj_clean(wifi_body_);
+
+    /* Which network this password is for: the list the user picked from is gone
+     * at this step, so without this row they would be typing blind. */
+    ui::info_row(wifi_body_, "Network", wifi_target_);
+
+    wifi_summary_ = lv_label_create(wifi_body_);
+    lv_obj_add_style(wifi_summary_, Theme::text_dim(), 0);
+    lv_obj_set_style_text_font(wifi_summary_, Theme::font_small(), 0);
+    lv_label_set_text(wifi_summary_, "type the password, then OK on the keyboard");
+
+    wifi_password_ = lv_textarea_create(wifi_body_);
+    lv_textarea_set_one_line(wifi_password_, true);
+    lv_textarea_set_password_mode(wifi_password_, true);
+    lv_textarea_set_placeholder_text(wifi_password_, "password (empty for an open network)");
+    lv_obj_set_width(wifi_password_, LV_PCT(100));
+    /* Themed from Theme rather than left to the default theme, same reason as
+     * the keyboard above. */
+    lv_obj_set_style_bg_color(wifi_password_, lv_color_hex(Theme::kSurface2), 0);
+    lv_obj_set_style_border_color(wifi_password_, lv_color_hex(Theme::kBorder), 0);
+    lv_obj_set_style_border_width(wifi_password_, 1, 0);
+    lv_obj_set_style_radius(wifi_password_, Theme::kRadiusSm, 0);
+    lv_obj_set_style_text_color(wifi_password_, lv_color_hex(Theme::kText), 0);
+    lv_obj_set_style_text_font(wifi_password_, Theme::font_body(), 0);
+    lv_obj_set_style_pad_all(wifi_password_, Theme::kGapSm, 0);
+
+    lv_obj_t *actions = lv_obj_create(wifi_body_);
+    lv_obj_remove_style_all(actions);
+    lv_obj_set_width(actions, LV_PCT(100));
+    lv_obj_set_height(actions, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(actions, Theme::kGapSm, 0);
+    lv_obj_clear_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
+    ui::app_button(actions, "Connect", wifi_connect_cb, this);
+    ui::app_button(actions, "Back", wifi_back_cb, this);
+
+    lv_obj_t *kb = lv_keyboard_create(wifi_body_);
+    lv_obj_set_width(kb, LV_PCT(100));
+    /* Both a height and a grow, deliberately.  The height is the basis the
+     * keyboard would keep on its own; the grow lets it absorb whatever the
+     * column has left over, so on a shorter panel the Connect/Back row above
+     * cannot be pushed off the bottom.  Removing the height would let the
+     * keyboard's content decide its own basis, which is more rows than the
+     * password step needs. */
+    lv_obj_set_flex_grow(kb, 1);
+    lv_obj_set_height(kb, 190);
+    theme_keyboard(kb);
+    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_keyboard_set_textarea(kb, wifi_password_);
+    lv_obj_add_event_cb(kb, wifi_ready_cb, LV_EVENT_READY, this);
+}
+
+void SettingsPage::wifi_rescan_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    if (self == nullptr) {
+        return;
+    }
+    const esp_err_t err = services::net_scan_start();
+    if (self->wifi_summary_ != nullptr) {
+        if (err == ESP_OK) {
+            lv_label_set_text(self->wifi_summary_, "scanning...");
+        } else {
+            /* The error name, not a generic "unavailable": the only realistic
+             * failure here is the stack not being up yet, and "ESP_ERR_..." is
+             * what makes that diagnosable from a photograph of the screen. */
+            char msg[64];
+            snprintf(msg, sizeof(msg), "scan failed: %s", esp_err_to_name(err));
+            lv_label_set_text(self->wifi_summary_, msg);
+        }
+    }
+    if (err == ESP_OK) {
+        self->refresh_network();
+    }
+}
+
+void SettingsPage::wifi_row_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    lv_obj_t *row = lv_event_get_target_obj(e);
+    if (self == nullptr || row == nullptr) {
+        return;
+    }
+    const uintptr_t tag = (uintptr_t)lv_obj_get_user_data(row);
+    if (tag == 0) {
+        return;
+    }
+    size_t count = 0;
+    const services::WifiAp *aps = services::net_scan_results(&count);
+    const size_t idx = (size_t)tag - 1;
+    if (idx >= count) {
+        return;
+    }
+    snprintf(self->wifi_target_, sizeof(self->wifi_target_), "%s", aps[idx].ssid);
+    self->wifi_show_password();
+}
+
+void SettingsPage::wifi_back_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    if (self != nullptr) {
+        self->wifi_show_list();
+    }
+}
+
+void SettingsPage::wifi_connect_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    if (self == nullptr || self->wifi_password_ == nullptr) {
+        return;
+    }
+    const char *pass = lv_textarea_get_text(self->wifi_password_);
+    const esp_err_t err = services::net_wifi_connect(self->wifi_target_, pass);
+    if (err != ESP_OK) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "cannot connect: %s", esp_err_to_name(err));
+        lv_label_set_text(self->wifi_summary_, msg);
+        return;
+    }
+    lv_label_set_text(self->wifi_summary_, "connecting... watch the Network card");
+    self->refresh_network();
+}
+
+void SettingsPage::wifi_ready_cb(lv_event_t *e)
+{
+    /* The keyboard's OK key is the same action as the Connect button, so it
+     * goes through the same path rather than a second copy of it. */
+    wifi_connect_cb(e);
+}
+
+void SettingsPage::wifi_forget_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    const esp_err_t err = services::net_wifi_forget();
+    if (self != nullptr) {
+        if (self->wifi_summary_ != nullptr) {
+            lv_label_set_text(self->wifi_summary_,
+                              err == ESP_OK ? "credentials erased" : "erase failed");
+        }
+        self->refresh_network();
+    }
+}
+
+void SettingsPage::wifi_close_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    if (self != nullptr) {
+        self->close_wifi_overlay();
+        self->refresh_network();
+    }
+}
+
+void SettingsPage::net_poll_tick(lv_timer_t *timer)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_timer_get_user_data(timer));
+    if (self == nullptr) {
+        return;
+    }
+
+    const bool busy = services::net_scan_busy();
+
+    /* The access point list is rebuilt only on the edge where a scan that was
+     * running has just finished, and only while the list is the step on
+     * screen.  Rebuilding it on a level test would rebuild it twice a second
+     * for as long as the overlay stayed open. */
+    if (self->wifi_overlay_ != nullptr && self->wifi_step_ == 0) {
+        if (self->scan_was_busy_ && !busy) {
+            self->wifi_show_list();
+        } else if (busy && self->wifi_summary_ != nullptr) {
+            lv_label_set_text(self->wifi_summary_, "scanning...");
+        }
+    }
+    self->scan_was_busy_ = busy;
+
+    /* Nothing new from the stack means nothing to redraw: three labels and a
+     * row write per tick would keep the whole card invalidated for no reason. */
+    const uint32_t gen = services::net_generation();
+    if (gen != self->shown_gen_) {
+        self->shown_gen_ = gen;
+        self->refresh_network();
+    }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -246,14 +580,27 @@ void SettingsPage::destroy()
         lv_timer_delete(note_timer_);
         note_timer_ = nullptr;
     }
+    if (poll_timer_ != nullptr) {
+        lv_timer_delete(poll_timer_);
+        poll_timer_ = nullptr;
+    }
     if (root_ != nullptr) {
+        /* The overlay and its keyboard are children of root_, so deleting the
+         * root takes them; the pointers still have to be cleared or a stale
+         * one would be dereferenced by the next instance's poll tick. */
         lv_obj_delete(root_);
         root_ = nullptr;
     }
     brightness_row_ = nullptr;
     footer_note_ = nullptr;
-    for (int i = 0; i < 3; ++i) {
+    wifi_overlay_ = nullptr;
+    wifi_body_ = nullptr;
+    wifi_summary_ = nullptr;
+    wifi_password_ = nullptr;
+    for (int i = 0; i < 4; ++i) {
         net_rows_[i] = nullptr;
+    }
+    for (int i = 0; i < 3; ++i) {
         storage_rows_[i] = nullptr;
     }
 }
@@ -261,6 +608,14 @@ void SettingsPage::destroy()
 void SettingsPage::on_enter()
 {
     refresh();
+    /* 400 ms: fast enough that a connection appears to happen when the button
+     * is pressed, slow enough that the cost is invisible.  Association takes
+     * seconds, so nothing is gained by polling harder. */
+    if (poll_timer_ == nullptr) {
+        poll_timer_ = lv_timer_create(net_poll_tick, 400, this);
+    }
+    ESP_LOGI(TAG, "network state: %s",
+             services::net_wifi_state_text(services::net_wifi_state()));
 }
 
 void SettingsPage::on_leave()
@@ -268,6 +623,13 @@ void SettingsPage::on_leave()
     if (note_timer_ != nullptr) {
         lv_timer_delete(note_timer_);
         note_timer_ = nullptr;
+    }
+    /* Leaving stops the polling: there is nothing on screen to update, and a
+     * timer that outlives the page's visibility is how a stale label gets
+     * written into a page that is about to be destroyed. */
+    if (poll_timer_ != nullptr) {
+        lv_timer_delete(poll_timer_);
+        poll_timer_ = nullptr;
     }
 }
 
@@ -351,14 +713,28 @@ void SettingsPage::net_action_cb(lv_event_t *e)
         return;
     }
 
-    if (strcmp(label, "Scan") == 0) {
-        const esp_err_t err = services::net_scan_start();
-        self->notify(err == ESP_OK ? "scanning..." : "scan unavailable: no WiFi in this build");
-    } else {
-        /* Both Connect and Disconnect land here.  There is nothing to connect
-         * *with* yet, so the honest answer is to say so and point at the fix
-         * rather than silently doing nothing. */
-        self->notify("no credentials stored (WiFi bring-up is a separate step)");
+    if (strcmp(label, "WiFi setup") == 0) {
+        /* The overlay owns the scan/credential flow; this card stays the
+         * status display plus the two actions that make sense without one. */
+        self->open_wifi_overlay();
+        return;
+    }
+
+    if (strcmp(label, "Connect") == 0) {
+        const esp_err_t err = services::net_wifi_reconnect();
+        if (err == ESP_OK) {
+            self->notify("connecting...");
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            self->notify("no network configured - use WiFi setup");
+        } else {
+            self->notify("cannot connect");
+        }
+    } else if (strcmp(label, "Disconnect") == 0) {
+        const esp_err_t err = services::net_wifi_disconnect();
+        self->notify(err == ESP_OK ? "disconnect requested" : "nothing to disconnect");
+    } else if (strcmp(label, "Forget") == 0) {
+        const esp_err_t err = services::net_wifi_forget();
+        self->notify(err == ESP_OK ? "credentials erased" : "erase failed");
     }
     self->refresh_network();
 }

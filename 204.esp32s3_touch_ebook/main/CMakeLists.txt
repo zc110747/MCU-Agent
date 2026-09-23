@@ -76,6 +76,9 @@ idf_component_register(
         esp_timer
         esp_psram
         esp_app_format
+        esp_event
+        esp_netif
+        esp_wifi
         spi_flash
         nvs_flash
         sdmmc

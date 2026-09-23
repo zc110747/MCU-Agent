@@ -45,6 +45,28 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=8192
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
 # ---------------------------------------------------------------------------
+# WiFi (station only)
+#
+#   This is the one addition to the build that takes *internal* SRAM, which is
+#   the same pool the RGB panel's DMA descriptors and the LVGL heap come from -
+#   and a shortage there has already produced a visible fault once (the
+#   displaced-image bug, see the RGB section below).  So it is pinned here
+#   rather than left to a default that could drift, it is brought up AFTER the
+#   display path has taken what it needs, and any change to this block is
+#   verified by looking at the glass before and after connecting.
+#
+#     TRY_ALLOCATE_WIFI_LWIP  above: traffic buffers go to PSRAM, not SRAM.
+#     NVS_ENABLED=n           esp_wifi does NOT keep its own copy of the
+#                             credentials.  net_service owns them under the
+#                             "wifi" NVS namespace and puts the driver in
+#                             WIFI_STORAGE_RAM to match; two owners of one
+#                             secret is one owner too many, and the second copy
+#                             is the one "Forget" would not reach.
+# ---------------------------------------------------------------------------
+CONFIG_ESP_WIFI_ENABLED=y
+CONFIG_ESP_WIFI_NVS_ENABLED=n
+
+# ---------------------------------------------------------------------------
 # RGB LCD: belt and braces against a permanent scan-out desync.
 #
 #   The 800x480 frame buffer is 768000 B, so it has to live in PSRAM - the

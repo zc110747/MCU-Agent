@@ -108,15 +108,19 @@ python tools\gen_test_pattern.py
 
 | Region | Used | Total | Used |
 |---|---|---|---|
-| Flash code — `.text` | 510 540 B | | |
-| Flash data — `.rodata` 642 760 + `.appdesc` 256 + `.tdata` 16 | 643 032 B | | |
-| **Image total** | **1 239 614 B** | 4 194 304 B (app partition) | **29.6 %** |
-| DIRAM — `.text` 54 747 + `.data` 14 875 + `.bss` 4 672 | 74 294 B | 341 760 B | **21.7 %** |
+| Flash code — `.text` | 992 696 B | | |
+| Flash data — `.rodata` 711 312 + `.appdesc` 256 + `.tdata` 16 | 711 584 B | | |
+| **Image total** | **1 825 858 B** | 4 194 304 B (app partition) | **43.5 %** |
+| DIRAM — `.text` 82 419 + `.data` 22 739 + `.bss` 19 672 | 124 830 B | 341 760 B | **36.5 %** |
 | IRAM (`.text` 15 356 + `.vectors` 1 028) | 16 384 B | | |
 | RTC slow / fast | 36 B / 24 B | 8 192 B each | 0.44 % / 0.29 % |
 
-`ebook_lvgl.bin` on flash: 0x12EAB0 = 1 240 752 B, **70 % of the app partition
+`ebook_lvgl.bin` on flash: 0x1BDCB0 = 1 825 968 B, **56 % of the app partition
 free**.
+
+The WiFi station is the largest single addition since the panel: it takes one
+build in which `.text` grows by 482 KB and DIRAM by 50 KB. Both are inside the
+partition and inside RAM, but DIRAM is the number to watch — see *WiFi* below.
 
 > `.bin` hashes are not reproducible across builds: `esp_app_desc_t` carries the
 > compile date and time (`Sep 23 2026` / `09:24:02` are both visible in the
@@ -133,15 +137,41 @@ Runtime headroom and the leak check, both from the same boot log:
 
 | Point | Internal heap free | PSRAM free |
 |---|---|---|
-| shipping boot, after the first Home is built | 247 067 B | 4 776 136 B |
+| shipping boot, after the first Home is built | 121 003 B | 4 115 980 B |
+| same point in the last pre-WiFi build | 247 067 B | 4 776 136 B |
 | instrumented sweep, after the first Home is built | 256 787 B | 5 680 480 B |
 | instrumented sweep, after all 12 pages built and torn down | 256 771 B | 5 680 480 B |
 | difference across the 12 cycles | **−16 B** | **0 B** |
 
-`largest` internal block 204 800 B. Sixteen bytes across twelve page
-build/destroy cycles, with PSRAM bit-identical, is the machine-checkable form of
-"`Home → Reader → Home` releases the Reader widgets" — and it is why the object
-count is asserted too (60 objects before, 60 after, `failures = 0`).
+`largest` internal block 79 872 B, down from 204 800 B in the pre-WiFi build.
+
+The two build variants are not comparable row by row (the sweep variant is
+instrumented), but the first two are: the only difference between them is the
+WiFi station, so the delta is the station's footprint —
+
+| | Internal SRAM | PSRAM |
+|---|---|---|
+| WiFi station, measured | **126 064 B** | **660 156 B** |
+
+That split is the point of `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`: the traffic
+buffers go to PSRAM and internal SRAM pays for the driver's own structures plus
+what the association allocates as it comes up. 786 KB of buffers landing in the
+pool the RGB panel competes for would have been the end of the 39 Hz scan-out;
+660 KB of it landing in PSRAM instead is why the panel still has its memory.
+
+Allocation *order* matters as much as the split, and `app_main` fixes it: the
+panel is up at 914 ms (`display: RGB panel ready`), which is where the frame
+buffers and the bounce buffer are taken, and the station is only brought up at
+1594 ms. `display_init()` is line 94 of `main.cpp`, `net_init()` is line 126,
+after `lvgl_port_start()` and the whole platform block — so the display path
+never competes with WiFi for a contiguous block, on this boot or any later one.
+Putting `net_init()` earlier would be a change to the panel's memory guarantee,
+not just to the boot order.
+
+Sixteen bytes across twelve page build/destroy cycles, with PSRAM bit-identical,
+is the machine-checkable form of "`Home → Reader → Home` releases the Reader
+widgets" — and it is why the object count is asserted too (60 objects before,
+60 after, `failures = 0`).
 
 The 904 KB of PSRAM between the shipping boot and the sweep rows is the card's
 GBK face: 766 080 glyph bytes + 131 072 index bytes ≈ 897 KB, plus the mount
@@ -570,12 +600,156 @@ host's cp936 codec) and cross-checks it against the boot log.
 | RGB frame buffers (2 × 800 × 480 × 2 B) | 1 536 000 B |
 | LVGL draw buffers | **0 B** |
 | Card's CJK face (766 080 glyph + 131 072 index bytes) | 897 152 B |
+| WiFi + lwIP traffic buffers (`SPIRAM_TRY_ALLOCATE_WIFI_LWIP`) | ~660 000 B |
+| WiFi scan records (16 × `wifi_ap_record_t`) | ~1 600 B |
 
 The zero is the interesting number: because LVGL runs in **direct mode** with
 `avoid_tearing`, the LVGL draw buffers *are* the panel's own frame buffers. No
 extra buffer is allocated and no pixel copy happens on flush — the driver just
 switches the scan-out to the buffer LVGL has finished writing. See
 `main/platform/lvgl/lvgl_port.cpp` for the full explanation.
+
+---
+
+## WiFi
+
+A station, and nothing else — no SoftAP, no provisioning portal, no TLS client
+yet.  `main/services/net_service.*` owns the whole of it; the Settings page is a
+view over that service and contains no WiFi logic of its own.
+
+### Who owns the credentials
+
+`net_service` does, under the NVS namespace `wifi` (`ssid`, `pass`). The driver
+is configured the other way round:
+
+```
+CONFIG_ESP_WIFI_NVS_ENABLED=n     # driver keeps no copy at all
+esp_wifi_set_storage(WIFI_STORAGE_RAM)
+```
+
+Two owners of one secret is one owner too many, and the second copy is always
+the one "Forget" does not reach — so there is only ever one, and it is the one
+with a button next to it. The cost of this choice is that the station config
+does **not** survive a reset, which is a trap described below.
+
+`esp_wifi_scan_get_ap_records()` takes a `WIFI_STORAGE_RAM` scan list, which is
+why the record buffer is allocated once at init rather than per scan, and why it
+lives in PSRAM.
+
+### The state machine
+
+| State | Rendered as | Entered by |
+|---|---|---|
+| `Off` | `off` | before `net_init()` finishes |
+| `NotConfigured` | `not configured` | no stored SSID, or after Forget |
+| `Idle` | `idle` | a disconnect with no retry coming |
+| `Connecting` | `connecting` | boot with credentials, or Connect |
+| `Connected` | `connected` | `IP_EVENT_STA_GOT_IP` |
+| `Error` | `error` | wrong password, or the retry budget spent |
+| `Unsupported` | `unsupported` | no station netif |
+
+`net_wifi_connect()` only ever *asks*; it stores the credentials, publishes
+`Connecting` and returns. Every terminal state is published from an event
+handler, which is what keeps one writer per fact and makes it impossible for a
+caller to observe "connected" before the stack is.
+
+### Retry policy
+
+Three retries, five seconds apart, then `Error`.
+
+| Reason | Decision |
+|---|---|
+| `AUTH_FAIL`, `4WAY_HANDSHAKE_TIMEOUT`, `HANDSHAKE_TIMEOUT` | give up at once — a wrong password is not made right by trying it again |
+| anything else | count a retry |
+| `ASSOC_LEAVE` (8), `STA_LEAVING` (36) | neither: these are raised only by our own `esp_wifi_disconnect()` |
+
+That last row is not cosmetic. See *Two traps* below.
+
+### Scanning while connected, and while connecting
+
+A station inside an association cannot scan — the driver answers
+`ESP_ERR_WIFI_STATE` — and the reverse is unsafe too. So `net_scan_start()`
+pauses an in-flight association, and `on_scan_done()` re-issues it. `s_want_connected`
+deliberately stays set across the pause, so this is a pause and not a
+cancellation; `on_scan_done()` is the only thing that resumes it, and the
+scan-start failure path resumes it too, because otherwise the pause becomes the
+silent hang it was written to avoid.
+
+### Threading
+
+The event handlers run on the esp_event task; the Settings page polls from the
+LVGL task. The published state is therefore a double-buffered struct with an
+atomic index — a writer fills the buffer that is *not* live and then flips the
+index, so a reader never sees a half-written SSID. `net_generation()` counts
+publishes, and the page re-renders only when it changes.
+
+### Two traps, both found on hardware and both silent
+
+**A local leave is not a failure.** `esp_wifi_disconnect()` reports reason 8
+when the station was associated and reason 36 when it was not, and three call
+sites use that call as a step *towards* a link: `net_wifi_connect()` before
+reconfiguring, `net_scan_start()` before taking the radio, and `Disconnect`.
+Screening only on the `s_want_connected` intent missed the first two — the
+intent there is still "we want a link" — so the scan's own disconnect was
+counted, retry slot 1 was spent on nothing, and the log read:
+
+```
+W (14702) net: disconnected: reason 201 (no such network)
+I (14886) net: attempt 2/3        <-- no "attempt 1/3" anywhere
+```
+
+Two retries were issued where the counter claimed three. `tools/verify_wifi.py`
+now asserts the attempt numbers are `1..3` with no gap and that each attempt
+waits out the full delay.
+
+**`esp_timer_start_once()` will not restart an armed timer.** It answers
+`ESP_ERR_INVALID_STATE` and leaves the original expiry in place. In the log
+above that is the 184 ms gap between the two failures and the 5 s countdown
+that followed — a slot was spent and no attempt bought. `s_retry_pending`
+coalesces a repeat report inside the retry window so this cannot compound; it is
+insurance, not the main path, and it is documented as such.
+
+**And one more, which only showed up with the probe removed:** the station
+config does not survive a reset (`WIFI_STORAGE_RAM`, driver NVS off), so
+`WIFI_EVENT_STA_START` must call `esp_wifi_set_config()` before
+`esp_wifi_connect()`. It only called the latter, so the boot-time association
+had no SSID: `esp_wifi_connect()` returned `ESP_ERR_WIFI_SSID`, the return value
+was discarded, no event was raised, and the panel sat on "connecting" for ever.
+Measured: 18 s with no `wifi:state: init -> auth` at boot, against 1.24 s for the
+same credentials applied through `apply_and_connect()`. Both paths now go
+through that one function, which is the only place the station config is written.
+
+### What is verified
+
+`tools/verify_wifi.py` reads captured logs and checks the state machine,
+including the orderings that are only visible in timestamps; it parses the retry
+budget and delay out of the source first so it fails rather than agreeing with
+itself if the constants move. 28/28 on the three shipping logs, and 8/12 on the
+log from before the fix — the four failures pointing at the four real defects.
+
+On real hardware, over serial:
+
+* a scan of 6 visible networks, sorted by strength, including a hidden one;
+* connect → `no such network` → three retries 5 s apart → `giving up after 3
+  retries`, ending on `error`;
+* connect to an open AP → associated in 1.24 s → `connected, ip 192.168.3.6,
+  rssi -30 dBm` after DHCP;
+* Forget → `credentials erased`, `not configured`, `has_creds=0`, and no retry
+  in the 9 s afterwards.
+
+### What is not verified
+
+Whether the panel still scans out cleanly now that the station is up. The log
+says the panel came up first and the heap says the split went the intended way,
+but internal SRAM free is 121 KB against 247 KB before, and this panel has
+produced a displacement fault from internal-SRAM pressure once already. That
+check is a pair of eyes on the glass, and it has not been made. If a
+displacement ever appears, the levers in order of preference are
+`CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM` (16) and
+`CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM` (32) in `sdkconfig.defaults`, both of
+which are above the driver's own defaults and neither of which has been trimmed
+yet — trimming them now would invalidate the measurement above for no proven
+reason.
 
 ---
 
@@ -847,12 +1021,13 @@ The complete application, and every entry is built and reachable:
 | Clock | RTC-backed time, 200 ms tick, 12/24 h toggle | ✅ |
 | Calendar | month grid, RTC-derived "today" | ✅ |
 | Weather | current conditions + short forecast | ✅ |
-| Settings | the preferences the other pages read | ✅ |
+| Settings | device preferences, and the WiFi station's whole front end | ✅ |
 | Display Test | Phase-1 acceptance screen (panel geometry, colour bars) | ✅ |
 | Touch Test | live point + raw coordinate readback | ✅ |
 
 No page contains a `TODO`, a stub or a placeholder body; the tree is 12 pages,
-5 services and 6 platform modules, about 7 600 lines.
+5 services and 8 platform modules, about 11 900 lines (`app` 6 003, `services`
+2 431, `platform` 1 943, `ui` 1 354, `main.cpp` 166).
 
 The list above is the complete application. **There is no other page, service or
 menu entry, and none is planned** — a page outside this list is a regression.
@@ -894,7 +1069,8 @@ moves between pages is a bug the user has to hunt for.
    buffer is in and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` has been turned **off**
    again (see *LCD Configuration* for why it was working against the bounce
    buffer). The change builds and boots; whether the glass is now clean is a
-   physical observation and is the one item not yet closed.
+   physical observation and is the one item not yet closed. The WiFi station now
+   adds a second reason to make that check — see *WiFi → What is not verified*.
 
 2. **The card's CJK face is read once, at boot.** `sd_font_install()` returns
    early on every later call, so swapping the card or adding `GBK16.FON` while
@@ -907,12 +1083,12 @@ moves between pages is a bug the user has to hunt for.
    the boot log reads `service up (stage 1: sample data)`. Nothing is fetched
    over the network.
 
-4. **The network is not configured.** `net_service` reports
-   `status: not configured (WiFi bring-up is a separate increment)`. Weather and
-   any future online feature are unaffected by this because they do not use it.
-   Enabling it also costs internal SRAM that the RGB DMA descriptors compete
-   for — see *LCD Configuration* for the shift that class of contention caused,
-   so it needs the same before/after display check.
+4. **WiFi is a station only.** `net_service` supports scan, connect, retry,
+   disconnect and forget, and the Settings page drives all five. There is no
+   SoftAP, no captive portal, no WPA-Enterprise, and nothing that uses the link
+   yet: Weather still generates its values locally (see 3). Whether the panel
+   still scans out cleanly with the station up is the outstanding check — see
+   *WiFi → What is not verified*.
 
 5. **`Theme` styles are formatted for `LV_OBJ_FLAG_SCROLLABLE`-free containers.**
    Pages must clear the scroll flag on their own roots.
@@ -978,3 +1154,22 @@ last part is still a glance at the Reader page.
 > its `target_compile_definitions()` line in `main/CMakeLists.txt`. They are kept
 > in place while the two items above are still open, because the calibration frame
 > *is* the instrument.
+
+**The WiFi state machine.** Entirely log-checkable, and worth it, because every
+fault found in it so far was invisible to the compiler: a retry slot spent on a
+disconnect the service had caused itself, a timer that refused to re-arm, and a
+boot-time association with no configuration to associate to.
+`tools/verify_wifi.py` replays captured logs through the state machine and
+cross-checks the retry budget and delay against the source, so a constant that
+moves is caught rather than accommodated. It parses timestamps, which is what
+makes the "every attempt waits out the full delay" check possible — that is the
+assertion that fails when a retry is armed but never restarts. Run it as
+
+```
+python tools/verify_wifi.py                      # the three shipping logs
+python tools/verify_wifi.py old-log.txt          # any capture
+```
+
+and read the count: 28/28 on the shipping logs. Feeding it a log from before the
+fix yields 8/12, which is the script demonstrating it has teeth. What it cannot
+check is the one thing listed in *WiFi → What is not verified* — the glass.
