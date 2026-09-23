@@ -67,5 +67,9 @@ private:
     /* Where a book is looked for first.  The task specification names this
      * directory, so it is tried before the card root. */
     static constexpr const char *kBookDir = "/sd/Ebook/txt";
+    /* A card prepared by hand keeps its books next to the other content
+     * folders rather than in a "txt" subfolder, so that level is searched in
+     * between the two the task specification names. */
+    static constexpr const char *kEbookDir = "/sd/Ebook";
     static constexpr const char *kFallbackDir = "/sd";
 };

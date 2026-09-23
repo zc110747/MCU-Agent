@@ -205,9 +205,10 @@ void ReaderPage::load_list()
         return;
     }
 
-    /* Try the specified folder first, then the card root; a card prepared by
-     * hand often just has the files at the top level. */
-    const char *dirs[2] = {kBookDir, kFallbackDir};
+    /* Try the specified folder first, then the folder the rest of the card's
+     * content lives in, then the card root; a card prepared by hand often just
+     * has the files at the top level. */
+    const char *dirs[3] = {kBookDir, kEbookDir, kFallbackDir};
     esp_err_t err = ESP_ERR_NOT_FOUND;
     for (const char *dir : dirs) {
         err = services::storage_list(dir, entries_, services::kMaxEntriesPerPage,
@@ -219,7 +220,7 @@ void ReaderPage::load_list()
 
     if (err != ESP_OK) {
         ui::empty_state(list_, "--", "Cannot read the card",
-                        "Neither /sd/Ebook/txt nor /sd could be listed.");
+                        "None of /sd/Ebook/txt, /sd/Ebook or /sd could be listed.");
         return;
     }
 
@@ -262,14 +263,18 @@ void ReaderPage::load_list()
 void ReaderPage::open_book(const char *filename)
 {
     char path[256];
-    services::storage_join(path, sizeof(path), kBookDir, filename);
 
-    /* If the book came from the fallback directory, the joined path will not
-     * exist; fall back to the root form before giving up. */
-    esp_err_t err = services::text_load_file(path, &doc_);
-    if (err == ESP_ERR_NOT_FOUND) {
-        services::storage_join(path, sizeof(path), kFallbackDir, filename);
+    /* The listing searched these directories in this order, so walk them again
+     * here: a joined path is only correct for the directory the file was
+     * actually found in. */
+    const char *dirs[3] = {kBookDir, kEbookDir, kFallbackDir};
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    for (const char *dir : dirs) {
+        services::storage_join(path, sizeof(path), dir, filename);
         err = services::text_load_file(path, &doc_);
+        if (err != ESP_ERR_NOT_FOUND) {
+            break;
+        }
     }
 
     if (err != ESP_OK) {

@@ -11,6 +11,8 @@ build_log.txt
 # Capture from tools\serial_probe.py.  Session data: the interesting lines end up
 # in the phase report, the file itself does not belong in the history.
 serial_log.txt
+serial_*.txt
+serial_*.raw
 
 # Scratch files written while investigating (port lists, icon previews, ...).
 # Underscore prefix marks them as "mine, disposable" so a tired reader does not
