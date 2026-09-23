@@ -16,6 +16,7 @@ extern const lv_image_dsc_t icon_clock;
 extern const lv_image_dsc_t icon_calendar;
 extern const lv_image_dsc_t icon_drawing;
 extern const lv_image_dsc_t icon_files;
+extern const lv_image_dsc_t icon_file;
 extern const lv_image_dsc_t icon_settings;
 extern const lv_image_dsc_t icon_back;
 extern const lv_image_dsc_t icon_forward;

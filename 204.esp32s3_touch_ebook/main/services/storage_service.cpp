@@ -269,6 +269,27 @@ bool storage_is_text(const char *name)
     return strcmp(ext, "txt") == 0 || strcmp(ext, "md") == 0 || strcmp(ext, "log") == 0;
 }
 
+bool storage_is_document(const char *name)
+{
+    char ext[8];
+    storage_extension(ext, sizeof(ext), name);
+    /* Formats the device can list, copy and delete but not open - which is
+     * exactly why they are worth telling apart from a text file: one of the two
+     * kinds can be read on this screen and the other cannot.  Kept as a list
+     * rather than "anything not an image and not text" so that an unknown
+     * extension stays a plain file instead of being promoted to a document. */
+    static const char *const kDocs[] = {
+        "pdf", "doc", "docx", "odt", "rtf", "epub",
+        "xls", "xlsx", "ppt", "pptx", "html", "htm",
+    };
+    for (const char *d : kDocs) {
+        if (strcmp(ext, d) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 const char *storage_basename(const char *path)
 {
     if (path == nullptr) {

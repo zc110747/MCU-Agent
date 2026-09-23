@@ -77,6 +77,16 @@ void storage_extension(char *dst, size_t len, const char *name);
 bool storage_is_image(const char *name);
 bool storage_is_text(const char *name);
 
+/**
+ * @brief True for a document format the device can list but cannot open.
+ *
+ * Kept apart from storage_is_text() because that difference is what the file
+ * list has to show: a .txt can be read on this screen, a .pdf cannot.  An
+ * unknown extension is deliberately neither - inventing a document out of an
+ * unrecognised suffix would make the icon mean nothing.
+ */
+bool storage_is_document(const char *name);
+
 /** @brief Strip everything up to the last '/' (mutates a copy). */
 const char *storage_basename(const char *path);
 

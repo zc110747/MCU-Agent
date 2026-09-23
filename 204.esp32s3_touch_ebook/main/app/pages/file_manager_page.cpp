@@ -70,7 +70,14 @@ const lv_image_dsc_t *icon_for(const services::DirEntry &e)
         return &icon_photos;
     }
     if (services::storage_is_text(e.name)) {
-        return &icon_notes;
+        /* Text files are "openable" here, so they get the plain file glyph -
+         * the blank sheet - and the ruled document glyph is kept for the
+         * formats the device can only list (pdf, doc, ...).  That is the whole
+         * point of telling the two apart. */
+        return &icon_file;
+    }
+    if (services::storage_is_document(e.name)) {
+        return &icon_notes;   /* documents keep the document icon, unchanged */
     }
     return &icon_files;
 }

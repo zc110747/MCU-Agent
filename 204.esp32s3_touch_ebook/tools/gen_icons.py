@@ -267,6 +267,16 @@ def icon_files(c):
     c.stroke(rrect(24.0, 29.5, 18.0, 11.0, 3.0), STROKE)
 
 
+def icon_file(c):
+    # A blank sheet with its top-right corner turned down, and deliberately no
+    # ruled lines: the lines are the whole difference from icon_notes, which is
+    # the "document" glyph.  At 24 px a sheet that size holding three lines
+    # fills in and stops reading as a page at all.
+    c.polyline([(12.0, 7.0), (27.5, 7.0), (36.0, 15.5), (36.0, 41.0),
+                (12.0, 41.0), (12.0, 7.0)], STROKE)
+    c.polyline([(27.5, 7.0), (27.5, 15.5), (36.0, 15.5)], 2.4)
+
+
 def icon_settings(c):
     c.stroke(ring(24.0, 24.0, 9.0), 3.4)
     for i in range(8):
@@ -345,6 +355,7 @@ TILES = [
     ("notes", APP, icon_notes), ("weather", APP, icon_weather),
     ("clock", APP, icon_clock), ("calendar", APP, icon_calendar),
     ("drawing", APP, icon_drawing), ("files", APP, icon_files),
+    ("file", APP, icon_file),
     ("settings", APP, icon_settings),
     ("back", NAV, icon_back), ("forward", NAV, icon_forward),
     ("up", NAV, icon_up), ("down", NAV, icon_down),
