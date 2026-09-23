@@ -37,15 +37,27 @@ namespace services {
 constexpr size_t kTextMaxBytes = 256 * 1024;
 
 enum class TextEncoding : uint8_t {
-    Utf8,     /* valid UTF-8, no BOM                          */
-    Utf8Bom,  /* UTF-8 with a leading EF BB BF                */
-    Gbk,      /* code page 936 - converted on load            */
-    Unknown,  /* neither of the above: refuse, do not guess   */
+    Utf8,     /* UTF-8, no BOM - a few undecodable bytes are tolerated */
+    Utf8Bom,  /* UTF-8 with a leading EF BB BF                          */
+    Gbk,      /* code page 936 - converted on load                      */
+    Unknown,  /* neither of the above: refuse, do not guess             */
 };
 
 const char *text_encoding_name(TextEncoding enc);
 
-/** @brief Detect the encoding of a whole buffer (it needs the whole buffer). */
+/**
+ * @brief Detect the encoding of a whole buffer (it needs the whole buffer).
+ *
+ * Utf8 covers a file that is *predominantly* valid UTF-8 rather than only one
+ * that validates byte for byte, and the difference is not academic.  The
+ * fallback here is not "give up", it is "decode as GBK" - and a GBK pair almost
+ * always looks like a valid UTF-8 sequence, so a single stray byte in a UTF-8
+ * document used to hand the entire file to the GBK decoder, turning every
+ * Chinese character in it into a different one.  A file that is overwhelmingly
+ * valid UTF-8 and contains real multi-byte sequences is therefore treated as
+ * UTF-8, and the bytes that really are undecodable become U+FFFD in
+ * text_to_utf8() - a few replacement boxes instead of a page of nonsense.
+ */
 TextEncoding text_detect(const void *raw, size_t len);
 
 /**

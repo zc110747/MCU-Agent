@@ -182,6 +182,25 @@ CONFIG_LV_FONT_DEFAULT_MONTSERRAT_16=y
 CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
 
 # ---------------------------------------------------------------------------
+# SD card: the encoding FatFs speaks
+# ---------------------------------------------------------------------------
+# Long file names are stored on the card as UTF-16 and converted on the way out
+# of FatFs.  The default is CONFIG_FATFS_API_ENCODING_ANSI_OEM, which converts
+# them to CONFIG_FATFS_CODEPAGE - 437 out of the box - and CP437 has no CJK at
+# all, so every Chinese file name arrives at the UI as mangled bytes.  Worse,
+# the conversion is not reversible for those names: passing the mangled string
+# back to f_open() looks for a file that does not exist, so a Chinese-named TXT
+# could not even be opened.
+#
+# CONFIG_FATFS_API_ENCODING_UTF_8 selects FF_LFN_UNICODE = 2, which makes the
+# whole FatFs API speak UTF-8 (ff.c's put_utf/get_utf do the UTF-16 <->
+# UTF-8 work).  That is exactly the encoding LVGL labels want, so it is also
+# what lets a page hand a file name straight to lv_label_set_text() with no
+# conversion step in between.  Paths in the source are ASCII, so nothing else
+# changes; FF_CODE_PAGE still applies, but only to 8.3 short names.
+CONFIG_FATFS_API_ENCODING_UTF_8=y
+
+# ---------------------------------------------------------------------------
 # LVGL file system + image decoders  (Photos / Reader read from the SD card)
 # ---------------------------------------------------------------------------
 # LVGL reaches /sd through newlib, i.e. the same VFS that FatFs registers, so

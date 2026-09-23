@@ -36,7 +36,144 @@ static const char *TAG = "theme";
  *
  * Coverage, measured on the project's own contract doc as a body-text sample
  * (530 distinct CJK): 283 (53.4%) under the compiled-in subset, 524 (98.9%)
- * under the card's face.  The 6 that remain are emoji, in neither face. */
+ * under the card's face.  The 6 that remain are emoji, in neither face.
+ */
+
+namespace {
+
+/**
+ * @brief A Latin face with a CJK face grafted on as its fallback.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Chinese reaches the screen by two routes.  A few pages ask for the CJK face
+ * by name (Theme::font_cjk()), but far more - every list row, every key/value
+ * pair, every caption, the clock's date - name one of the Montserrat faces
+ * above, and those are Latin-only: lv_font_montserrat_16 has no glyph above
+ * U+00FF and its fallback is NULL.  A Chinese filename drawn with it therefore
+ * comes out as a row of placeholder boxes, which from the outside is
+ * indistinguishable from "the file names are garbled".
+ *
+ * Repairing that at each call site would mean every page judging which
+ * alphabet its string might contain, and the next page added would get it
+ * wrong again.  So the fallback is grafted on here, once per face: the face
+ * below answers from Montserrat and, when Montserrat has nothing, declines -
+ * and a decline is what hands the question to lv_font_t::fallback.
+ *
+ * WHY A WRAPPER AND NOT JUST A fallback POINTER
+ * ---------------------------------------------
+ * The Montserrat fonts are `const lv_font_t` in a managed component: linked
+ * into .rodata, so their `fallback` field cannot be written, and patching a
+ * component's font table from application code would be the wrong place to
+ * keep the knowledge anyway.
+ *
+ * HOW THE HAND-OFF STAYS CONSISTENT
+ * ---------------------------------
+ * lv_font_get_glyph_dsc() walks the chain and stamps dsc->resolved_font with
+ * whichever font answered; lv_font_get_glyph_bitmap() then routes the bitmap
+ * request through *that* font, not through the one that was asked.  A wrapper
+ * therefore has to forward the bitmap request to the face it borrowed the
+ * descriptor from - answering it locally would send a Montserrat glyph index
+ * into a table the wrapper does not have.
+ */
+struct Face {
+    lv_font_t        font;    /* what the accessors hand out                  */
+    const lv_font_t *latin;   /* the stock face that answers first            */
+};
+
+bool face_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *dsc,
+              uint32_t letter, uint32_t letter_next)
+{
+    const Face *face = static_cast<const Face *>(font->user_data);
+    if (face == nullptr) {
+        return false;
+    }
+    const lv_font_t *latin = face->latin;
+    /* Exactly what lv_font_get_glyph_dsc() would have passed had this face been
+     * in the chain in its own right - including collapsing letter_next to 0
+     * when the face declares that it has no kerning table. */
+    return latin->get_glyph_dsc(latin, dsc, letter,
+                                latin->kerning == LV_FONT_KERNING_NONE ? 0 : letter_next);
+}
+
+const void *face_bitmap(lv_font_glyph_dsc_t *dsc, lv_draw_buf_t *draw_buf)
+{
+    const lv_font_t *answered = dsc->resolved_font;
+    if (answered == nullptr || answered->user_data == nullptr) {
+        return nullptr;
+    }
+    const Face *face = static_cast<const Face *>(answered->user_data);
+
+    /* dsc->resolved_font has to point at the Latin face for the duration of the
+     * call, and this is the one place the wrapper cannot simply forward.
+     *
+     * A bitmap callback takes no font argument - LVGL resolves the font from
+     * dsc->resolved_font before calling, so lv_font_get_bitmap_fmt_txt() opens
+     * with `const lv_font_t * font = g_dsc->resolved_font;` and then casts
+     * font->dsc to its glyph table.  Left pointing at this wrapper it would read
+     * the wrapper's `dsc` - which is nullptr, because the wrapper is not an
+     * fmt_txt face - and fault on the first lookup.  (Observed: LoadProhibited
+     * at 0x4, from lv_font_fmt_txt.c:94 with face_bitmap on the stack.)
+     *
+     * So the field is redirected for the call and put back afterwards, which is
+     * the same save/restore lv_font_get_glyph_bitmap() performs for
+     * req_raw_bitmap - a glyph that arrives through the fallback still needs
+     * resolved_font to name the fallback face once this returns. */
+    dsc->resolved_font = face->latin;
+    const void *bitmap = face->latin->get_glyph_bitmap(dsc, draw_buf);
+    dsc->resolved_font = answered;
+    return bitmap;
+}
+
+void face_release(const lv_font_t *font, lv_font_glyph_dsc_t *dsc)
+{
+    const Face *face = static_cast<const Face *>(font->user_data);
+    if (face != nullptr && face->latin->release_glyph != nullptr) {
+        face->latin->release_glyph(face->latin, dsc);
+    }
+}
+
+Face s_face_small{{}, &lv_font_montserrat_14};
+Face s_face_body {{}, &lv_font_montserrat_16};
+Face s_face_title{{}, &lv_font_montserrat_20};
+Face s_face_h1   {{}, &lv_font_montserrat_28};
+Face s_face_hero {{}, &lv_font_montserrat_48};
+
+/**
+ * @brief Bolt the shared callbacks and a CJK fallback onto one face.
+ *
+ * Every metric a layout touches is copied from the Latin face rather than from
+ * the CJK one, because the Latin face is what the string was sized for: taking
+ * the CJK face's 20 px line height for the 48 px clock would collapse the line.
+ * The cost is that a CJK glyph inside a small label keeps its 16 px cell in a
+ * 14 px line, so it can hang a pixel above the line box - visible on 14 px
+ * captions only, and much cheaper than a second CJK face per size.
+ */
+void dress(Face &face, const lv_font_t *cjk)
+{
+    const lv_font_t *latin = face.latin;
+
+    face.font.get_glyph_dsc    = face_dsc;
+    face.font.get_glyph_bitmap = face_bitmap;
+    face.font.release_glyph    = face_release;
+
+    face.font.line_height         = latin->line_height;
+    face.font.base_line           = latin->base_line;
+    face.font.subpx               = latin->subpx;
+    face.font.kerning             = latin->kerning;
+    face.font.static_bitmap       = latin->static_bitmap;
+    face.font.underline_position  = latin->underline_position;
+    face.font.underline_thickness = latin->underline_thickness;
+
+    face.font.dsc       = nullptr;   /* not an lv_font_fmt_txt face */
+    face.font.fallback  = cjk;
+    face.font.user_data = &face;     /* how the callbacks find `latin` */
+}
+
+}  // namespace
+
+/* Re-pointed at the wrappers by init(); the stock faces here are only what a
+ * caller would get if it asked before init(), which no page does. */
 static const lv_font_t *s_font_small = &lv_font_montserrat_14;
 static const lv_font_t *s_font_body  = &lv_font_montserrat_16;
 static const lv_font_t *s_font_title = &lv_font_montserrat_20;
@@ -71,6 +208,26 @@ void Theme::init()
     if (s_ready) {
         return;
     }
+
+    /* Which CJK face is in use is a boot-time fact (see ui/sd_font.h) and it is
+     * already settled by the time the theme is built: main.cpp installs the
+     * card's face as soon as the card is up.  Resolving it once, here, is what
+     * lets every Latin face carry the same fallback. */
+    const lv_font_t *cjk = ui::sd_font_cjk();
+    if (cjk == nullptr) {
+        cjk = s_font_cjk;
+    }
+    dress(s_face_small, cjk);
+    dress(s_face_body, cjk);
+    dress(s_face_title, cjk);
+    dress(s_face_h1, cjk);
+    dress(s_face_hero, cjk);
+
+    s_font_small = &s_face_small.font;
+    s_font_body  = &s_face_body.font;
+    s_font_title = &s_face_title.font;
+    s_font_h1    = &s_face_h1.font;
+    s_font_hero  = &s_face_hero.font;
 
     /* ---- screen: flat background, no decoration ---------------------- */
     lv_style_init(&s_screen);

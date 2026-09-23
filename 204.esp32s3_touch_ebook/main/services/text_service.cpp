@@ -80,19 +80,50 @@ size_t utf8_sequence_len(const uint8_t *s, size_t avail)
     return len;
 }
 
-/** @brief True when every byte forms a well-formed UTF-8 string. */
-bool utf8_is_valid(const uint8_t *s, size_t len)
+/**
+ * @brief What a pass over a buffer as UTF-8 found.
+ *
+ * Reported as counts rather than a yes/no because the case that matters is
+ * neither.  A UTF-8 file containing one stray byte - a smart quote pasted in
+ * from Word, a download cut off mid-character - is still a UTF-8 file, and
+ * calling it "not UTF-8" is exactly how a whole document ends up decoded as
+ * GBK, i.e. displayed as Chinese that is wrong one character at a time.
+ */
+struct Utf8Scan {
+    size_t sequences = 0;   /* well-formed sequences                        */
+    size_t multibyte = 0;   /* of those, the ones that are not plain ASCII  */
+    size_t bad       = 0;   /* bytes belonging to no valid sequence         */
+};
+
+Utf8Scan utf8_scan(const uint8_t *s, size_t len)
 {
+    Utf8Scan out;
     size_t i = 0;
     while (i < len) {
         const size_t n = utf8_sequence_len(s + i, len - i);
         if (n == 0) {
-            return false;
+            ++out.bad;
+            ++i;
+            continue;
+        }
+        ++out.sequences;
+        if (n > 1) {
+            ++out.multibyte;
         }
         i += n;
     }
-    return true;
+    return out;
 }
+
+/**
+ * @brief How much of a file may be unreadable before it stops counting as
+ *        UTF-8, as a percentage of the file's length.
+ *
+ * Three rather than nought because the alternative is not "reject the file" but
+ * "reinterpret the file", and that is a far bigger change than losing three
+ * bytes in a hundred.
+ */
+constexpr size_t kUtf8BadPercent = 3;
 
 /* ---------------------------------------------------------------------- */
 /* GBK                                                                      */
@@ -276,12 +307,35 @@ TextEncoding text_detect(const void *raw, size_t len)
     if (len >= 3 && s[0] == 0xEF && s[1] == 0xBB && s[2] == 0xBF) {
         return TextEncoding::Utf8Bom;
     }
-    /* Order matters: "valid UTF-8" is a far stronger claim than "GBK coverage
-     * is high", and a real GBK file cannot also pass the UTF-8 validator - it
-     * would need every dual-byte character to be a well-formed sequence. */
-    if (utf8_is_valid(s, len)) {
+
+    const Utf8Scan u = utf8_scan(s, len);
+    if (u.bad == 0) {
         return TextEncoding::Utf8;
     }
+
+    /* Mostly valid UTF-8, and carrying real multi-byte sequences: a UTF-8 file
+     * with a few damaged bytes, not a GBK file.
+     *
+     * Both tests are needed and neither is sufficient.  The tolerance alone
+     * would misread an ASCII file with a couple of GBK characters in it - all
+     * that ASCII stays well inside 3 %, so those two characters would decide
+     * the encoding on their own.  The multi-byte count alone would accept a
+     * UTF-8 file whose Chinese had been damaged into single bytes.  Together
+     * they are a fingerprint: thousands of valid three-byte sequences cannot
+     * come from a GBK file, because a GBK pair almost never forms one.
+     *
+     * The asymmetry is what makes 3 % the right trade.  A GBK file misread as
+     * UTF-8 loses a handful of characters and says so; a UTF-8 file misread as
+     * GBK has every Chinese character in it turned into a different one, which
+     * is precisely "the Chinese is garbled and the English is fine". */
+    if (u.multibyte > 0 && u.bad * 100 <= len * kUtf8BadPercent) {
+        return TextEncoding::Utf8;
+    }
+
+    /* Checked after the UTF-8 claims above, because "valid UTF-8" is a far
+     * stronger statement than "GBK coverage is high": a real GBK file cannot
+     * also pass the UTF-8 validator, since that would need every dual-byte
+     * character to be a well-formed sequence. */
     if (gbk_coverage(s, len) >= 95) {
         return TextEncoding::Gbk;
     }
@@ -328,8 +382,22 @@ char *text_to_utf8(const void *raw, size_t len, TextEncoding enc, size_t *out_le
                 i += consumed;
                 continue;
             }
-            w.put((char)s[i]);
-            ++i;
+            /* Validated, not copied byte by byte.  text_detect() accepts a file
+             * that is only *mostly* UTF-8, so whatever is left here is exactly
+             * the bytes nothing can decode - and passing those through would
+             * have LVGL invent a codepoint out of them.  A replacement box is
+             * the honest rendering of a byte that means nothing. */
+            const size_t n = utf8_sequence_len(s + i, len - i);
+            if (n == 0) {
+                w.put_cp(kReplacementChar);
+                ++dropped;
+                ++i;
+                continue;
+            }
+            for (size_t k = 0; k < n; ++k) {
+                w.put((char)s[i + k]);
+            }
+            i += n;
         }
     } else if (enc == TextEncoding::Gbk) {
         size_t i = 0;
