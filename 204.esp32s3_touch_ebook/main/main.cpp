@@ -9,6 +9,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "board_config.h"
 #include "clock_service.h"
@@ -163,4 +164,5 @@ extern "C" void app_main(void)
      * CPU-share column is the number that matters when the UI feels slow. */
     vTaskDelay(pdMS_TO_TICKS(500));
     system_info_log_tasks();
+
 }
