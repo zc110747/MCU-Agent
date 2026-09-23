@@ -26,29 +26,6 @@ static const char *TAG = "clock";
  * amount, but the redraw is gated on the second changing. */
 static constexpr uint32_t kTickMs = 200;
 
-namespace {
-
-/* Adjustment codes.  They ride on the button's *object* user data rather than
- * the event's, because the event's slot already carries the page: a callback
- * that has to guess which page it belongs to would break the moment a second
- * page reused the same handler. */
-constexpr intptr_t kHourMinus = -1;
-constexpr intptr_t kHourPlus  = 1;
-constexpr intptr_t kMinMinus  = -2;
-constexpr intptr_t kMinPlus   = 2;
-
-/**
- * @brief Build one adjustment button that knows both its page and its delta.
- */
-lv_obj_t *make_adjust_button(lv_obj_t *parent, const char *text, intptr_t delta, ClockPage *page)
-{
-    lv_obj_t *btn = ui::app_button(parent, text, ClockPage::adjust_cb, page);
-    lv_obj_set_user_data(btn, reinterpret_cast<void *>(delta));
-    return btn;
-}
-
-}  // namespace
-
 void ClockPage::create(lv_obj_t *parent)
 {
     ui::PageLayout page = ui::page_layout(parent, "Clock", true);
@@ -82,28 +59,9 @@ void ClockPage::create(lv_obj_t *parent)
     state_row_ = ui::info_row(info, "RTC", "--");
     source_row_ = ui::info_row(info, "Reference", "--");
 
-    /* ---- setting it --------------------------------------------------- */
-    lv_obj_t *set = ui::app_card(body, "Set time");
-    lv_obj_t *note = lv_label_create(set);
-    lv_obj_add_style(note, Theme::text_dim(), 0);
-    lv_obj_set_style_text_font(note, Theme::font_small(), 0);
-    lv_label_set_text(note, "Adjustments are written straight to the PCF85063A, "
-                            "so the change survives a power cycle.");
-    lv_obj_set_width(note, LV_PCT(100));
-    lv_label_set_long_mode(note, LV_LABEL_LONG_MODE_WRAP);
-
-    lv_obj_t *row = lv_obj_create(set);
-    lv_obj_remove_style_all(row);
-    lv_obj_set_width(row, LV_PCT(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row, Theme::kGapSm, 0);
-    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-
-    make_adjust_button(row, "Hour -", kHourMinus, this);
-    make_adjust_button(row, "Hour +", kHourPlus, this);
-    make_adjust_button(row, "Min -", kMinMinus, this);
-    make_adjust_button(row, "Min +", kMinPlus, this);
+    /* Manual time-setting used to live here, but it has moved to Settings ->
+     * "Date & Time" so every control that writes the RTC is in one place.  The
+     * clock face itself shows seconds and ticks them live. */
 
     ESP_LOGI(TAG, "clock built");
 }
@@ -194,51 +152,5 @@ void ClockPage::format_cb(lv_event_t *e)
         }
     }
     self->last_second_ = -1;   /* the 12/24 choice changes the text layout */
-    self->refresh();
-}
-
-void ClockPage::adjust_cb(lv_event_t *e)
-{
-    ClockPage *self = static_cast<ClockPage *>(lv_event_get_user_data(e));
-    lv_obj_t *btn = lv_event_get_target_obj(e);
-    if (self == nullptr || btn == nullptr) {
-        return;
-    }
-
-    const intptr_t what = reinterpret_cast<intptr_t>(lv_obj_get_user_data(btn));
-
-    services::TimeParts t;
-    services::clock_now(&t);
-
-    switch (what) {
-    case kHourMinus: t.hour = (t.hour + 23) % 24; break;
-    case kHourPlus:  t.hour = (t.hour + 1) % 24;  break;
-    case kMinMinus:
-        /* Stepping the minute backwards past :00 must roll the hour back too,
-         * or the clock would jump an hour forward at the top of the hour. */
-        if (--t.minute < 0) {
-            t.minute = 59;
-            t.hour = (t.hour + 23) % 24;
-        }
-        break;
-    case kMinPlus:
-        if (++t.minute > 59) {
-            t.minute = 0;
-            t.hour = (t.hour + 1) % 24;
-        }
-        break;
-    default:
-        return;
-    }
-
-    /* Seconds are zeroed so that the write is a defined instant rather than
-     * "wherever the free-running counter happened to be". */
-    t.second = 0;
-    const esp_err_t err = services::clock_set(&t);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "cannot set the RTC: %s", esp_err_to_name(err));
-    }
-
-    self->last_second_ = -1;
     self->refresh();
 }
