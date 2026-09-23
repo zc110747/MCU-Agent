@@ -44,7 +44,9 @@ public:
     static constexpr int kRadiusMd = 10;
     static constexpr int kRadiusLg = 14;
     static constexpr int kHeaderH  = 56;
-    static constexpr int kFooterH  = 36;
+    /* The footer hosts 48 px touch buttons; making it shorter than that clips
+     * them, which is how the Calendar's "< Prev" ended up effectively hidden. */
+    static constexpr int kFooterH  = 48;
     static constexpr int kTouchMin = 48;              /* min touch target    */
     static constexpr int kAppIcon  = 48;              /* Home tile glyph box */
     static constexpr int kRowH     = 48;              /* list row height     */
