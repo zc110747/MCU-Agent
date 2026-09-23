@@ -75,10 +75,17 @@ public:
     static const lv_font_t *font_hero();
 
     /**
-     * @brief 16 px Source Han Sans SC - the only font with CJK glyphs.
+     * @brief 16 px CJK, card's face when there is one, embedded one otherwise.
      *
-     * Falls back for nothing and covers Latin too, so it is usable as a
-     * standalone reading font, not just for a Chinese caption.
+     * The compiled-in face is a 1187-character subset, so it leaves gaps in
+     * anything but short strings.  When /sd/fonts/GBK16.FON is present (see
+     * ui/sd_font.h) the full GBK face from the card is returned instead, with
+     * the compiled-in one as its fallback - ASCII and everything else keep
+     * working, and the characters that used to be missing now render.
+     *
+     * Address the font through this function, never by binding
+     * lv_font_source_han_sans_sc_16_cjk directly: which of the two is in use
+     * is decided at boot, not at compile time.
      */
     static const lv_font_t *font_cjk();
 

@@ -10,6 +10,8 @@
 
 #include "theme.h"
 
+#include "sd_font.h"
+
 #include "esp_log.h"
 
 static const char *TAG = "theme";
@@ -17,13 +19,24 @@ static const char *TAG = "theme";
 /* Fonts come from LVGL's Kconfig build (CONFIG_LV_FONT_MONTSERRAT_*) - Latin
  * only, so these are for chrome and any Latin text a page shows.
  *
- * CJK is a separate, heavier matter and is NOT loaded from storage: exactly one
- * CJK face is compiled into the image (CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK)
- * and handed out through font_cjk().  It is the single largest item in the
- * binary - roughly 1.1 MB of the ~1.24 MB image - which is why there is only
- * one size, and why the size ladder a page may offer is limited to what the
- * build actually contains rather than what a design would like.  Reader, Notes
- * and File Manager use it; nothing else should, or the ladder grows again. */
+ * CJK is a separate, heavier matter.  Exactly one CJK face is compiled into
+ * the image (CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK) and handed out through
+ * font_cjk().  That compiled-in face is a *subset* - 1187 Han characters - so
+ * a document using anything outside it shows gaps mid-sentence.
+ *
+ * When the card carries a full GBK face, ui::sd_font_install() reads it into
+ * PSRAM and font_cjk() hands that one out instead.  The compiled-in face stays
+ * as that face's fallback, which is what keeps the swap a superset rather than
+ * a trade: the card's face covers the double-byte area and nothing else, so
+ * ASCII, the FontAwesome icon block LVGL's LV_SYMBOL_* lives in (U+F00D,
+ * U+F013, ...), and any cp936 slot the host's code page leaves undefined are
+ * all still served by the compiled-in face.  lv_font_get_glyph_dsc() walks
+ * lv_font_t::fallback on a false return, so "text that rendered before still
+ * renders, and text that did not, now does".
+ *
+ * Coverage, measured on the project's own contract doc as a body-text sample
+ * (530 distinct CJK): 283 (53.4%) under the compiled-in subset, 524 (98.9%)
+ * under the card's face.  The 6 that remain are emoji, in neither face. */
 static const lv_font_t *s_font_small = &lv_font_montserrat_14;
 static const lv_font_t *s_font_body  = &lv_font_montserrat_16;
 static const lv_font_t *s_font_title = &lv_font_montserrat_20;
@@ -209,7 +222,19 @@ const lv_font_t *Theme::font_body()  { return s_font_body; }
 const lv_font_t *Theme::font_title() { return s_font_title; }
 const lv_font_t *Theme::font_h1()    { return s_font_h1; }
 const lv_font_t *Theme::font_hero()  { return s_font_hero; }
-const lv_font_t *Theme::font_cjk()   { return s_font_cjk; }
+const lv_font_t *Theme::font_cjk()
+{
+    /* Resolved per call rather than captured at init, so the answer does not
+     * depend on whether the card's face was installed before or after the
+     * theme was built.  One branch.
+     *
+     * Inside a single label the two faces do mix - CJK comes from the card's
+     * face, Latin and the LV_SYMBOL_* icons from the fallback - and that is
+     * exactly what the fallback link is for: LVGL resolves each glyph on its
+     * own and routes the bitmap through that glyph's dsc->resolved_font. */
+    const lv_font_t *sd = ui::sd_font_cjk();
+    return (sd != nullptr) ? sd : s_font_cjk;
+}
 
 lv_style_t *Theme::screen()       { return &s_screen; }
 lv_style_t *Theme::card()         { return &s_card; }

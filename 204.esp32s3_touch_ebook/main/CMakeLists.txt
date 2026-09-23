@@ -10,9 +10,15 @@
 #
 # Sources AND include directories are both discovered automatically, so adding
 # a module folder (platform/storage/, app/pages/settings/, ...) is a pure
-# source-tree operation and never needs an edit here.  A new directory does
-# require a CMake re-run, which idf.py does for you whenever a CMakeLists.txt
-# changes; touch this file if you ever add a folder while a build is warm.
+# source-tree operation and never needs an edit here.
+#
+# The glob is evaluated at configure time, so a new *file or folder* needs a
+# CMake re-run before it is compiled: `./tools/run_idf.bat reconfigure`, or
+# touch this file, or delete build/.  Without one, the new file is silently not
+# built and the failure shows up far away as an undefined reference at link
+# time.  CONFIGURE_DEPENDS would automate exactly this, but ESP-IDF includes
+# this file in *script mode* (component_get_requirements.cmake), where CMake
+# rejects the keyword outright, so the re-run stays manual.
 # ---------------------------------------------------------------------------
 
 set(APP_DIRS

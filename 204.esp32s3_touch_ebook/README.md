@@ -108,15 +108,20 @@ python tools\gen_test_pattern.py
 
 | Region | Used | Total | Used |
 |---|---|---|---|
-| Flash code — `.text` | 511 416 B | | |
-| Flash data — `.rodata` 642 728 + `.appdesc` 256 + `.tdata` 16 | 643 000 B | | |
-| **Image total** | **1 240 654 B** | 4 194 304 B (app partition) | **29.6 %** |
-| DIRAM — `.text` 54 943 + `.data` 14 875 + `.bss` 4 624 | 74 442 B | 341 760 B | **21.8 %** |
+| Flash code — `.text` | 510 540 B | | |
+| Flash data — `.rodata` 642 760 + `.appdesc` 256 + `.tdata` 16 | 643 032 B | | |
+| **Image total** | **1 239 614 B** | 4 194 304 B (app partition) | **29.6 %** |
+| DIRAM — `.text` 54 747 + `.data` 14 875 + `.bss` 4 672 | 74 294 B | 341 760 B | **21.7 %** |
 | IRAM (`.text` 15 356 + `.vectors` 1 028) | 16 384 B | | |
 | RTC slow / fast | 36 B / 24 B | 8 192 B each | 0.44 % / 0.29 % |
 
-`ebook_lvgl.bin` on flash: 0x12EEC0 = 1 240 768 B, **70 % of the app partition
+`ebook_lvgl.bin` on flash: 0x12EAB0 = 1 240 752 B, **70 % of the app partition
 free**.
+
+> `.bin` hashes are not reproducible across builds: `esp_app_desc_t` carries the
+> compile date and time (`Sep 23 2026` / `09:24:02` are both visible in the
+> image), so rebuilding unchanged sources still yields a different MD5. Compare
+> the reported *sizes*, not the hashes.
 
 The single largest item in that 1.24 MB is not code: it is the 16 px CJK face
 (`CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK`), about 1.1 MB of it. That is why
@@ -128,14 +133,22 @@ Runtime headroom and the leak check, both from the same boot log:
 
 | Point | Internal heap free | PSRAM free |
 |---|---|---|
-| after the first Home is built | 256 787 B | 5 680 480 B |
-| after all 12 pages were built and torn down | 256 771 B | 5 680 480 B |
-| difference | **−16 B** | **0 B** |
+| shipping boot, after the first Home is built | 247 067 B | 4 776 136 B |
+| instrumented sweep, after the first Home is built | 256 787 B | 5 680 480 B |
+| instrumented sweep, after all 12 pages built and torn down | 256 771 B | 5 680 480 B |
+| difference across the 12 cycles | **−16 B** | **0 B** |
 
-`largest` internal block 212 992 B. Sixteen bytes across twelve page
+`largest` internal block 204 800 B. Sixteen bytes across twelve page
 build/destroy cycles, with PSRAM bit-identical, is the machine-checkable form of
 "`Home → Reader → Home` releases the Reader widgets" — and it is why the object
 count is asserted too (60 objects before, 60 after, `failures = 0`).
+
+The 904 KB of PSRAM between the shipping boot and the sweep rows is the card's
+GBK face: 766 080 glyph bytes + 131 072 index bytes ≈ 897 KB, plus the mount
+buffers. It is deliberately **PSRAM and not internal** — see *CJK fonts* below —
+which is why the internal figures for those two rows differ by build variant
+rather than by the font (the previous column was 247 227 B before and 247 067 B
+after the font install, i.e. the font costs the internal heap nothing).
 
 > The `IRAM` row of `idf.py size` reports "100 %" on this target. That is an
 > artefact: the ESP32-S3 IRAM and DRAM share one SRAM window, so the tool has no
@@ -440,7 +453,7 @@ microSD in **SPI** mode on `SPI2_HOST` at up to 20 MHz, mounted at **`/sd`**
 CH422G EXIO4, active low, so every card transaction has to take the expander
 lock first; the slot is therefore configured as `SDSPI_SLOT_NO_CS`.
 
-The card is the storage for books, images and (planned) subset fonts. The
+The card is the storage for books, images and fonts (see *CJK fonts*). The
 wear-levelled internal partition is **not** used for user content.
 
 The UI never calls `fopen()` or `sd_card_*`. It asks
@@ -450,8 +463,8 @@ state in each page down to a single boolean. Listings carry the true entry
 count as well as the returned ones, so a truncated folder renders as
 "40 of 210" rather than as a short folder.
 
-**Status: driver complete, card verification pending.** With no card in the
-socket the boot log shows the expected two lines and nothing else:
+**Status: verified on real media.** With no card in the socket the boot log
+shows the expected two lines and nothing else:
 
 ```
 E (...) sdspi_host: sdmmc_card_init failed (0x107)
@@ -459,20 +472,104 @@ W (...) sd_card:   no card mounted at /sd (ESP_ERR_TIMEOUT)
 ```
 
 Mount failure is non-fatal by construction — the device boots into Home and
-the file-facing pages show their empty state. No SD card was available during
-this session, so read/write on real media is the one hardware path still
-unverified; everything above it has been exercised.
+the file-facing pages show their empty state. With a card fitted the log reads
+
+```
+I (...) sd: mounted at /sd  SA08G  7580 MB
+```
+
+and the card's font file is read off it on every boot (below).
+
+---
+
+## CJK fonts
+
+The UI font ladder is Montserrat (Latin only). Chinese comes from one of two
+**16 px faces**, chosen at boot:
+
+| Source | Codepoints | Where |
+|---|---|---|
+| `/sd/fonts/GBK16.FON` when present | 21 791 | PSRAM, read at boot |
+| `CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK` | 1 432 | compiled into the image |
+
+`Theme::font_cjk()` is the only way to reach either one. Do **not** bind
+`lv_font_source_han_sans_sc_16_cjk` directly: which of the two is live is a
+boot-time decision, not a compile-time one.
+
+### Why the card's face wins
+
+The compiled-in face is not a font, it is a **hand-picked demo subset** — the
+`--symbols` list in its generated header is a few hundred characters plus
+kana plus FontAwesome. Anything outside it renders as a gap mid-sentence, which
+is what "部分文字乱码" in the reader actually was. Measured on this project's
+own contract document as a body-text sample (530 distinct CJK):
+
+| Face | Covered | Missing |
+|---|---|---|
+| compiled-in subset | 283 / 530 = **53.4 %** | 247 |
+| card's `GBK16.FON` | 524 / 530 = **98.9 %** | 6 (all emoji, in neither face) |
+
+Swapping faces therefore makes **20 514 more codepoints** render as glyphs
+rather than boxes.
+
+### File format
+
+Classic HZK layout, and the size check is the whole of the format validation:
+
+```
+GBK16.FON  766080 bytes
+           / 23940 glyphs = 32 bytes each = 16 rows x 2 bytes
+           23940 = 126 lead bytes (0x81..0xFE) x 190 trail bytes (0x40..0xFE, less 0x7F)
+```
+
+Each row is MSB-first, 1 bit per pixel, no padding. Any file at that path whose
+size is not exactly 766 080 bytes is **refused with a warning rather than read
+as garbage**.
+
+> ⚠️ The HZK index and the `gbk_table` index are **different tables**:
+> HZK uses 190 slots per lead byte, `gbk_table` uses 191 — the missing one is
+> 0x7F, which is not a trail byte. Mixing the two formulas shifts every glyph
+> after the first 0x7F by one. `sd_font.cpp` uses `hzk_index()` (190) for the
+> file and `GBK_TRAIL_COUNT` (191) for the table.
+
+### Runtime shape
+
+A flat 64 KiB `uint16` table built once at install time maps codepoint → glyph
+index, so the render path does one load and no search. It is a **runtime export
+of `gbk_table`**, not a second generated file — one source of truth instead of
+two that can disagree. Costs 533 ms and ~897 KB of PSRAM at boot; the internal
+heap is untouched, which is the point (the RGB bounce buffers and any future
+WiFi stack need it).
+
+When no card face is present the install returns cleanly and the compiled-in
+face stays in use, so the swap is a **superset, not a trade**: the card's face
+covers the double-byte area and nothing else, and the compiled-in face remains
+its `fallback` for ASCII, for the private-use block `LV_SYMBOL_*` lives in
+(U+F00D, U+F013, … — the card's face has no PUA cells at all), and for cp936
+slots the code page leaves undefined. `lv_font_get_glyph_dsc()` walks
+`lv_font_t::fallback` on a `false` return, so this link is **load-bearing, not
+decorative**.
+
+Two characters do change width: `、` (8.81 px in the subset → 16 px) and `（`
+(16.125 px → 16 px), both rasterisation artifacts of the demo subset. A line
+containing `、` can therefore re-wrap by one character. The other 1 275 CJK
+glyphs advance exactly 16 px, so pagination is otherwise unchanged.
+
+`python tools/verify_sd_font.py [boot-log.txt]` re-derives the whole chain on
+the host from two independent sources (the firmware's own `gbk_table.c` and the
+host's cp936 codec) and cross-checks it against the boot log.
 
 ---
 
 ## PSRAM
 
-8 MB octal PSRAM @ 80 MHz. Two consumers so far:
+8 MB octal PSRAM @ 80 MHz. Three consumers so far:
 
 | Consumer | Size |
 |---|---|
 | RGB frame buffers (2 × 800 × 480 × 2 B) | 1 536 000 B |
 | LVGL draw buffers | **0 B** |
+| Card's CJK face (766 080 glyph + 131 072 index bytes) | 897 152 B |
 
 The zero is the interesting number: because LVGL runs in **direct mode** with
 `avoid_tearing`, the LVGL draw buffers *are* the panel's own frame buffers. No
@@ -491,6 +588,8 @@ there is no `lv_conf.h` to drift out of sync. Key settings live in
 * 16 bit colour depth
 * newlib for malloc / string / printf (smaller image, one shared heap)
 * Montserrat 14 / 16 / 20 / 28 — these four are what `Theme::font_*` maps to
+* one 16 px CJK face, compiled in as a fallback; the card supplies a fuller one
+  when it can — see *CJK fonts*
 * no demos, no examples
 * observers + system monitor enabled; the performance overlay is available for
   soak testing but not shown by default
@@ -797,10 +896,11 @@ moves between pages is a bug the user has to hunt for.
    buffer). The change builds and boots; whether the glass is now clean is a
    physical observation and is the one item not yet closed.
 
-2. **SD read/write on real media is unverified.** No card was available. The
-   driver, the mount path and every page above it are complete, and a missing
-   card is handled as a normal state rather than an error, but nothing has yet
-   read a byte off real flash.
+2. **The card's CJK face is read once, at boot.** `sd_font_install()` returns
+   early on every later call, so swapping the card or adding `GBK16.FON` while
+   the device is running has no effect until the next reset. Re-mounting is
+   also not attempted, so a card pulled and reinserted stays invisible. Both are
+   deliberate (no file I/O on the render path) but they are limitations.
 
 3. **Weather is sample data, and says so.** `weather_service` generates values
    locally, delays 1200 ms to model a round trip, and sets `is_sample = true`;
@@ -810,6 +910,9 @@ moves between pages is a bug the user has to hunt for.
 4. **The network is not configured.** `net_service` reports
    `status: not configured (WiFi bring-up is a separate increment)`. Weather and
    any future online feature are unaffected by this because they do not use it.
+   Enabling it also costs internal SRAM that the RGB DMA descriptors compete
+   for — see *LCD Configuration* for the shift that class of contention caused,
+   so it needs the same before/after display check.
 
 5. **`Theme` styles are formatted for `LV_OBJ_FLAG_SCROLLABLE`-free containers.**
    Pages must clear the scroll flag on their own roots.
@@ -860,6 +963,15 @@ from a layout fault on its own — but it can with this. Judge in this order:
 press cannot be scripted from here. `TouchTest` shows the live point plus the raw
 readback, so a mis-scaled or mirrored axis is obvious; the corners are what prove
 the panel-to-LVGL mapping across the whole surface rather than just at the centre.
+
+**Font coverage.** Mostly host-checkable, and worth separating from the glass.
+`tools/verify_sd_font.py` re-derives the codepoint sets from two independent
+sources — the firmware's own `gbk_table.c` and the host's cp936 codec — then
+cross-checks the counts against the boot log. A font swap whose arithmetic is
+wrong fails there, without a card or a camera. What it *cannot* check is whether
+a glyph looks right: 12/12 green means the index arithmetic, the bit order and
+the coverage are correct, not that the character is legible on the panel. That
+last part is still a glance at the Reader page.
 
 > The `GEOM`/`SWEEP`/`RATE` probes and the calibration frame are **test code** and
 > are removed before delivery — the acceptance block in `app_manager.cpp` plus

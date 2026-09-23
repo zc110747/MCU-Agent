@@ -16,6 +16,7 @@
 #include "io_expander.h"
 #include "lvgl_port.h"
 #include "net_service.h"
+#include "sd_font.h"
 #include "storage_service.h"
 #include "system_info.h"
 #include "touch_driver.h"
@@ -127,6 +128,14 @@ extern "C" void app_main(void)
 
     err = services::weather_init();
     ESP_LOGI(TAG, "Weather    : %s", err == ESP_OK ? "service up (sample data)" : "FAIL");
+
+    /* The card usually carries a full GBK face, which the embedded subset is
+     * not; installing it is a PSRAM read, so it happens here - after the card
+     * is up, and before any page exists to bind a font.  Not finding one is a
+     * normal state that leaves the embedded face in place. */
+    err = ui::sd_font_install();
+    ESP_LOGI(TAG, "CJK font   : %s",
+             err == ESP_OK ? "card's GBK face" : "embedded subset (no card face)");
 
     /* Backlight last: the panel now shows a defined (black) frame, so powering
      * the LED string here cannot flash a white screen.                    */
