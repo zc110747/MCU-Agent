@@ -16,7 +16,6 @@ public:
 
 private:
     static void pad_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
 
     void move_marker(int32_t local_x, int32_t local_y);
     void mark_cell(int32_t local_x, int32_t local_y);

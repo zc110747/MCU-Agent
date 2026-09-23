@@ -90,7 +90,6 @@ void PhotosPage::create(lv_obj_t *parent)
 
     ui::app_button(page.footer_right, "Prev", prev_cb, this);
     ui::app_button(page.footer_right, "Next", next_cb, this);
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
 
     ESP_LOGI(TAG, "photos built (list + single preview, contain fit)");
 }
@@ -347,9 +346,4 @@ void PhotosPage::next_cb(lv_event_t *e)
     if (self != nullptr) {
         self->step(1);
     }
-}
-
-void PhotosPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

@@ -181,8 +181,6 @@ void ReaderPage::build_list()
     lv_obj_set_style_text_font(progress_label_, Theme::font_small(), 0);
     lv_label_set_text(progress_label_, "--");
 
-    ui::app_button(footer_right_, "Back", back_cb, nullptr);
-
     load_list();
 }
 
@@ -384,8 +382,6 @@ void ReaderPage::build_reading()
     lv_obj_add_style(progress_label_, Theme::text_dim(), 0);
     lv_obj_set_style_text_font(progress_label_, Theme::font_small(), 0);
     lv_label_set_text(progress_label_, "page 1/1");
-
-    ui::app_button(footer_right_, "Back", back_cb, nullptr);
 }
 
 void ReaderPage::apply_font()
@@ -514,9 +510,4 @@ void ReaderPage::list_cb(lv_event_t *e)
     }
     self->close_book();
     self->build_list();
-}
-
-void ReaderPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

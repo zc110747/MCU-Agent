@@ -61,8 +61,6 @@ void SettingsPage::create(lv_obj_t *parent)
     lv_obj_set_style_text_font(footer_note_, Theme::font_small(), 0);
     lv_label_set_text(footer_note_, "");
 
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
-
     ESP_LOGI(TAG, "settings built");
 }
 
@@ -369,9 +367,4 @@ void SettingsPage::restart_cb(lv_event_t *)
 {
     ESP_LOGW(TAG, "restart requested from Settings");
     app::AppManager::instance().request_restart();
-}
-
-void SettingsPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

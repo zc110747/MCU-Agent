@@ -20,7 +20,6 @@ private:
     static void row_cb(lv_event_t *e);
     static void prev_cb(lv_event_t *e);
     static void next_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
 
     void load_list();
 

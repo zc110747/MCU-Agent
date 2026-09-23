@@ -192,7 +192,6 @@ void NotesPage::build_list()
     lv_label_set_text(note_label_, "--");
 
     ui::app_button(footer_left_, "New", new_cb, this);
-    ui::app_button(footer_right_, "Back", back_cb, nullptr);
 
     load_list();
 }
@@ -605,9 +604,4 @@ void NotesPage::kb_cb(lv_event_t *e)
         return;
     }
     self->dirty_ = true;
-}
-
-void NotesPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

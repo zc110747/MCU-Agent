@@ -20,7 +20,6 @@ public:
 
 private:
     static void today_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
 
     /** @brief Roll the shown month and redraw. */
     void shift_month(int delta);

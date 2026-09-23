@@ -140,8 +140,6 @@ void CalendarPage::create(lv_obj_t *parent)
     ui::app_button(page.footer_left, "Today", today_cb, this);
     make_step_button(page.footer_left, "Next >", kNext, this);
 
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
-
     ESP_LOGI(TAG, "calendar built (%d cells, %d columns)", kCells, kCols);
 }
 
@@ -296,9 +294,4 @@ void CalendarPage::today_cb(lv_event_t *e)
     if (self != nullptr) {
         self->go_today();
     }
-}
-
-void CalendarPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

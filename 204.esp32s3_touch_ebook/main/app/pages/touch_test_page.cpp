@@ -164,8 +164,6 @@ void TouchTestPage::create(lv_obj_t *parent)
     lv_obj_set_style_text_font(coords_, Theme::font_small(), 0);
     lv_label_set_text(coords_, "x = ---   y = ---");
 
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
-
     ESP_LOGI(TAG, "touch test page built");
 }
 
@@ -299,9 +297,4 @@ void TouchTestPage::pad_cb(lv_event_t *e)
     default:
         break;
     }
-}
-
-void TouchTestPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

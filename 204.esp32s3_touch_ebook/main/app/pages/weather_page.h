@@ -20,7 +20,6 @@ public:
 private:
     static void tick_cb(lv_timer_t *t);
     static void refresh_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
 
     /** @brief Apply whatever the service currently says. */
     void apply_state(services::WeatherState st);

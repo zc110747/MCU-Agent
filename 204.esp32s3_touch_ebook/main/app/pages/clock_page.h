@@ -28,7 +28,6 @@ public:
 private:
     static void tick_cb(lv_timer_t *t);
     static void format_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
 
     void refresh();
 

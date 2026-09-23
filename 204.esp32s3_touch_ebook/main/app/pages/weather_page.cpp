@@ -80,8 +80,6 @@ void WeatherPage::create(lv_obj_t *parent)
     lv_obj_set_style_text_font(footer_note_, Theme::font_small(), 0);
     lv_label_set_text(footer_note_, "");
 
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
-
     ESP_LOGI(TAG, "weather page built");
 }
 
@@ -276,9 +274,4 @@ void WeatherPage::refresh_cb(lv_event_t *)
 {
     /* Returns immediately - see the file header. */
     services::weather_request_refresh();
-}
-
-void WeatherPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

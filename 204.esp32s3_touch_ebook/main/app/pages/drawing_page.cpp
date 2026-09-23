@@ -171,7 +171,6 @@ void DrawingPage::create(lv_obj_t *parent)
         canvas_ = nullptr;
         ui::empty_state(body, "--", "Not enough memory",
                         "The drawing canvas could not be allocated. Close other pages and try again.");
-        ui::app_button(page.footer_right, "Back", back_cb, nullptr);
         return;
     }
 
@@ -205,8 +204,6 @@ void DrawingPage::create(lv_obj_t *parent)
     lv_obj_set_style_text_font(footer_note_, Theme::font_small(), 0);
     lv_label_set_text_fmt(footer_note_, "canvas %dx%d, 1:1 with the panel",
                           (int)kCanvasW, (int)kCanvasH);
-
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
 
     clear();
     ESP_LOGI(TAG, "drawing built: canvas %dx%d, buffer %u bytes",
@@ -544,9 +541,4 @@ void DrawingPage::save_cb(lv_event_t *e)
     if (self != nullptr) {
         self->save();
     }
-}
-
-void DrawingPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

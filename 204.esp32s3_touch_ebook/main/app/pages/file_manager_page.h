@@ -21,7 +21,6 @@ private:
     static void row_cb(lv_event_t *e);
     static void trash_cb(lv_event_t *e);
     static void up_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
     static void close_preview_cb(lv_event_t *e);
     static void arm_tick(lv_timer_t *t);
 

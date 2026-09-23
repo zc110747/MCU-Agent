@@ -105,8 +105,6 @@ void ClockPage::create(lv_obj_t *parent)
     make_adjust_button(row, "Min -", kMinMinus, this);
     make_adjust_button(row, "Min +", kMinPlus, this);
 
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
-
     ESP_LOGI(TAG, "clock built");
 }
 
@@ -243,9 +241,4 @@ void ClockPage::adjust_cb(lv_event_t *e)
 
     self->last_second_ = -1;
     self->refresh();
-}
-
-void ClockPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

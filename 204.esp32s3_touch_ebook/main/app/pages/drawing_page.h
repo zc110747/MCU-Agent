@@ -24,7 +24,6 @@ public:
 private:
     static void clear_cb(lv_event_t *e);
     static void save_cb(lv_event_t *e);
-    static void back_cb(lv_event_t *e);
 
     /** @brief Paint one segment into the canvas. */
     void stroke(int32_t x0, int32_t y0, int32_t x1, int32_t y1);

@@ -112,7 +112,6 @@ void FileManagerPage::create(lv_obj_t *parent)
     lv_label_set_text(count_label_, "--");
 
     ui::app_button(page.footer_left, "Up", up_cb, this);
-    ui::app_button(page.footer_right, "Back", back_cb, nullptr);
 
     ESP_LOGI(TAG, "file manager built");
 }
@@ -500,9 +499,4 @@ void FileManagerPage::close_preview_cb(lv_event_t *e)
     if (self != nullptr) {
         self->close_preview();
     }
-}
-
-void FileManagerPage::back_cb(lv_event_t *)
-{
-    app::go_back();
 }

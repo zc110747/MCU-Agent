@@ -29,7 +29,6 @@ private:
     static void cn_char_cb(lv_event_t *e);
     static void kb_cb(lv_event_t *e);
     static void arm_tick(lv_timer_t *t);
-    static void back_cb(lv_event_t *e);
 
     void build_list();
     void build_editor();

@@ -23,7 +23,6 @@ public:
     void on_leave() override;
 
 private:
-    static void back_cb(lv_event_t *e);
     static void restart_cb(lv_event_t *e);
     static void brightness_cb(lv_event_t *e);
     static void rescan_cb(lv_event_t *e);
