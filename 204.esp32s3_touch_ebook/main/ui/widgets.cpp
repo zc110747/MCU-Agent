@@ -22,14 +22,22 @@ static lv_obj_t *make_bar(lv_obj_t *parent, lv_style_t *style, int height)
     return bar;
 }
 
-static lv_obj_t *make_slot(lv_obj_t *parent)
+static lv_obj_t *make_slot(lv_obj_t *parent, lv_flex_align_t main_align = LV_FLEX_ALIGN_END,
+                           bool grow = false)
 {
     lv_obj_t *slot = lv_obj_create(parent);
     lv_obj_remove_style_all(slot);
-    lv_obj_set_size(slot, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    if (grow) {
+        /* A definite (grown) width instead of LV_SIZE_CONTENT: with a content-
+         * sized slot the flex main-axis justify can mis-measure and shove the
+         * children off-screen (the Calendar "< Prev" ended up at x=-149).  A
+         * grown slot has a real width, so START-justified children stay put. */
+        lv_obj_set_flex_grow(slot, 1);
+    } else {
+        lv_obj_set_size(slot, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    }
     lv_obj_set_flex_flow(slot, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(slot, LV_FLEX_ALIGN_END,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(slot, main_align, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(slot, Theme::kGapSm, 0);
     lv_obj_clear_flag(slot, LV_OBJ_FLAG_SCROLLABLE);
     return slot;
@@ -116,7 +124,10 @@ PageLayout page_layout(lv_obj_t *parent, const char *title, bool with_footer,
 
     if (with_footer) {
         p.footer = make_bar(p.root, Theme::footer(), Theme::kFooterH);
-        p.footer_left = make_slot(p.footer);
+        /* footer_left grows to fill the left of the bar and left-aligns its
+         * children, so e.g. Calendar's "< Prev" sits at the screen's left edge
+         * instead of being pushed off-screen by a mis-sized content slot. */
+        p.footer_left = make_slot(p.footer, LV_FLEX_ALIGN_START, true);
         p.footer_right = make_slot(p.footer);
     }
     return p;

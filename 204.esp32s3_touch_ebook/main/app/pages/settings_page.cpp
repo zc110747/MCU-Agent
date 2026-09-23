@@ -93,9 +93,8 @@ void SettingsPage::create(lv_obj_t *parent)
     lv_obj_set_style_text_font(footer_note_, Theme::font_small(), 0);
     lv_label_set_text(footer_note_, "");
 
-    /* Bottom-right commit: writes the draft to the RTC.  Nothing else on this
-     * page touches the clock, so this is the single place a set happens. */
-    ui::app_button(page.footer_right, "SetTime", settime_cb, this);
+    /* SetTime now lives at the bottom-right of the Date & Time card (see
+     * build_datetime_card); the page footer is left free. */
 
     ESP_LOGI(TAG, "settings built");
 }
@@ -682,10 +681,24 @@ lv_obj_t *SettingsPage::build_datetime_card(lv_obj_t *parent)
     lv_obj_t *note = lv_label_create(card);
     lv_obj_add_style(note, Theme::text_dim(), 0);
     lv_obj_set_style_text_font(note, Theme::font_small(), 0);
-    lv_label_set_text(note, "- / + edit a draft. Tap SetTime (bottom right) to "
-                            "write it to the RTC; the change survives a reboot.");
+    lv_label_set_text(note, "- / + edit a draft. Tap SetTime (below) to write it "
+                            "to the RTC; the change survives a reboot.");
     lv_obj_set_width(note, LV_PCT(100));
     lv_label_set_long_mode(note, LV_LABEL_LONG_MODE_WRAP);
+
+    /* Commit row: lives at the bottom-right of THIS card (not the page footer,
+     * per the requested layout).  - / + only edit the draft; this is the single
+     * control that writes it to the RTC. */
+    lv_obj_t *commit = lv_obj_create(card);
+    lv_obj_remove_style_all(commit);
+    lv_obj_set_width(commit, LV_PCT(100));
+    lv_obj_set_height(commit, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(commit, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(commit, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(commit, Theme::kGapSm, 0);
+    lv_obj_clear_flag(commit, LV_OBJ_FLAG_SCROLLABLE);
+    ui::app_button(commit, "SetTime", settime_cb, this);
 
     return card;
 }
@@ -719,7 +732,7 @@ void SettingsPage::datetime_cb(lv_event_t *e)
 
     /* Edit the draft only.  The RTC is not touched here. */
     switch (field) {
-    case DtField::Year:   self->draft_.year   = clamp(self->draft_.year + delta, 2000, 2100); break;
+    case DtField::Year:   self->draft_.year   = clamp(self->draft_.year + delta, 2000, 2099); break;
     case DtField::Month:  self->draft_.month  = wrap(self->draft_.month + delta, 1, 12);       break;
     case DtField::Day: {
         const int max = services::clock_days_in_month(self->draft_.year, self->draft_.month);
@@ -748,14 +761,10 @@ void SettingsPage::settime_cb(lv_event_t *e)
         return;
     }
 
-    /* Copy the draft: the RTC write must never carry a value the chip cannot
-     * hold.  The PCF85063A's year register is 0-99 (2000-2099), so a 2100 pick
-     * is clamped to 2099 for the write rather than landing 0xA0 in the byte. */
+    /* The draft's year is already clamped to 2000-2099 by datetime_cb, which
+     * matches the PCF85063A's 0-99 year register exactly.  Only the day can
+     * still be out of range after a month/year change, so clamp that and write. */
     services::TimeParts t = self->draft_;
-    const bool year_capped = (t.year > 2099);
-    if (year_capped) {
-        t.year = 2099;
-    }
     const int max_day = services::clock_days_in_month(t.year, t.month);
     if (t.day > max_day) {
         t.day = max_day;
@@ -763,7 +772,7 @@ void SettingsPage::settime_cb(lv_event_t *e)
 
     const esp_err_t err = services::clock_set(&t);
     if (err == ESP_OK) {
-        self->notify(year_capped ? "year capped at 2099 (RTC max)" : "time set");
+        self->notify("time set");
     } else {
         self->notify("set failed");
         ESP_LOGW(TAG, "cannot set the RTC: %s", esp_err_to_name(err));
