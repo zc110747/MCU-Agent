@@ -93,6 +93,10 @@ void SettingsPage::create(lv_obj_t *parent)
     lv_obj_set_style_text_font(footer_note_, Theme::font_small(), 0);
     lv_label_set_text(footer_note_, "");
 
+    /* Bottom-right commit: writes the draft to the RTC.  Nothing else on this
+     * page touches the clock, so this is the single place a set happens. */
+    ui::app_button(page.footer_right, "SetTime", settime_cb, this);
+
     ESP_LOGI(TAG, "settings built");
 }
 
@@ -610,42 +614,67 @@ lv_obj_t *SettingsPage::build_datetime_card(lv_obj_t *parent)
 {
     lv_obj_t *card = ui::app_card(parent, "Date & Time");
 
-    /* One stepper row per field.  The value label is kept (datetime_val_) so
-     * refresh_datetime() can rewrite it after each tap without rebuilding the
-     * row.  Writing goes straight to the PCF85063A, so a change survives a
-     * reboot - the same guarantee the old Clock page made. */
+    /* Two rows of three fields: row 1 = Year / Month / Day, row 2 = Hour /
+     * Minute / Second.  Each field is a self-contained cell (name + value + its
+     * own - / +), and those steppers edit a DRAFT (draft_) - not the RTC.  Only
+     * SetTime, in the footer, commits the draft. */
+    lv_obj_t *grid = lv_obj_create(card);
+    lv_obj_remove_style_all(grid);
+    lv_obj_set_width(grid, LV_PCT(100));
+    lv_obj_set_height(grid, LV_SIZE_CONTENT);
+    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+    static const int32_t gcol[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+                                   LV_GRID_TEMPLATE_LAST};
+    static const int32_t grow[] = {LV_GRID_CONTENT, LV_GRID_CONTENT,
+                                   LV_GRID_TEMPLATE_LAST};
+    lv_obj_set_grid_dsc_array(grid, gcol, grow);
+    lv_obj_set_style_pad_row(grid, Theme::kGapMd, 0);
+    lv_obj_set_style_pad_column(grid, Theme::kGapMd, 0);
+    lv_obj_clear_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+
     static const char *const kNames[6] = {
         "Year", "Month", "Day", "Hour", "Minute", "Second"
     };
 
     for (int f = 0; f < 6; ++f) {
-        lv_obj_t *row = lv_obj_create(card);
-        lv_obj_remove_style_all(row);
-        lv_obj_set_width(row, LV_PCT(100));
-        lv_obj_set_height(row, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                               LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(row, Theme::kGapSm, 0);
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *cell = lv_obj_create(grid);
+        lv_obj_remove_style_all(cell);
+        lv_obj_set_height(cell, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(cell, Theme::kGapXs, 0);
+        lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_STRETCH, f % 3, 1,
+                             LV_GRID_ALIGN_STRETCH, f / 3, 1);
 
-        lv_obj_t *name = lv_label_create(row);
-        lv_obj_add_style(name, Theme::text_body(), 0);
-        lv_obj_set_style_text_font(name, Theme::font_body(), 0);
+        lv_obj_t *name = lv_label_create(cell);
+        lv_obj_add_style(name, Theme::text_dim(), 0);
+        lv_obj_set_style_text_font(name, Theme::font_small(), 0);
         lv_label_set_text(name, kNames[f]);
-        lv_obj_set_width(name, 84);
 
-        lv_obj_t *val = lv_label_create(row);
+        lv_obj_t *val = lv_label_create(cell);
         lv_obj_add_style(val, Theme::text_body(), 0);
-        lv_obj_set_style_text_font(val, Theme::font_body(), 0);
+        lv_obj_set_style_text_font(val, Theme::font_title(), 0);
         lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_width(val, 56);
+        lv_obj_set_width(val, LV_PCT(100));
         datetime_val_[f] = val;
 
-        lv_obj_t *minus = ui::app_button(row, "-", datetime_cb, this);
+        lv_obj_t *steps = lv_obj_create(cell);
+        lv_obj_remove_style_all(steps);
+        lv_obj_set_width(steps, LV_PCT(100));
+        lv_obj_set_height(steps, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(steps, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(steps, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(steps, Theme::kGapSm, 0);
+        lv_obj_set_style_pad_row(steps, 0, 0);
+        lv_obj_clear_flag(steps, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *minus = ui::app_button(steps, "-", datetime_cb, this);
         lv_obj_set_user_data(minus, reinterpret_cast<void *>(
                                   dtcode(static_cast<DtField>(f), -1)));
-        lv_obj_t *plus = ui::app_button(row, "+", datetime_cb, this);
+        lv_obj_t *plus = ui::app_button(steps, "+", datetime_cb, this);
         lv_obj_set_user_data(plus, reinterpret_cast<void *>(
                                  dtcode(static_cast<DtField>(f), 1)));
     }
@@ -653,8 +682,8 @@ lv_obj_t *SettingsPage::build_datetime_card(lv_obj_t *parent)
     lv_obj_t *note = lv_label_create(card);
     lv_obj_add_style(note, Theme::text_dim(), 0);
     lv_obj_set_style_text_font(note, Theme::font_small(), 0);
-    lv_label_set_text(note, "Step a field with - / +. The new time is written "
-                            "to the RTC and survives a reboot.");
+    lv_label_set_text(note, "- / + edit a draft. Tap SetTime (bottom right) to "
+                            "write it to the RTC; the change survives a reboot.");
     lv_obj_set_width(note, LV_PCT(100));
     lv_label_set_long_mode(note, LV_LABEL_LONG_MODE_WRAP);
 
@@ -663,9 +692,9 @@ lv_obj_t *SettingsPage::build_datetime_card(lv_obj_t *parent)
 
 void SettingsPage::refresh_datetime()
 {
-    services::TimeParts t;
-    services::clock_now(&t);
-    const int vals[6] = {t.year, t.month, t.day, t.hour, t.minute, t.second};
+    /* Render the draft, not the RTC - the user is mid-edit until SetTime. */
+    const int vals[6] = {draft_.year, draft_.month, draft_.day,
+                          draft_.hour, draft_.minute, draft_.second};
     char buf[12];
     for (int f = 0; f < 6; ++f) {
         if (datetime_val_[f] == nullptr) {
@@ -688,35 +717,57 @@ void SettingsPage::datetime_cb(lv_event_t *e)
     const DtField field = static_cast<DtField>(tag >> 1);
     const int delta = (tag & 1) ? 1 : -1;
 
-    services::TimeParts t;
-    services::clock_now(&t);
-
+    /* Edit the draft only.  The RTC is not touched here. */
     switch (field) {
-    case DtField::Year:   t.year   = clamp(t.year + delta, 2000, 2099); break;
-    case DtField::Month:  t.month  = wrap(t.month + delta, 1, 12);     break;
+    case DtField::Year:   self->draft_.year   = clamp(self->draft_.year + delta, 2000, 2100); break;
+    case DtField::Month:  self->draft_.month  = wrap(self->draft_.month + delta, 1, 12);       break;
     case DtField::Day: {
-        const int max = services::clock_days_in_month(t.year, t.month);
-        t.day = clamp(t.day + delta, 1, max);
+        const int max = services::clock_days_in_month(self->draft_.year, self->draft_.month);
+        self->draft_.day = clamp(self->draft_.day + delta, 1, max);
         break;
     }
-    case DtField::Hour:   t.hour   = wrap(t.hour + delta, 0, 23);      break;
-    case DtField::Minute: t.minute = wrap(t.minute + delta, 0, 59);    break;
-    case DtField::Second: t.second = wrap(t.second + delta, 0, 59);    break;
+    case DtField::Hour:   self->draft_.hour   = wrap(self->draft_.hour + delta, 0, 23);        break;
+    case DtField::Minute: self->draft_.minute = wrap(self->draft_.minute + delta, 0, 59);      break;
+    case DtField::Second: self->draft_.second = wrap(self->draft_.second + delta, 0, 59);      break;
     }
 
     /* A new year or month can make the stored day illegal; clamp it so the
-     * write is always a date the RTC will accept rather than a rollover. */
+     * committed value is always a date the RTC will accept. */
+    const int max_day = services::clock_days_in_month(self->draft_.year, self->draft_.month);
+    if (self->draft_.day > max_day) {
+        self->draft_.day = max_day;
+    }
+
+    self->refresh_datetime();
+}
+
+void SettingsPage::settime_cb(lv_event_t *e)
+{
+    SettingsPage *self = static_cast<SettingsPage *>(lv_event_get_user_data(e));
+    if (self == nullptr) {
+        return;
+    }
+
+    /* Copy the draft: the RTC write must never carry a value the chip cannot
+     * hold.  The PCF85063A's year register is 0-99 (2000-2099), so a 2100 pick
+     * is clamped to 2099 for the write rather than landing 0xA0 in the byte. */
+    services::TimeParts t = self->draft_;
+    const bool year_capped = (t.year > 2099);
+    if (year_capped) {
+        t.year = 2099;
+    }
     const int max_day = services::clock_days_in_month(t.year, t.month);
     if (t.day > max_day) {
         t.day = max_day;
     }
 
     const esp_err_t err = services::clock_set(&t);
-    if (err != ESP_OK) {
+    if (err == ESP_OK) {
+        self->notify(year_capped ? "year capped at 2099 (RTC max)" : "time set");
+    } else {
+        self->notify("set failed");
         ESP_LOGW(TAG, "cannot set the RTC: %s", esp_err_to_name(err));
-        return;
     }
-    self->refresh_datetime();
 }
 
 /* ------------------------------------------------------------------------ */
@@ -756,6 +807,10 @@ void SettingsPage::destroy()
 
 void SettingsPage::on_enter()
 {
+    /* Start the draft at whatever the RTC currently holds, so a fresh open
+     * always reflects the real time rather than a stale edit. */
+    services::clock_now(&draft_);
+
     refresh();
     /* 400 ms: fast enough that a connection appears to happen when the button
      * is pressed, slow enough that the cost is invisible.  Association takes

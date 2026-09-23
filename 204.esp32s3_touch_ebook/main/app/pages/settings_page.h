@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include "clock_service.h"
 #include "lvgl.h"
 #include "net_service.h"
 #include "page.h"
@@ -30,8 +31,9 @@ private:
     static void net_action_cb(lv_event_t *e);
     static void note_tick(lv_timer_t *t);
 
-    /* Date & Time: the one place that writes the RTC by hand. */
-    static void datetime_cb(lv_event_t *e);
+    /* Date & Time: a draft edited by - / +, committed only by SetTime. */
+    static void datetime_cb(lv_event_t *e);   /* - / + : edit the draft only   */
+    static void settime_cb(lv_event_t *e);    /* footer : write the draft       */
 
     /* WiFi setup overlay.  Two steps in one overlay rather than a pushed page:
      * the access point someone picks is only meaningful next to the list they
@@ -76,6 +78,11 @@ private:
     lv_obj_t *storage_rows_[3] = {};
     lv_obj_t *datetime_val_[6] = {};   /* Year, Month, Day, Hour, Minute, Second */
     lv_obj_t *footer_note_ = nullptr;
+
+    /* The editable copy of the time.  - / + nudge it; SetTime writes it to the
+     * RTC.  Re-sync'd from the RTC each time the page is entered, so an
+     * uncommitted draft is forgotten on leave rather than leaking across open. */
+    services::TimeParts draft_ = {};
     lv_timer_t *note_timer_ = nullptr;
 
     /* --- WiFi overlay state --- */
