@@ -91,6 +91,34 @@ public:
      */
     static const lv_font_t *font_cjk();
 
+    /**
+     * @brief The card's large reading face (24 or 32 px), or nullptr.
+     *
+     * For document body text: 16 px Han is ~1.9 mm on this panel with a
+     * one-pixel stroke, which reads as soft/unreadable across a whole page.
+     * The card's larger HZK faces are integer bitmap cells, so they stay
+     * sharp at their native size.  nullptr when no large face is on the card
+     * or none fit in PSRAM - callers fall back to font_cjk().
+     *
+     * Address through this function, never by holding the pointer: like
+     * font_cjk(), which face is in use is decided at boot.
+     */
+    static const lv_font_t *font_cjk_large();
+
+    /** @brief The large face's cell size in px (for button labels), or 0. */
+    static int font_cjk_large_px();
+
+    /**
+     * @brief The card's 32 px face (SD-cached, see ui/sd_font.h), or nullptr.
+     *
+     * Larger than font_cjk_large(), and like it intended for document body
+     * text.  Served from the card on demand, so it costs almost no RAM.
+     */
+    static const lv_font_t *font_cjk_xl();
+
+    /** @brief The XL face's cell size in px (32), or 0. */
+    static int font_cjk_xl_px();
+
     /* ---------------- shared styles (valid after init()) -------------- */
     static lv_style_t *screen();       /* page root: flat background        */
     static lv_style_t *card();         /* raised content block              */

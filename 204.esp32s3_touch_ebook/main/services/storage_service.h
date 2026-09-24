@@ -60,6 +60,23 @@ esp_err_t storage_write(const char *path, const void *data, size_t len);
 /** @brief Read a whole file, up to @p max bytes. Caller owns nothing. */
 esp_err_t storage_read(const char *path, void *buf, size_t max, size_t *got);
 
+/**
+ * @brief Open a file for repeated random reads (e.g. a bitmap font read glyph
+ *        by glyph). Returns an opaque handle, or nullptr on failure.
+ *
+ * The handle is NOT thread-exclusive; ESP-IDF's FatFs VFS serialises every
+ * f_seek/f_read through one global lock, so the display task fetching a glyph
+ * and the app task listing a directory cannot corrupt each other.  It is the
+ * caller's job to storage_close() it when the font is torn down.
+ */
+void *storage_open(const char *path);
+
+/** @brief Read @p len bytes at @p offset from a storage_open() handle. */
+esp_err_t storage_read_at(void *handle, size_t offset, void *buf, size_t len, size_t *got);
+
+/** @brief Close a handle returned by storage_open(). */
+void storage_close(void *handle);
+
 /** @brief Remove a file. Never removes directories. */
 esp_err_t storage_remove(const char *path);
 

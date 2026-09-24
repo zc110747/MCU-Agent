@@ -393,6 +393,28 @@ const lv_font_t *Theme::font_cjk()
     return (sd != nullptr) ? sd : s_font_cjk;
 }
 
+const lv_font_t *Theme::font_cjk_large()
+{
+    /* Same boot-time-fact reasoning as font_cjk(): resolve per call. */
+    return ui::sd_font_cjk_large();
+}
+
+int Theme::font_cjk_large_px()
+{
+    return ui::sd_font_cjk_large_px();
+}
+
+const lv_font_t *Theme::font_cjk_xl()
+{
+    /* Resolved per call, like font_cjk(): the XL face is a boot-time fact. */
+    return ui::sd_font_cjk_xl();
+}
+
+int Theme::font_cjk_xl_px()
+{
+    return ui::sd_font_cjk_xl_px();
+}
+
 lv_style_t *Theme::screen()       { return &s_screen; }
 lv_style_t *Theme::card()         { return &s_card; }
 lv_style_t *Theme::header()       { return &s_header; }

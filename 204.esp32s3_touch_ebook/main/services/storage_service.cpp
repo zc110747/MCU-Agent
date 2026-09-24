@@ -196,6 +196,40 @@ esp_err_t storage_read(const char *path, void *buf, size_t max, size_t *got)
     return ESP_OK;
 }
 
+void *storage_open(const char *path)
+{
+    if (path == nullptr || !storage_ready()) {
+        return nullptr;
+    }
+    return fopen(path, "rb");
+}
+
+esp_err_t storage_read_at(void *handle, size_t offset, void *buf, size_t len, size_t *got)
+{
+    if (got != nullptr) {
+        *got = 0;
+    }
+    if (handle == nullptr || buf == nullptr || !storage_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    FILE *f = static_cast<FILE *>(handle);
+    if (fseek(f, (long)offset, SEEK_SET) != 0) {
+        return ESP_FAIL;
+    }
+    const size_t n = fread(buf, 1, len, f);
+    if (got != nullptr) {
+        *got = n;
+    }
+    return (n == len) ? ESP_OK : ESP_FAIL;
+}
+
+void storage_close(void *handle)
+{
+    if (handle != nullptr) {
+        fclose(static_cast<FILE *>(handle));
+    }
+}
+
 esp_err_t storage_remove(const char *path)
 {
     if (path == nullptr || !storage_ready()) {

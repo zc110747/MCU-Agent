@@ -54,44 +54,63 @@ struct ReaderFont {
     const char      *note;
 };
 
+/* The default reading size, set once by fonts() from whatever the card
+ * offers.  Lives at namespace scope so create() can read it without calling
+ * fonts() twice. */
+static int s_default_font_index = 0;
+
 const ReaderFont *fonts(size_t *count)
 {
-    static const ReaderFont kFonts[] = {
-        {"A14", nullptr, "Latin, 14 px"},
-        {"A16", nullptr, "Latin, 16 px"},
-        {"A20", nullptr, "Latin, 20 px"},
-        {"A28", nullptr, "Latin, 28 px"},
-        {"CN",  nullptr, "Chinese + Latin, 16 px"},
-    };
-    static ReaderFont resolved[sizeof(kFonts) / sizeof(kFonts[0])];
-    static bool done = false;
+    /* The large/XL card faces' labels depend on which px sizes installed, so
+     * they need writable storage, not literals. */
+    static char s_large_label[16];
+    static char s_xl_label[16];
 
-    *count = sizeof(kFonts) / sizeof(kFonts[0]);
+    static ReaderFont kFonts[8];
+    static size_t    s_count = 0;
+    static bool      done = false;
+
     if (!done) {
-        resolved[0].label = kFonts[0].label;
-        resolved[0].font = Theme::font_small();
-        resolved[0].note = kFonts[0].note;
-        resolved[1].label = kFonts[1].label;
-        resolved[1].font = Theme::font_body();
-        resolved[1].note = kFonts[1].note;
-        resolved[2].label = kFonts[2].label;
-        resolved[2].font = Theme::font_title();
-        resolved[2].note = kFonts[2].note;
-        resolved[3].label = kFonts[3].label;
-        resolved[3].font = Theme::font_h1();
-        resolved[3].note = kFonts[3].note;
-        resolved[4].label = kFonts[4].label;
-        resolved[4].font = Theme::font_cjk();
-        resolved[4].note = kFonts[4].note;
+        int n = 0;
+        kFonts[n++] = {"A14", Theme::font_small(), "Latin, 14 px"};
+        kFonts[n++] = {"A16", Theme::font_body(),  "Latin, 16 px"};
+        kFonts[n++] = {"A20", Theme::font_title(), "Latin, 20 px"};
+        kFonts[n++] = {"A28", Theme::font_h1(),    "Latin, 28 px"};
+        kFonts[n++] = {"CN",  Theme::font_cjk(),   "Chinese + Latin, 16 px"};
+
+        /* In-RAM reading face (24 px when it fit PSRAM, else absent - the
+         * entry just does not appear, keeping the ladder honest). */
+        const int large_px = Theme::font_cjk_large_px();
+        if (large_px > 16) {
+            snprintf(s_large_label, sizeof(s_large_label), "CN%d", large_px);
+            kFonts[n++] = {s_large_label, Theme::font_cjk_large(),
+                           "Chinese, large reading size"};
+        }
+        /* SD-cached extra-large face (32 px).  Served glyph-by-glyph from the
+         * card, so it joins the ladder without eating PSRAM. */
+        const int xl_px = Theme::font_cjk_xl_px();
+        if (xl_px > 0) {
+            snprintf(s_xl_label, sizeof(s_xl_label), "CN%d", xl_px);
+            kFonts[n++] = {s_xl_label, Theme::font_cjk_xl(),
+                           "Chinese, extra-large (SD cache)"};
+        }
+
+        s_count = (size_t)n;
+        /* Default: the largest CJK reading size offered (XL > large > 16).
+         * 16 px Han is ~1.9 mm on this panel with a one-pixel stroke - fine
+         * for labels, unreadable as body text - so the reader does NOT default
+         * to it; anything larger is both sharper and taller. */
+        s_default_font_index = (xl_px > 0)       ? n - 1
+                             : (large_px > 16)  ? n - 1
+                             : 4;
         done = true;
     }
-    return resolved;
-}
 
-/* The CJK face is the default: it is the only one that can render a Chinese
- * file, and it renders Latin acceptably, so starting anywhere else would mean
- * the first thing a user opens looks broken. */
-constexpr int kDefaultFontIndex = 4;
+    if (count != nullptr) {
+        *count = s_count;
+    }
+    return kFonts;
+}
 
 }  // namespace
 
@@ -109,7 +128,11 @@ void ReaderPage::create(lv_obj_t *parent)
     footer_left_ = page.footer_left;
     footer_right_ = page.footer_right;
 
-    font_index_ = kDefaultFontIndex;
+    /* Build the font ladder first so s_default_font_index is set, then start
+     * on the largest reading size the card offers (XL > large > 16). */
+    size_t fc = 0;
+    fonts(&fc);
+    font_index_ = s_default_font_index;
     build_list();
 
     ESP_LOGI(TAG, "reader built");
