@@ -25,6 +25,4 @@ _*.txt
 build/
 managed_components/
 
-# Agent working notes (daily log + project conventions).  Local state, not part
-# of the deliverable - flip this if you want the notes to travel with the repo.
-.workbuddy/
+logs
