@@ -70,6 +70,7 @@
 
 #include <string.h>
 
+#include "ascii_fonts.h"
 #include "gbk_table.h"
 #include "storage_service.h"
 
@@ -144,11 +145,15 @@ struct Face {
     const uint8_t *glyphs;     /* PSRAM: the whole file (nullptr when SD) */
     void          *fh;         /* SD handle (nullptr when PSRAM)           */
     RawCache      *cache;      /* SD mode only (nullptr when PSRAM)        */
+    bool           ascii;      /* true: a full-cell ASCII fallback face    */
 };
 
 Face s_face16;
 Face s_face_large;         /* 24 px in PSRAM, or 16 px if 24 did not fit */
 Face s_face_xl;            /* 32 px SD-cached, or empty                  */
+Face s_ascii16;
+Face s_ascii24;
+Face s_ascii32;
 uint16_t *s_index = nullptr;
 bool s_tried = false;
 
@@ -204,7 +209,29 @@ bool face_glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *dsc,
     const Face *face = static_cast<const Face *>(font->user_data);
     (void)letter_next;   /* no kerning: every glyph here is a full-width cell */
 
-    if (face == nullptr || letter >= kCodepoints) {
+    if (face == nullptr) {
+        return false;
+    }
+
+    /* A full-cell ASCII fallback face: 95 slots, slot = codepoint - 0x20, each
+     * glyph is one N x N cell so Latin is the same height as the Han it sits
+     * beside (the GBK faces carry no ASCII of their own). */
+    if (face->ascii) {
+        if (letter < 0x20 || letter > 0x7E) {
+            return false;
+        }
+        dsc->gid.index = (uint32_t)(letter - 0x20) + 1;
+        dsc->adv_w     = face->cell;
+        dsc->box_w     = face->cell;
+        dsc->box_h     = face->cell;
+        dsc->ofs_x     = 0;
+        dsc->ofs_y     = face->ofs_y;
+        dsc->stride    = 0;
+        dsc->format    = LV_FONT_GLYPH_FORMAT_A8;
+        return true;
+    }
+
+    if (letter >= kCodepoints) {
         return false;
     }
     const uint16_t gid = s_index[letter];
@@ -489,6 +516,31 @@ void dress_face(Face &face, const FaceSpec &spec, bool psram,
 }
 
 /**
+ * @brief Install a firmware-resident full-cell ASCII face (no card needed).
+ *
+ * The card's GBK faces contain only the CJK double-byte area, so a mixed
+ * document's Latin falls through to the face's fallback.  This face answers
+ * ASCII 0x20..0x7E from a bitmap sized to fill the N x N cell exactly like the
+ * Han, so English comes out the same height and baseline as the Chinese around
+ * it instead of collapsing to the embedded 16 px fallback.  Its own fallback is
+ * the embedded CJK face, which still covers any symbol the GBK/ASCII pair lack.
+ *
+ * glyphs points at a const flash array; psram=true reuses the read path that
+ * memcpys the cell into the draw buffer, so no RAM copy is needed.
+ */
+esp_err_t install_ascii(int cell, const uint8_t *src, Face &face, const char *role)
+{
+    if (src == nullptr) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    const FaceSpec spec = {cell, (size_t)cell * (size_t)cell / 8, 0};
+    dress_face(face, spec, /*psram=*/true, src, nullptr, nullptr);
+    face.ascii = true;
+    ESP_LOGI(TAG, "installed %s ascii fallback: %d px, %u glyphs", role, cell, 95u);
+    return ESP_OK;
+}
+
+/**
  * @brief Load a face file whole into PSRAM and dress it.
  *
  * Used for the 16 px (UI) and 24 px (in-RAM reading) faces, which are small
@@ -644,6 +696,13 @@ esp_err_t sd_font_install()
     }
     s_tried = true;
 
+    /* Firmware-resident ASCII fallbacks: independent of the card, so Latin in a
+     * Chinese document is the same height as the Han no matter what the card
+     * carries (or whether one is present at all). */
+    install_ascii(16, ui::ascii16_glyphs, s_ascii16, "ui ascii");
+    install_ascii(24, ui::ascii24_glyphs, s_ascii24, "reading ascii");
+    install_ascii(32, ui::ascii32_glyphs, s_ascii32, "reading ascii (XL)");
+
     if (!services::storage_ready()) {
         ESP_LOGI(TAG, "no card, keeping the embedded CJK face");
         return ESP_ERR_NOT_FOUND;
@@ -678,6 +737,22 @@ esp_err_t sd_font_install()
     if (!s_face_xl.ready) {
         ESP_LOGI(TAG, "no %u-byte GBK32.FON on the card; XL reading face skipped",
                  (unsigned)kSpec32.file_bytes);
+    }
+
+    /* Re-point each CJK reading face's fallback to the SAME-SIZE full-cell
+     * ASCII face.  Without this, Latin next to 24/32 px Han fell through to the
+     * embedded 16 px CJK face and rendered at half the height (and, because
+     * lv_draw_label positions each glyph by the line font's metrics, sank
+     * toward the baseline).  A 16 px Han already pairs with the 16 px ASCII
+     * face, which is a full-cell Latin at the same size. */
+    if (s_face16.ready) {
+        s_face16.font.fallback = &s_ascii16.font;
+    }
+    if (s_face_large.ready) {   /* the 24 px in-RAM reading face */
+        s_face_large.font.fallback = &s_ascii24.font;
+    }
+    if (s_face_xl.ready) {
+        s_face_xl.font.fallback = &s_ascii32.font;
     }
 
     if (s_index != nullptr) {
