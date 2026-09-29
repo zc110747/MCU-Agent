@@ -10,8 +10,17 @@
   ******************************************************************************
   */
 #include "stm32h7xx_hal.h"
+#include "bsp_log.h"
 
 void SysTick_Handler(void)
 {
     HAL_IncTick();
+}
+
+/* USART1 TXE interrupt -> drains the bsp_log TX ring buffer (non-blocking
+   PRINT_LOG). Without it the 1 Hz heartbeat output would stall once the ring
+   buffer filled up. */
+void USART1_IRQHandler(void)
+{
+    log_uart_tx_irq();
 }

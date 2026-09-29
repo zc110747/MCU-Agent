@@ -9,8 +9,9 @@
   ******************************************************************************
   */
 #include "fs_init.h"
-#include "uart.h"
+#include "bsp_log.h"
 #include "ff.h"
+#include <string.h>
 
 /* Work buffer for f_mkfs (must be >= FF_MAX_SS; 4 KB is comfortable). */
 #define MKFS_WORK_BUF  (4096U)
@@ -23,12 +24,12 @@ int FS_Mount(void)
 
     fr = f_mount(&g_fatfs, "", 1);
     if (fr == FR_OK) {
-        BSP_UART_Printf("[FS ] FAT volume mounted\r\n");
+        PRINT_LOG("[FS ] FAT volume mounted\r\n");
         return 0;
     }
 
     /* Blank / corrupt flash: format it so the host sees a usable U-disk. */
-    BSP_UART_Printf("[FS ] no filesystem (0x%02X), formatting... ", (unsigned)fr);
+    PRINT_LOG("[FS ] no filesystem (0x%02X), formatting... ", (unsigned)fr);
     MKFS_PARM opt = {0};
     opt.fmt     = FM_FAT;            /* FAT12/16/32 chosen by f_mkfs by size */
     opt.n_fat   = 1;
@@ -37,22 +38,22 @@ int FS_Mount(void)
 
     fr = f_mkfs("", &opt, g_mkfs_work, sizeof(g_mkfs_work));
     if (fr != FR_OK) {
-        BSP_UART_Printf("FAIL (0x%02X)\r\n", (unsigned)fr);
+        PRINT_LOG("FAIL (0x%02X)\r\n", (unsigned)fr);
         return -1;
     }
-    BSP_UART_Printf("OK\r\n");
+    PRINT_LOG("OK\r\n");
 
     fr = f_mount(&g_fatfs, "", 1);
     if (fr != FR_OK) {
-        BSP_UART_Printf("[FS ] remount FAIL (0x%02X)\r\n", (unsigned)fr);
+        PRINT_LOG("[FS ] remount FAIL (0x%02X)\r\n", (unsigned)fr);
         return -1;
     }
-    BSP_UART_Printf("[FS ] formatted, volume mounted\r\n");
+    PRINT_LOG("[FS ] formatted, volume mounted\r\n");
     return 0;
 }
 
 void FS_Unmount(void)
 {
     f_mount(NULL, "", 0);
-    BSP_UART_Printf("[FS ] unmounted (USB MSC takes over)\r\n");
+    PRINT_LOG("[FS ] unmounted (USB MSC takes over)\r\n");
 }

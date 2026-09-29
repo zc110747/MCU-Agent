@@ -20,7 +20,7 @@
   ******************************************************************************
   */
 #include "boot.h"
-#include "uart.h"
+#include "bsp_log.h"
 #include "led.h"
 #include "qspi.h"
 #include "usb_board.h"
@@ -39,7 +39,7 @@
 
 static void log_version(const char *tag, const uint8_t v[4])
 {
-    BSP_UART_Printf(" %s v%u.%u.%u.%u\r\n", tag, v[0], v[1], v[2], v[3]);
+    PRINT_LOG(" %s v%u.%u.%u.%u\r\n", tag, v[0], v[1], v[2], v[3]);
 }
 
 /* U-disk mode: pump TinyUSB forever. Never returns. */
@@ -47,7 +47,7 @@ static void enter_udisk_mode(void)
 {
     uint32_t led_t = HAL_GetTick();
 
-    BSP_UART_Printf("[BOOT] U-disk mode - no jump until next reset\r\n");
+    PRINT_LOG("[BOOT] U-disk mode - no jump until next reset\r\n");
     while (1) {
         tud_task();
         if ((HAL_GetTick() - led_t) >= LED_BLINK_MS) {
@@ -64,7 +64,7 @@ static void jump_to_app(void)
     uint32_t reset = *(volatile uint32_t *)(APP_BASE_ADDR + 4U);
     void (*app_entry)(void) = (void (*)(void))reset;
 
-    BSP_UART_Printf("[BOOT] jumping to app @0x%08lX ...\r\n",
+    PRINT_LOG("[BOOT] jumping to app @0x%08lX ...\r\n",
                     (unsigned long)APP_BASE_ADDR);
 
     /* 1. shut down every hardware block we touched */
@@ -131,31 +131,31 @@ void BSP_Boot_Enter(void)
 
     /* ---- 1. system config ---- */
     if (BFLASH_ConfigRead(&cfg) != 0) {
-        BSP_UART_Printf("[BOOT] no valid system config - stay in bootloader\r\n");
+        PRINT_LOG("[BOOT] no valid system config - stay in bootloader\r\n");
     } else {
         /* ---- 2. range / shape checks ---- */
         if (cfg.app_len < 512U || cfg.app_len > APP_SIZE) {
-            BSP_UART_Printf("[BOOT] config app_len %lu out of range\r\n",
+            PRINT_LOG("[BOOT] config app_len %lu out of range\r\n",
                             (unsigned long)cfg.app_len);
         } else if (cfg.version[0] > 99U || cfg.version[1] > 99U ||
                    cfg.version[2] > 99U || cfg.version[3] > 99U) {
-            BSP_UART_Printf("[BOOT] config version component out of 0..99\r\n");
+            PRINT_LOG("[BOOT] config version component out of 0..99\r\n");
         } else if (!BFLASH_AppVectorValid()) {
-            BSP_UART_Printf("[BOOT] app vector table invalid\r\n");
+            PRINT_LOG("[BOOT] app vector table invalid\r\n");
         } else {
             /* ---- 3. HMAC over the programmed image + version at 0x08021000 ---- */
             BFLASH_AppVersionRead(v);
             if (memcmp(v, cfg.version, 4) != 0) {
-                BSP_UART_Printf("[BOOT] version @0x08021000 (");
+                PRINT_LOG("[BOOT] version @0x08021000 (");
                 log_version("img", v);
-                BSP_UART_Printf("        ) != config version (");
+                PRINT_LOG("        ) != config version (");
                 log_version("cfg", cfg.version);
-                BSP_UART_Printf("        )\r\n");
+                PRINT_LOG("        )\r\n");
             } else if (app_hmac_check(&cfg) != 0) {
-                BSP_UART_Printf("[BOOT] app HMAC mismatch - image corrupted\r\n");
+                PRINT_LOG("[BOOT] app HMAC mismatch - image corrupted\r\n");
             } else {
                 app_ok = 1;
-                BSP_UART_Printf("[BOOT] app image OK");
+                PRINT_LOG("[BOOT] app image OK");
                 log_version("app", cfg.version);
             }
         }
@@ -164,24 +164,24 @@ void BSP_Boot_Enter(void)
     /* ---- bring up USB so the host can see the QSPI as a U-disk ---- */
     BSP_USB_Init();
     if (!tusb_init()) {
-        BSP_UART_Printf("[BOOT] tusb_init FAILED - halting\r\n");
+        PRINT_LOG("[BOOT] tusb_init FAILED - halting\r\n");
         while (1) {
         }
     }
 
     if (!app_ok) {
-        BSP_UART_Printf("[BOOT] app not ready - U-disk mode (copy a package, then reset)\r\n");
+        PRINT_LOG("[BOOT] app not ready - U-disk mode (copy a package, then reset)\r\n");
         enter_udisk_mode();
     }
 
     /* ---- app ready: 8 s jump window (USB connected -> U-disk mode) ---- */
-    BSP_UART_Printf("[BOOT] app ready - 8 s jump window (plug USB to enter U-disk)\r\n");
+    PRINT_LOG("[BOOT] app ready - 8 s jump window (plug USB to enter U-disk)\r\n");
     t0 = HAL_GetTick();
     led_t = t0;
     while ((HAL_GetTick() - t0) < BOOT_JUMP_DELAY_MS) {
         tud_task();
         if (tud_connected()) {
-            BSP_UART_Printf("[BOOT] USB connected in window -> U-disk mode\r\n");
+            PRINT_LOG("[BOOT] USB connected in window -> U-disk mode\r\n");
             enter_udisk_mode();
         }
         if ((HAL_GetTick() - led_t) >= BOOT_JUMP_LED_BLINK_MS) {
