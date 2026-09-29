@@ -39,6 +39,22 @@
 
 ---
 
+## 2.1 日志接口（bsp/bsp_log.c）
+
+应用代码统一用 `PRINT_LOG(fmt, ...)` 输出，**不要**直接调 `BSP_UART_*`。
+
+| 特性 | 说明 |
+|------|------|
+| 非阻塞 | 格式化进 256 B 栈缓冲 → 压入 1 KB TX 环形缓冲 → 立即返回；TXE 中断在后台逐字节排空 |
+| 编译期开关 | `bsp_log.h` 的 `PRINT_LOG_ENABLE` 置 0 时 `PRINT_LOG(...)` 展开为 `((void)0)`，日志全部消失、零运行时开销 |
+| ISR 归属 | `bsp_log.c` 独占 USART1 句柄；**不得**在别处再声明 USART1 的 `UART_HandleTypeDef` |
+| 中断接线 | `USART1_IRQHandler()` → `log_uart_tx_irq()` 必须存在于两个 `stm32h7xx_it.c`。缺了它环形缓冲填满后日志**静默停止**（不报错） |
+| RAM 镜像 | `printf_log()` 顺带把每个字节追加到 `bsp/uart.c` 的 `g_uart_log`（16 KB），供 `capture.py` 走 SWD dump 取回完整启动日志 |
+
+`bsp/uart.c/h` 已退化为兼容层：保留 `BSP_UART_Init()`（转调 `bsp_log_init()`）、`BSP_UART_SendStr/SendBuf` 和 `g_uart_log` 镜像。
+
+---
+
 ## 3. Flash 内存布局（2 MB 内部 Flash，双 Bank）
 
 | 区域 | 地址 | 说明 |
@@ -63,7 +79,7 @@ cmake --build build                 # Debug，产物 build/stm32h7_boot.{elf,bin
 cmake --build build --config Release
 ```
 
-- 零警告目标。体积：Debug `text 109,808 B / data 2,268 B / bss 38,824 B`（≈110 KB / 128 KB，84%）；Release `text ≈70,800 B`（bin ≈73 KB）。
+- 零警告目标。体积：Debug `text 110,768 B / data 2,268 B / bss 39,856 B`（≈110 KB / 128 KB，84%）；Release `text 72,264 B / data 2,244 B / bss 39,848 B`（bin ≈74 KB）。
 - 升级擦写引擎（Flash 编程/校验）放在 **AXI SRAM（0x24000000）** 执行，规避 H7 Bank 内擦写取指停顿。⚠️ **绝不可放 DTCM（0x20000000）**——Cortex-M7 的 I-Code 总线无法从 DTCM 取指，引擎放 DTCM 会立即 BusFault→`Default_Handler`（已踩坑修复）。
 
 ### 4.2 Test App（升级目标 / 跳转目标）
@@ -165,7 +181,8 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 - 升级流程：`app/upgrade.c :: BSP_Upgrade_Check()`（HMAC/版本/擦写/配置更新）
 - Flash 引擎：`bsp/flash_upgrade.c/.h`（`BFLASH_EraseApp` / `BFLASH_EraseAppLastSector` / `ProgramBlock` / `VerifyBlock` / `ConfigRead`/`ConfigWrite` / `ConfigCrc` / `AppVersionRead`），底层走 HAL `HAL_FLASHEx_Erase` / `HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD)`
 - QSPI 驱动：`bsp/qspi.c/.h`（W25Q64 兼容，HAL 间接 + 映射 + QE）
+- 日志：`bsp/bsp_log.c/.h`（`PRINT_LOG` / `printf_log` / `vprintf_log` / `log_uart_tx_irq` / `bsp_log_init`，非阻塞 TX 环形缓冲 + TXE 中断）；`bsp/uart.c/.h` 为兼容层与 RAM 镜像 `g_uart_log`；中断接线在两个 `app/stm32h7xx_it.c`
 - 安全：`bsp/flash_secure.h`（`BOOT_HMAC_KEY`）、`third_party/hmac_sha256/`（RFC2104）
 - USB U 盘：`bsp/usb_board.c` / `bsp/msc_qspi.c` / `bsp/tusb_config.h`
-- Test App：`test_app/app/main.c`（1 Hz 心跳 + 动态版本 banner）、`test_app/app/app_version.c`
+- Test App：`test_app/app/main.c`（1 Hz 心跳 + 动态版本 banner）、`test_app/app/app_version.c`、`test_app/CMakeLists.txt`（Release，复用 Bootloader 的 `bsp_log.c`/`uart.c`/`syscalls.c`/`led.c`）
 - 链接脚本：`stm32h743xix_flash.ld`（Bootloader）、`test_app/stm32h7_app.ld`（App @0x08020000，版本槽 @0x08021000）
