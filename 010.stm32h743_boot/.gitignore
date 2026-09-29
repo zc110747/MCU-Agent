@@ -18,3 +18,9 @@ th/
 
 !stm32h7_test.bin
 
+# Keil MDK-ARM build output
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/DebugConfig/
+MDK-ARM/build_log.htm
+
