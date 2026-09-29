@@ -1,0 +1,61 @@
+; stm32h743.sct - scatter file for the stm32h743_boot BOOTLOADER (Keil MDK)
+; Mirrors sys_startup/stm32h743xix_flash.ld section by section.
+;
+; Flash layout (2 MB, 16 x 128 KB sectors), see README:
+;   0x08000000 - 0x0801FFFF : bootloader (this image) = 128 KB = sector 0
+;   0x08020000 - 0x081DFFFF : app (sectors 1..14)
+;   0x081E0000 - 0x081FFFFF : system config (sector 15)
+; Both load regions below stay inside sector 0. A bootloader image that grew
+; past 0x0801FFFF would be silently overwritten by the first app erase.
+;
+; RAM:
+;   AXI   0x24000000 512 KB : UPGRADE_RAM (run) + .data / .bss / HEAP
+;   DTCM  0x20000000 128 KB : STACK / HEAP areas -> __initial_sp at DTCM top
+;
+; UPGRADE_RAM carries the internal-flash erase/program engine. It RUNS from
+; AXI SRAM but is LOADED in FLASH: while bank1 is being erased/programmed the
+; CPU must not fetch instructions from bank1, so the engine executes from a
+; region independent of BOTH flash banks and executable.
+; Do NOT move it to DTCM - on Cortex-M7 the I-Code bus cannot fetch
+; instructions from DTCM, which would BusFault on the first engine call.
+;
+; The engine is a SEPARATE TOP-LEVEL load region (LR_UPGRADE at a fixed flash
+; address) rather than a nested one: armlink only accepts nested load regions
+; with a fixed base, and a fixed base here is what we want anyway - the load
+; copy must stay inside the bootloader sector regardless of code growth in
+; ER_IROM1. bsp/flash_upgrade.c picks the addresses up through
+; Image$$UPGRADE_RAM$$Base / $$Limit and Load$$UPGRADE_RAM$$Base.
+
+LR_IROM1 0x08000000 0x0001E000
+{
+  ER_IROM1 0x08000000 0x0001E000
+  {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+
+  RW_IRAM1 0x24001000 UNINIT
+  {
+    *( +RW, +ZI )
+  }
+
+  RW_STACK 0x20000000 UNINIT
+  {
+    *.o (STACK)
+  }
+
+  RW_HEAP 0x20000400 UNINIT
+  {
+    *.o (HEAP)
+  }
+}
+
+LR_UPGRADE 0x0801E000 0x00002000
+{
+  UPGRADE_RAM 0x24000000 0x00002000
+  {
+    *.o (.upgrade_ram)
+    *.o (.upgrade_ram*)
+  }
+}
