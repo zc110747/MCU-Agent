@@ -41,7 +41,7 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 1 | RT-Thread Nano + LED + UART | ✅ |
 | Phase 2 | LCD（GLCDC，无 LVGL） | ✅ |
 | Phase 3 | Camera（CEU） | ✅ |
-| Phase 4 | LVGL v9.1.0 | ⏳ |
+| Phase 4 | LVGL v9.1.0 | ✅ |
 
 ## VSCode 在线仿真（pyOCD + cortex-debug）
 
@@ -182,6 +182,28 @@ SCCB 用 P1013/P1014 位bang（100kHz）；XCLK 用 GPT7 PWM @ **P1006**（GTIOC
 
 - 双构零警告：Debug FLASH 60448B(2.88%) / 内部 RAM 67616B(6.45%)；Release FLASH 50944B(2.43%) / RAM 67472B(6.43%)
 - 另：SDRAM 合计 921600B（LCD fb 768000 + camera fb 153600，32MB 的 2.75%）
+
+## Phase 4：LVGL v9.1.0（GLCDC framebuffer）
+
+LVGL v9.1.0 上游原样入 `third_party/lvgl/`（静态库 `-w`，未用对象 gc 掉），
+PARTIAL 渲染（800×40 行缓冲 64KB 内部 SRAM）flush memcpy 进 Phase 2 的
+SDRAM framebuffer；tick 用 `lv_tick_set_cb()` 挂 `rt_tick_get_millisecond()`
+（**v9 已删除 v8 的 LV_TICK_CUSTOM 宏**）；"lvgl" 线程 30fps 跑
+`lv_timer_handler()`。深色默认主题 + Montserrat 14，`lv start/test/demo/info`
+串口命令，上电自启动画 demo。
+
+> ⚠️ **两个 v8→v9 陷阱**：① tick 必须运行时注册回调，旧宏是死代码，忘了就
+> 首屏渲染一次后永久冻结；② `lv_color_hex()` 收 **RGB888**，传 565 值会渲染
+> 成完全不同的色相（0xF800 变亮绿）。
+> 详见 `documents/phase4-report.md` 第 4 节。
+
+验收：`python tools/verify/verify_phase4.py` → **7 passed, 0 failed**
+（动画活体 fps>20、SWD 像素断言 4 色块精确命中 0xF800/0x07E0/0x001F/0xFFFF）。
+
+### 实测数据（Phase 4）
+
+- 双构零警告：Debug FLASH 449060B(21.41%) / 内部 RAM 263384B(25.12%)；Release FLASH 350344B(16.70%) / RAM 263176B(25.10%)
+- LVGL 堆稳态 6-8KB / 128KB 池；fps 30-57
 
 ## 参考
 

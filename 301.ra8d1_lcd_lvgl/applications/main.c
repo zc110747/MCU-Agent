@@ -13,6 +13,7 @@
 #include "bsp_lcd.h"
 #include "bsp_cam.h"
 #include "bsp_sccb.h"
+#include "lv_port.h"
 
 #define LED_THREAD_STACK_SIZE    (512U)
 #define LED_THREAD_PRIORITY      (20U)
@@ -307,9 +308,49 @@ static void cam_cmd (uint8_t argc, char ** argv)
 }
 MSH_CMD_EXPORT_ALIAS(cam_cmd, cam, camera: cam init / scan / snap / stat / rd A R / bar on|off);
 
+static void lv_cmd (uint8_t argc, char ** argv)
+{
+    if ((argc < 2U) || (RT_NULL == argv[1]))
+    {
+        rt_kprintf("usage: lv <start|test|demo|info>\n");
+        return;
+    }
+
+    if (0 == rt_strcmp(argv[1], "start"))
+    {
+        lv_port_start();
+        rt_kprintf("lv start: %s\n", lv_port_running() ? "running" : "requested");
+    }
+    else if (0 == rt_strcmp(argv[1], "test"))
+    {
+        lv_port_test_screen();
+        rt_kprintf("lv test: solid-rect screen requested\n");
+    }
+    else if (0 == rt_strcmp(argv[1], "demo"))
+    {
+        lv_port_demo_screen();
+        rt_kprintf("lv demo: animated screen requested\n");
+    }
+    else if (0 == rt_strcmp(argv[1], "info"))
+    {
+        rt_kprintf("lv info: %s flushes=%u fps=%u mem=%u/%uKB (%u%%)\n",
+                   lv_port_running() ? "running" : "down",
+                   (unsigned int) lv_port_flush_count(),
+                   (unsigned int) lv_port_fps(),
+                   (unsigned int) lv_port_mem_used_kb(),
+                   (unsigned int) (LV_PORT_MEM_TOTAL_KB),
+                   (unsigned int) lv_port_mem_used_pct());
+    }
+    else
+    {
+        rt_kprintf("usage: lv <start|test|demo|info>\n");
+    }
+}
+MSH_CMD_EXPORT_ALIAS(lv_cmd, lv, LVGL: lv start / test / demo / info);
+
 int main (void)
 {
-    rt_kprintf("\nRA8D1 Vision Board - Phase 3\n");
+    rt_kprintf("\nRA8D1 Vision Board - Phase 4\n");
     rt_kprintf("RT-Thread Nano %d.%d.%d, CPU %u Hz, tick %u Hz\n",
                RT_VERSION_MAJOR, RT_VERSION_MINOR, RT_VERSION_PATCH,
                SystemCoreClock, RT_TICK_PER_SECOND);
@@ -341,7 +382,8 @@ int main (void)
 
         if (g_lcd_started)
         {
-            bsp_lcd_pattern(2U);   /* colour bars: the easiest thing to eyeball */
+            bsp_lcd_pattern(2U);   /* colour bars until LVGL paints over them */
+            lv_port_start();       /* Phase 4: LVGL demo thread                */
         }
     }
 

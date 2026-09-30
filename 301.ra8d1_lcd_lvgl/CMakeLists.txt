@@ -61,12 +61,31 @@ file(GLOB RTTHREAD_ASM_SOURCES
     "${PROJ_ROOT}/third_party/rt-thread-nano/libcpu/arm/cortex-m85/*.S"
 )
 
+# ------------------------------------------------- upstream LVGL v9.1.0
+# Static library: plain API calls only, no section-table registration, so
+# archive member extraction by undefined symbols works here (unlike
+# RT-Thread above). Unused widget/driver objects are gc-sectioned away.
+file(GLOB_RECURSE LVGL_SOURCES
+    "${PROJ_ROOT}/third_party/lvgl/src/*.c"
+)
+
+add_library(lvgl_core STATIC ${LVGL_SOURCES})
+target_include_directories(lvgl_core PRIVATE
+    "${PROJ_ROOT}/third_party"          # lv_conf.h (../../lv_conf.h resolution)
+    "${PROJ_ROOT}/third_party/lvgl"
+    "${PROJ_ROOT}/third_party/rt-thread-nano/include"
+    "${PROJ_ROOT}/bsp/ra8d1-vision-board/cfg"
+)
+target_compile_options(lvgl_core PRIVATE $<$<COMPILE_LANGUAGE:C>:-w>)
+
 set(COMMON_INCLUDES
     "${PROJ_ROOT}/applications"
     "${PROJ_ROOT}/bsp"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board/gen"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board/cfg"
+    "${PROJ_ROOT}/third_party"          # lv_conf.h
+    "${PROJ_ROOT}/third_party/lvgl"     # lvgl.h
     "${PROJ_ROOT}/Drivers/renesas/fsp/inc"
     "${PROJ_ROOT}/Drivers/renesas/fsp/inc/api"
     "${PROJ_ROOT}/Drivers/renesas/fsp/inc/instances"
@@ -113,7 +132,7 @@ target_include_directories(firmware PRIVATE
 # Upstream RT-Thread sources: warnings off, same reasoning as fsp_modules.
 set_source_files_properties(${RTTHREAD_C_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 
-target_link_libraries(firmware PRIVATE fsp_modules)
+target_link_libraries(firmware PRIVATE fsp_modules lvgl_core)
 
 # strict warnings for self-written code only.
 # -Wno-cast-function-type: finsh's MSH_CMD_EXPORT macro casts every command
