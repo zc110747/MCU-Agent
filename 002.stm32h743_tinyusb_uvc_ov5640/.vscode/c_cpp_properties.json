@@ -9,8 +9,8 @@
       "intelliSenseMode": "gcc-arm",
       "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "includePath": [
-        "${workspaceFolder}/Core/Inc",
-        "${workspaceFolder}/BSP/ov5640",
+        "${workspaceFolder}/app",
+        "${workspaceFolder}/bsp/ov5640",
         "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
         "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
         "${workspaceFolder}/Drivers/CMSIS/Include",
@@ -28,8 +28,8 @@
       ],
       "browse": {
         "path": [
-          "${workspaceFolder}/Core",
-          "${workspaceFolder}/BSP",
+          "${workspaceFolder}/app",
+          "${workspaceFolder}/bsp",
           "${workspaceFolder}/Drivers",
           "${workspaceFolder}/third_party/tinyusb/src"
         ],

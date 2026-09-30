@@ -307,7 +307,7 @@
   </Group>
 
   <Group>
-    <GroupName>BSP</GroupName>
+    <GroupName>bsp</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -599,7 +599,7 @@
   </Group>
 
   <Group>
-    <GroupName>BSP/ov5640</GroupName>
+    <GroupName>bsp/ov5640</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>

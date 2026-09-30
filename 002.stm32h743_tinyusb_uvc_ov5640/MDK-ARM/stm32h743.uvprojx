@@ -426,7 +426,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>BSP</GroupName>
+          <GroupName>bsp</GroupName>
           <Files>
             <File>
               <FileName>bsp_board.c</FileName>
@@ -551,7 +551,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>BSP/ov5640</GroupName>
+          <GroupName>bsp/ov5640</GroupName>
           <Files>
             <File>
               <FileName>ov5640.c</FileName>
