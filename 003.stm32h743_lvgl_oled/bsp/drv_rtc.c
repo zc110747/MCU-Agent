@@ -45,10 +45,16 @@
 #define LSI_ASYNC_PREDIV 127U
 #define LSI_SYNC_PREDIV 249U /* 128 * 250 = 32000 (LSI nominal)   */
 
-static RTC_HandleTypeDef s_hrtc;
-static rtc_clk_src_t     s_clk_src   = RTC_CLK_NONE;
-static uint8_t           s_ready     = 0U;
-static uint8_t           s_was_reset = 0U;
+/* RTC 驱动状态：句柄、时钟源选择、就绪/复位标志 */
+typedef struct
+{
+    RTC_HandleTypeDef hrtc;
+    rtc_clk_src_t     clk_src;
+    uint8_t           ready;
+    uint8_t           was_reset;
+} rtc_state_t;
+
+static rtc_state_t g_rtc = {0, RTC_CLK_NONE, 0U, 0U};
 
 /*----------------------------------------------------------------------------
  *  Helpers
@@ -203,11 +209,11 @@ GlobalType_t drv_rtc_init(void)
     RCC_PeriphCLKInitTypeDef pclk = {0};
     rtc_datetime_t           seed;
 
-    s_ready     = 0U;
-    s_was_reset = 0U;
+    g_rtc.ready     = 0U;
+    g_rtc.was_reset = 0U;
 
-    s_clk_src = low_speed_clock_start();
-    if (s_clk_src == RTC_CLK_NONE)
+    g_rtc.clk_src = low_speed_clock_start();
+    if (g_rtc.clk_src == RTC_CLK_NONE)
     {
         return RT_FAIL;
     }
@@ -216,40 +222,40 @@ GlobalType_t drv_rtc_init(void)
      * backup domain internally if RTCSEL is being changed, and restores the
      * rest of BDCR (including LSEON) afterwards. */
     pclk.PeriphClockSelection = RCC_PERIPHCLK_RTC;
-    pclk.RTCClockSelection    = (s_clk_src == RTC_CLK_LSE)
+    pclk.RTCClockSelection    = (g_rtc.clk_src == RTC_CLK_LSE)
                                     ? RCC_RTCCLKSOURCE_LSE
                                     : RCC_RTCCLKSOURCE_LSI;
     if (HAL_RCCEx_PeriphCLKConfig(&pclk) != HAL_OK)
     {
-        s_clk_src = RTC_CLK_NONE;
+        g_rtc.clk_src = RTC_CLK_NONE;
         return RT_FAIL;
     }
 
     __HAL_RCC_RTC_ENABLE();
 
-    s_hrtc.Instance            = RTC;
-    s_hrtc.Init.HourFormat     = RTC_HOURFORMAT_24;
-    s_hrtc.Init.AsynchPrediv   = (s_clk_src == RTC_CLK_LSE) ? LSE_ASYNC_PREDIV
+    g_rtc.hrtc.Instance            = RTC;
+    g_rtc.hrtc.Init.HourFormat     = RTC_HOURFORMAT_24;
+    g_rtc.hrtc.Init.AsynchPrediv   = (g_rtc.clk_src == RTC_CLK_LSE) ? LSE_ASYNC_PREDIV
                                                             : LSI_ASYNC_PREDIV;
-    s_hrtc.Init.SynchPrediv    = (s_clk_src == RTC_CLK_LSE) ? LSE_SYNC_PREDIV
+    g_rtc.hrtc.Init.SynchPrediv    = (g_rtc.clk_src == RTC_CLK_LSE) ? LSE_SYNC_PREDIV
                                                             : LSI_SYNC_PREDIV;
-    s_hrtc.Init.OutPut         = RTC_OUTPUT_DISABLE;
-    s_hrtc.Init.OutPutRemap    = RTC_OUTPUT_REMAP_NONE;
-    s_hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
-    s_hrtc.Init.OutPutType     = RTC_OUTPUT_TYPE_OPENDRAIN;
+    g_rtc.hrtc.Init.OutPut         = RTC_OUTPUT_DISABLE;
+    g_rtc.hrtc.Init.OutPutRemap    = RTC_OUTPUT_REMAP_NONE;
+    g_rtc.hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+    g_rtc.hrtc.Init.OutPutType     = RTC_OUTPUT_TYPE_OPENDRAIN;
 #if defined(TAMP)
-    s_hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+    g_rtc.hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
 #endif
 
     /* HAL_RTC_Init() only touches PRER/CR when the calendar has never been
      * initialised (INITS = 0), so a battery-backed clock survives this call. */
-    if (HAL_RTC_Init(&s_hrtc) != HAL_OK)
+    if (HAL_RTC_Init(&g_rtc.hrtc) != HAL_OK)
     {
-        s_clk_src = RTC_CLK_NONE;
+        g_rtc.clk_src = RTC_CLK_NONE;
         return RT_FAIL;
     }
 
-    if (HAL_RTCEx_BKUPRead(&s_hrtc, RTC_BKP_MAGIC_REG) != RTC_BKP_MAGIC_VALUE)
+    if (HAL_RTCEx_BKUPRead(&g_rtc.hrtc, RTC_BKP_MAGIC_REG) != RTC_BKP_MAGIC_VALUE)
     {
         /* Backup domain was lost - seed from the build timestamp. */
         build_timestamp(&seed);
@@ -257,11 +263,11 @@ GlobalType_t drv_rtc_init(void)
         {
             return RT_FAIL;
         }
-        HAL_RTCEx_BKUPWrite(&s_hrtc, RTC_BKP_MAGIC_REG, RTC_BKP_MAGIC_VALUE);
-        s_was_reset = 1U;
+        HAL_RTCEx_BKUPWrite(&g_rtc.hrtc, RTC_BKP_MAGIC_REG, RTC_BKP_MAGIC_VALUE);
+        g_rtc.was_reset = 1U;
     }
 
-    s_ready = 1U;
+    g_rtc.ready = 1U;
     return RT_OK;
 }
 
@@ -271,7 +277,7 @@ GlobalType_t drv_rtc_set(const rtc_datetime_t *dt)
     RTC_DateTypeDef d = {0};
     uint8_t         wd;
 
-    if ((dt == NULL) || (s_clk_src == RTC_CLK_NONE))
+    if ((dt == NULL) || (g_rtc.clk_src == RTC_CLK_NONE))
     {
         return RT_FAIL;
     }
@@ -295,7 +301,7 @@ GlobalType_t drv_rtc_set(const rtc_datetime_t *dt)
     t.TimeFormat     = RTC_HOURFORMAT12_AM; /* ignored in 24 h mode */
     t.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
     t.StoreOperation = RTC_STOREOPERATION_RESET;
-    if (HAL_RTC_SetTime(&s_hrtc, &t, RTC_FORMAT_BIN) != HAL_OK)
+    if (HAL_RTC_SetTime(&g_rtc.hrtc, &t, RTC_FORMAT_BIN) != HAL_OK)
     {
         return RT_FAIL;
     }
@@ -304,7 +310,7 @@ GlobalType_t drv_rtc_set(const rtc_datetime_t *dt)
     d.Month   = dt->month;
     d.Date    = dt->day;
     d.Year    = (uint8_t)(dt->year - 2000U);
-    if (HAL_RTC_SetDate(&s_hrtc, &d, RTC_FORMAT_BIN) != HAL_OK)
+    if (HAL_RTC_SetDate(&g_rtc.hrtc, &d, RTC_FORMAT_BIN) != HAL_OK)
     {
         return RT_FAIL;
     }
@@ -317,7 +323,7 @@ GlobalType_t drv_rtc_get(rtc_datetime_t *dt)
     RTC_TimeTypeDef t = {0};
     RTC_DateTypeDef d = {0};
 
-    if ((dt == NULL) || (s_clk_src == RTC_CLK_NONE))
+    if ((dt == NULL) || (g_rtc.clk_src == RTC_CLK_NONE))
     {
         return RT_FAIL;
     }
@@ -325,11 +331,11 @@ GlobalType_t drv_rtc_get(rtc_datetime_t *dt)
     /* Order matters: reading TR freezes the shadow registers, reading DR
      * releases them.  Swapping these two gives a date/time that can straddle
      * midnight. */
-    if (HAL_RTC_GetTime(&s_hrtc, &t, RTC_FORMAT_BIN) != HAL_OK)
+    if (HAL_RTC_GetTime(&g_rtc.hrtc, &t, RTC_FORMAT_BIN) != HAL_OK)
     {
         return RT_FAIL;
     }
-    if (HAL_RTC_GetDate(&s_hrtc, &d, RTC_FORMAT_BIN) != HAL_OK)
+    if (HAL_RTC_GetDate(&g_rtc.hrtc, &d, RTC_FORMAT_BIN) != HAL_OK)
     {
         return RT_FAIL;
     }
@@ -347,15 +353,15 @@ GlobalType_t drv_rtc_get(rtc_datetime_t *dt)
 
 rtc_clk_src_t drv_rtc_clock_source(void)
 {
-    return s_clk_src;
+    return g_rtc.clk_src;
 }
 
 uint8_t drv_rtc_is_ready(void)
 {
-    return s_ready;
+    return g_rtc.ready;
 }
 
 uint8_t drv_rtc_was_reset(void)
 {
-    return s_was_reset;
+    return g_rtc.was_reset;
 }

@@ -39,28 +39,6 @@ extern "C" {
 /* Directory scanned for *.ttf, and the sizes instantiated from it. */
 #define HARMONY_FONT_DIR "1:/SYSTEM/HarmonyOS_Sans_TC"
 
-/**
- * @brief  Scan the font directory and instantiate the four LVGL font sizes.
- * @retval RT_OK when at least one size could be created.
- * @note   Requires FatFs mounted on "1:" and lv_port_fs_init() already called.
- */
-GlobalType_t lv_font_harmony_init(void);
-
-/**
- * @brief  1 when the engine is usable, 0 otherwise (no card, no .ttf, ...).
- */
-uint8_t lv_font_harmony_ready(void);
-
-/**
- * @brief  Font for a pixel size, or NULL when that size is unavailable.
- * @param  size  12, 16, 24 or 32 - anything else returns NULL.
- */
-const lv_font_t *lv_font_harmony_get(uint16_t size);
-
-/**
- * @brief  File name of the .ttf actually in use ("" when not loaded).
- */
-const char *lv_font_harmony_file(void);
 
 /**
  * @brief  Glyph descriptor cache counters.
@@ -69,10 +47,6 @@ const char *lv_font_harmony_file(void);
  */
 void lv_font_harmony_stats(uint32_t *hits, uint32_t *misses);
 
-/**
- * @brief  Drop every cached descriptor (after remounting the card).
- */
-void lv_font_harmony_reset_cache(void);
 
 #ifdef __cplusplus
 }

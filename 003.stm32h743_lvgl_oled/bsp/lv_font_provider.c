@@ -242,14 +242,6 @@ GlobalType_t lv_font_provider_init(void)
     {
         return RT_OK;
     }
-#elif LV_FONT_ENGINE == LV_FONT_ENGINE_HARMONYOS
-    if (lv_font_harmony_init() == RT_OK)
-    {
-        s_engine = FONT_ENGINE_HARMONYOS;
-        PRINT_LOG("[FONT] engine: HarmonyOS Sans TC (%s)\r\n",
-                  lv_font_harmony_file());
-        return RT_OK;
-    }
 #endif
 
     s_engine = FONT_ENGINE_GBK;
@@ -282,16 +274,6 @@ const lv_font_t *lv_font_provider_get(uint16_t size)
     if (s_engine == FONT_ENGINE_CTF)
     {
         const lv_font_t *f = lvgl_font_get(size);
-
-        if (f != NULL)
-        {
-            return f;
-        }
-    }
-#elif LV_FONT_ENGINE == LV_FONT_ENGINE_HARMONYOS
-    if (s_engine == FONT_ENGINE_HARMONYOS)
-    {
-        const lv_font_t *f = lv_font_harmony_get(size);
 
         if (f != NULL)
         {

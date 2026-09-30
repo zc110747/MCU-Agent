@@ -17,7 +17,8 @@
  * firmware and the LVGL frame buffer, and the glyph buffer is CPU-only (LVGL
  * reads it while drawing, the SPI DMA never touches it) so there is no cache
  * coherency concern. */
-static uint8_t s_pool[GLYPH_CACHE_CAPACITY]
+/* 字形位图池：RAM_D2，绘制路径 CPU 直读，SPI DMA 不触碰 */
+static uint8_t g_pool[GLYPH_CACHE_CAPACITY]
     __attribute__((section(".ram_d2"), aligned(4)));
 
 typedef struct
@@ -33,25 +34,35 @@ typedef struct
     uint16_t px;
     uint16_t w;
     uint16_t h;
-    uint32_t off;   /* byte offset into s_pool                         */
+    uint32_t off;   /* byte offset into g_pool                         */
     uint32_t bytes; /* allocated bytes (4-aligned)                     */
     uint32_t lru;   /* access stamp; higher = more recent              */
     uint32_t epoch; /* page generation it belongs to                   */
     uint8_t  used;
 } gc_entry_t;
 
-static gc_entry_t s_ent[GLYPH_CACHE_MAX_ENTRIES];
-static free_blk_t s_free[GLYPH_CACHE_MAX_ENTRIES + 1u];
-static uint32_t   s_free_n;
+/* 字形缓存堆状态：条目表、空闲链表与 LRU/代次 */
+typedef struct
+{
+    gc_entry_t ent[GLYPH_CACHE_MAX_ENTRIES];
+    free_blk_t free_list[GLYPH_CACHE_MAX_ENTRIES + 1u];
+    uint32_t   free_n;
+    uint32_t   free_bytes; /* total free bytes in the pool   */
+    uint32_t   lru;        /* monotonically increasing stamp */
+    uint32_t   epoch;      /* current page generation        */
+} gc_state_t;
 
-static uint32_t s_free_bytes; /* total free bytes in s_pool            */
-static uint32_t s_lru;        /* monotonically increasing stamp        */
-static uint32_t s_epoch;      /* current page generation               */
+static gc_state_t g_gc = {0};
 
-/* Counters (never printed on a miss path). */
-static uint32_t s_hits;
-static uint32_t s_misses;
-static uint32_t s_evicts;
+/* 命中统计（miss 路径不打印） */
+typedef struct
+{
+    uint32_t hits;
+    uint32_t misses;
+    uint32_t evicts;
+} gc_stats_t;
+
+static gc_stats_t g_gc_stats = {0};
 
 /*---------------------------------------------------------------------------*/
 /* Heap (free-list with simple coalescing)                                    */
@@ -59,10 +70,10 @@ static uint32_t s_evicts;
 
 static void heap_init(void)
 {
-    s_free[0].off  = 0u;
-    s_free[0].size = GLYPH_CACHE_CAPACITY;
-    s_free_n       = 1u;
-    s_free_bytes   = GLYPH_CACHE_CAPACITY;
+    g_gc.free_list[0].off  = 0u;
+    g_gc.free_list[0].size = GLYPH_CACHE_CAPACITY;
+    g_gc.free_n       = 1u;
+    g_gc.free_bytes   = GLYPH_CACHE_CAPACITY;
 }
 
 /* Insert a free block keeping the list sorted by offset so neighbours are
@@ -70,11 +81,11 @@ static void heap_init(void)
 static void heap_free_insert(uint32_t off, uint32_t size)
 {
     uint32_t i;
-    uint32_t pos = s_free_n;
+    uint32_t pos = g_gc.free_n;
 
-    for (i = 0u; i < s_free_n; i++)
+    for (i = 0u; i < g_gc.free_n; i++)
     {
-        if (s_free[i].off > off)
+        if (g_gc.free_list[i].off > off)
         {
             pos = i;
             break;
@@ -82,41 +93,41 @@ static void heap_free_insert(uint32_t off, uint32_t size)
     }
 
     /* Shift the tail up by one. */
-    for (i = s_free_n; i > pos; i--)
+    for (i = g_gc.free_n; i > pos; i--)
     {
-        s_free[i] = s_free[i - 1u];
+        g_gc.free_list[i] = g_gc.free_list[i - 1u];
     }
 
-    s_free[pos].off  = off;
-    s_free[pos].size = size;
-    s_free_n++;
+    g_gc.free_list[pos].off  = off;
+    g_gc.free_list[pos].size = size;
+    g_gc.free_n++;
 
     /* Coalesce with the previous block. */
-    if ((pos > 0u) && (s_free[pos - 1u].off + s_free[pos - 1u].size == off))
+    if ((pos > 0u) && (g_gc.free_list[pos - 1u].off + g_gc.free_list[pos - 1u].size == off))
     {
-        s_free[pos - 1u].size += size;
+        g_gc.free_list[pos - 1u].size += size;
         /* Remove pos. */
-        for (i = pos; i < (s_free_n - 1u); i++)
+        for (i = pos; i < (g_gc.free_n - 1u); i++)
         {
-            s_free[i] = s_free[i + 1u];
+            g_gc.free_list[i] = g_gc.free_list[i + 1u];
         }
-        s_free_n--;
+        g_gc.free_n--;
         pos--;
     }
 
     /* Coalesce with the next block. */
-    if ((pos < (s_free_n - 1u)) &&
-        (s_free[pos].off + s_free[pos].size == s_free[pos + 1u].off))
+    if ((pos < (g_gc.free_n - 1u)) &&
+        (g_gc.free_list[pos].off + g_gc.free_list[pos].size == g_gc.free_list[pos + 1u].off))
     {
-        s_free[pos].size += s_free[pos + 1u].size;
-        for (i = pos + 1u; i < (s_free_n - 1u); i++)
+        g_gc.free_list[pos].size += g_gc.free_list[pos + 1u].size;
+        for (i = pos + 1u; i < (g_gc.free_n - 1u); i++)
         {
-            s_free[i] = s_free[i + 1u];
+            g_gc.free_list[i] = g_gc.free_list[i + 1u];
         }
-        s_free_n--;
+        g_gc.free_n--;
     }
 
-    s_free_bytes += size;
+    g_gc.free_bytes += size;
 }
 
 /* First fit: returns 1 and the offset when a block >= need exists. */
@@ -124,11 +135,11 @@ static uint8_t heap_find(uint32_t need, uint32_t *out_off)
 {
     uint32_t i;
 
-    for (i = 0u; i < s_free_n; i++)
+    for (i = 0u; i < g_gc.free_n; i++)
     {
-        if (s_free[i].size >= need)
+        if (g_gc.free_list[i].size >= need)
         {
-            *out_off = s_free[i].off;
+            *out_off = g_gc.free_list[i].off;
             return 1u;
         }
     }
@@ -147,34 +158,34 @@ static uint32_t heap_alloc(uint32_t need)
     }
 
     /* Locate the chosen block. */
-    for (i = 0u; i < s_free_n; i++)
+    for (i = 0u; i < g_gc.free_n; i++)
     {
-        if (s_free[i].off == off)
+        if (g_gc.free_list[i].off == off)
         {
             break;
         }
     }
 
-    if (i >= s_free_n)
+    if (i >= g_gc.free_n)
     {
         return 0xFFFFFFFFu;
     }
 
-    if (s_free[i].size > need)
+    if (g_gc.free_list[i].size > need)
     {
-        s_free[i].off += need;
-        s_free[i].size -= need;
+        g_gc.free_list[i].off += need;
+        g_gc.free_list[i].size -= need;
     }
     else
     {
-        for (; i < (s_free_n - 1u); i++)
+        for (; i < (g_gc.free_n - 1u); i++)
         {
-            s_free[i] = s_free[i + 1u];
+            g_gc.free_list[i] = g_gc.free_list[i + 1u];
         }
-        s_free_n--;
+        g_gc.free_n--;
     }
 
-    s_free_bytes -= need;
+    g_gc.free_bytes -= need;
     return off;
 }
 
@@ -193,7 +204,7 @@ static gc_entry_t *entry_find(uint32_t unicode, uint16_t px)
 
     for (i = 0u; i < GLYPH_CACHE_MAX_ENTRIES; i++)
     {
-        gc_entry_t *e = &s_ent[i];
+        gc_entry_t *e = &g_gc.ent[i];
 
         if ((e->used != 0u) && (e->unicode == unicode) && (e->px == px))
         {
@@ -209,9 +220,9 @@ static gc_entry_t *entry_alloc(void)
 
     for (i = 0u; i < GLYPH_CACHE_MAX_ENTRIES; i++)
     {
-        if (s_ent[i].used == 0u)
+        if (g_gc.ent[i].used == 0u)
         {
-            return &s_ent[i];
+            return &g_gc.ent[i];
         }
     }
     return NULL;
@@ -223,34 +234,34 @@ static gc_entry_t *entry_alloc(void)
 
 void glyph_cache_init(void)
 {
-    (void)memset(s_ent, 0, sizeof(s_ent));
+    (void)memset(g_gc.ent, 0, sizeof(g_gc.ent));
     heap_init();
-    s_lru    = 0u;
-    s_epoch  = 0u;
-    s_hits   = 0u;
-    s_misses = 0u;
-    s_evicts = 0u;
+    g_gc.lru    = 0u;
+    g_gc.epoch  = 0u;
+    g_gc_stats.hits   = 0u;
+    g_gc_stats.misses = 0u;
+    g_gc_stats.evicts = 0u;
 }
 
 void glyph_cache_reset(void)
 {
-    (void)memset(s_ent, 0, sizeof(s_ent));
+    (void)memset(g_gc.ent, 0, sizeof(g_gc.ent));
     heap_init();
-    s_lru = 0u;
+    g_gc.lru = 0u;
     /* epoch is intentionally preserved across a reset so a warm reload of the
      * same page still pins correctly. */
 }
 
 void glyph_cache_reset_stats(void)
 {
-    s_hits   = 0u;
-    s_misses = 0u;
-    s_evicts = 0u;
+    g_gc_stats.hits   = 0u;
+    g_gc_stats.misses = 0u;
+    g_gc_stats.evicts = 0u;
 }
 
 void glyph_cache_bump_epoch(void)
 {
-    s_epoch++;
+    g_gc.epoch++;
 }
 
 const uint8_t *glyph_cache_lookup(uint32_t unicode, uint16_t px,
@@ -260,20 +271,20 @@ const uint8_t *glyph_cache_lookup(uint32_t unicode, uint16_t px,
 
     if (e == NULL)
     {
-        s_misses++;
+        g_gc_stats.misses++;
         return NULL;
     }
 
     /* Promote to the current page so a glyph on screen right now can never be
      * reclaimed by LRU. */
-    e->epoch = s_epoch;
-    e->lru   = ++s_lru;
+    e->epoch = g_gc.epoch;
+    e->lru   = ++g_gc.lru;
 
     *w     = e->w;
     *h     = e->h;
     *bytes = e->bytes;
-    s_hits++;
-    return &s_pool[e->off];
+    g_gc_stats.hits++;
+    return &g_pool[e->off];
 }
 
 uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
@@ -288,10 +299,10 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
     e = entry_find(unicode, px);
     if (e != NULL)
     {
-        e->epoch = s_epoch;
-        e->lru   = ++s_lru;
+        e->epoch = g_gc.epoch;
+        e->lru   = ++g_gc.lru;
         *bytes   = e->bytes;
-        return &s_pool[e->off];
+        return &g_pool[e->off];
     }
 
     need = (uint32_t)((uint32_t)w * (uint32_t)h);
@@ -310,9 +321,9 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
 
         for (i = 0u; i < GLYPH_CACHE_MAX_ENTRIES; i++)
         {
-            gc_entry_t *c = &s_ent[i];
+            gc_entry_t *c = &g_gc.ent[i];
 
-            if ((c->used == 0u) || (c->epoch == s_epoch))
+            if ((c->used == 0u) || (c->epoch == g_gc.epoch))
             {
                 continue; /* current page is pinned */
             }
@@ -329,9 +340,9 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
             return NULL; /* nothing evictable -> cannot fit */
         }
 
-        heap_free(s_ent[victim].off, s_ent[victim].bytes);
-        s_ent[victim].used = 0u;
-        s_evicts++;
+        heap_free(g_gc.ent[victim].off, g_gc.ent[victim].bytes);
+        g_gc.ent[victim].used = 0u;
+        g_gc_stats.evicts++;
     }
 
     off = heap_alloc(need);
@@ -353,12 +364,12 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
     e->h       = h;
     e->off     = off;
     e->bytes   = need;
-    e->lru     = ++s_lru;
-    e->epoch   = s_epoch;
+    e->lru     = ++g_gc.lru;
+    e->epoch   = g_gc.epoch;
     e->used    = 1u;
 
     *bytes = need;
-    return &s_pool[off];
+    return &g_pool[off];
 }
 
 void glyph_cache_stats(uint32_t *hits, uint32_t *misses, uint32_t *evicts,
@@ -367,11 +378,11 @@ void glyph_cache_stats(uint32_t *hits, uint32_t *misses, uint32_t *evicts,
     uint32_t i;
 
     if (hits != NULL)
-        *hits = s_hits;
+        *hits = g_gc_stats.hits;
     if (misses != NULL)
-        *misses = s_misses;
+        *misses = g_gc_stats.misses;
     if (evicts != NULL)
-        *evicts = s_evicts;
+        *evicts = g_gc_stats.evicts;
 
     if ((used_bytes != NULL) || (entries != NULL))
     {
@@ -380,9 +391,9 @@ void glyph_cache_stats(uint32_t *hits, uint32_t *misses, uint32_t *evicts,
 
         for (i = 0u; i < GLYPH_CACHE_MAX_ENTRIES; i++)
         {
-            if (s_ent[i].used != 0u)
+            if (g_gc.ent[i].used != 0u)
             {
-                used += s_ent[i].bytes;
+                used += g_gc.ent[i].bytes;
                 n++;
             }
         }

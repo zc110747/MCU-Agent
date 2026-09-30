@@ -77,18 +77,29 @@ typedef struct
     uint16_t    clock;
 } harmony_dsc_t;
 
-static dsc_slot_t    s_slots[HARMONY_SIZES][HARMONY_DSC_SLOTS];
-static harmony_dsc_t s_fdsc[HARMONY_SIZES];
-static lv_font_t     s_font[HARMONY_SIZES];
-static uint8_t       s_valid[HARMONY_SIZES];
+/* HarmonyOS 引擎状态：字体对象、描述符缓存与当前文件 */
+typedef struct
+{
+    dsc_slot_t    slots[HARMONY_SIZES][HARMONY_DSC_SLOTS];
+    harmony_dsc_t fdsc[HARMONY_SIZES];
+    lv_font_t     font[HARMONY_SIZES];
+    uint8_t       valid[HARMONY_SIZES];
+    uint8_t       ready;
+    char          file[HARMONY_NAME_MAX];
+    char          path[HARMONY_PATH_MAX];
+    uint32_t      file_bytes;
+} harmony_state_t;
 
-static uint8_t  s_ready;
-static char     s_file[HARMONY_NAME_MAX];
-static char     s_path[HARMONY_PATH_MAX];
-static uint32_t s_file_bytes;
+static harmony_state_t g_harmony = {0};
 
-static uint32_t s_dsc_hits;
-static uint32_t s_dsc_misses;
+/* 描述符缓存命中统计 */
+typedef struct
+{
+    uint32_t dsc_hits;
+    uint32_t dsc_misses;
+} harmony_stats_t;
+
+static harmony_stats_t g_stats = {0};
 
 /*---------------------------------------------------------------------------*/
 /* Weight selection                                                           */
@@ -230,13 +241,13 @@ static GlobalType_t harmony_scan(void)
         return RT_FAIL;
     }
 
-    strncpy(s_file, best, HARMONY_NAME_MAX - 1u);
-    s_file[HARMONY_NAME_MAX - 1u] = '\0';
-    s_file_bytes                  = best_bytes;
+    strncpy(g_harmony.file, best, HARMONY_NAME_MAX - 1u);
+    g_harmony.file[HARMONY_NAME_MAX - 1u] = '\0';
+    g_harmony.file_bytes                  = best_bytes;
 
     {
-        int n = snprintf(s_path, sizeof(s_path), "%s/%s", HARMONY_FONT_DIR, s_file);
-        if ((n < 0) || ((size_t)n >= sizeof(s_path)))
+        int n = snprintf(g_harmony.path, sizeof(g_harmony.path), "%s/%s", HARMONY_FONT_DIR, g_harmony.file);
+        if ((n < 0) || ((size_t)n >= sizeof(g_harmony.path)))
         {
             PRINT_LOG("[TTF ] path too long\r\n");
             return RT_FAIL;
@@ -288,12 +299,12 @@ static bool harmony_get_glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *ds
             h->slots[i].stamp      = h->clock;
             *dsc_out               = h->slots[i].dsc;
             dsc_out->resolved_font = font;
-            s_dsc_hits++;
+            g_stats.dsc_hits++;
             return true;
         }
     }
 
-    s_dsc_misses++;
+    g_stats.dsc_misses++;
 
     if (!h->ttf->get_glyph_dsc(h->ttf, dsc_out, letter, 0u))
     {
@@ -350,12 +361,12 @@ GlobalType_t lv_font_harmony_init(void)
 {
     uint32_t i;
 
-    s_ready      = 0u;
-    s_file[0]    = '\0';
-    s_file_bytes = 0u;
+    g_harmony.ready      = 0u;
+    g_harmony.file[0]    = '\0';
+    g_harmony.file_bytes = 0u;
 
-    memset(s_valid, 0, sizeof(s_valid));
-    memset(s_slots, 0, sizeof(s_slots));
+    memset(g_harmony.valid, 0, sizeof(g_harmony.valid));
+    memset(g_harmony.slots, 0, sizeof(g_harmony.slots));
 
 #if HARMONY_TTF_AVAILABLE == 0
     PRINT_LOG("[TTF ] disabled: LV_USE_TINY_TTF / LV_TINY_TTF_FILE_SUPPORT is 0\r\n");
@@ -369,7 +380,7 @@ GlobalType_t lv_font_harmony_init(void)
             return RT_FAIL;
         }
 
-        PRINT_LOG("[TTF ] %s (%lu B)\r\n", s_file, (unsigned long)s_file_bytes);
+        PRINT_LOG("[TTF ] %s (%lu B)\r\n", g_harmony.file, (unsigned long)g_harmony.file_bytes);
 
         for (i = 0u; i < HARMONY_SIZES; i++)
         {
@@ -377,7 +388,7 @@ GlobalType_t lv_font_harmony_init(void)
             uint32_t   t0;
 
             t0  = (uint32_t)HAL_GetTick();
-            ttf = lv_tiny_ttf_create_file_ex(s_path, (lv_coord_t)s_sizes[i],
+            ttf = lv_tiny_ttf_create_file_ex(g_harmony.path, (lv_coord_t)s_sizes[i],
                                              s_bmp_cache[i]);
 
             if (ttf == NULL)
@@ -386,28 +397,28 @@ GlobalType_t lv_font_harmony_init(void)
                 continue;
             }
 
-            s_valid[i] = 1u;
+            g_harmony.valid[i] = 1u;
             ok++;
 
-            s_fdsc[i].ttf   = ttf;
-            s_fdsc[i].slots = &s_slots[i][0];
-            s_fdsc[i].n     = (uint16_t)HARMONY_DSC_SLOTS;
-            s_fdsc[i].clock = 0u;
+            g_harmony.fdsc[i].ttf   = ttf;
+            g_harmony.fdsc[i].slots = &g_harmony.slots[i][0];
+            g_harmony.fdsc[i].n     = (uint16_t)HARMONY_DSC_SLOTS;
+            g_harmony.fdsc[i].clock = 0u;
 
-            memset(&s_font[i], 0, sizeof(s_font[i]));
-            s_font[i].get_glyph_dsc       = harmony_get_glyph_dsc;
-            s_font[i].get_glyph_bitmap    = harmony_get_glyph_bitmap;
-            s_font[i].line_height         = ttf->line_height;
-            s_font[i].base_line           = ttf->base_line;
-            s_font[i].subpx               = ttf->subpx;
-            s_font[i].underline_position  = ttf->underline_position;
-            s_font[i].underline_thickness = ttf->underline_thickness;
-            s_font[i].dsc                 = &s_fdsc[i];
-            s_font[i].fallback            = gbk_fallback(s_sizes[i]);
+            memset(&g_harmony.font[i], 0, sizeof(g_harmony.font[i]));
+            g_harmony.font[i].get_glyph_dsc       = harmony_get_glyph_dsc;
+            g_harmony.font[i].get_glyph_bitmap    = harmony_get_glyph_bitmap;
+            g_harmony.font[i].line_height         = ttf->line_height;
+            g_harmony.font[i].base_line           = ttf->base_line;
+            g_harmony.font[i].subpx               = ttf->subpx;
+            g_harmony.font[i].underline_position  = ttf->underline_position;
+            g_harmony.font[i].underline_thickness = ttf->underline_thickness;
+            g_harmony.font[i].dsc                 = &g_harmony.fdsc[i];
+            g_harmony.font[i].fallback            = gbk_fallback(s_sizes[i]);
 
             PRINT_LOG("[TTF ]   %2u px: line %d, base %d (%lu ms)\r\n",
                       (unsigned)s_sizes[i],
-                      (int)s_font[i].line_height, (int)s_font[i].base_line,
+                      (int)g_harmony.font[i].line_height, (int)g_harmony.font[i].base_line,
                       (unsigned long)((uint32_t)HAL_GetTick() - t0));
         }
 
@@ -417,63 +428,20 @@ GlobalType_t lv_font_harmony_init(void)
             return RT_FAIL;
         }
 
-        s_ready = 1u;
+        g_harmony.ready = 1u;
         return RT_OK;
     }
 #endif
-}
-
-uint8_t lv_font_harmony_ready(void)
-{
-    return s_ready;
-}
-
-const lv_font_t *lv_font_harmony_get(uint16_t size)
-{
-    uint32_t i;
-
-    if (s_ready == 0u)
-    {
-        return NULL;
-    }
-
-    for (i = 0u; i < HARMONY_SIZES; i++)
-    {
-        if (s_sizes[i] == size)
-        {
-            return (s_valid[i] != 0u) ? &s_font[i] : NULL;
-        }
-    }
-    return NULL;
-}
-
-const char *lv_font_harmony_file(void)
-{
-    return s_file;
 }
 
 void lv_font_harmony_stats(uint32_t *hits, uint32_t *misses)
 {
     if (hits != NULL)
     {
-        *hits = s_dsc_hits;
+        *hits = g_stats.dsc_hits;
     }
     if (misses != NULL)
     {
-        *misses = s_dsc_misses;
+        *misses = g_stats.dsc_misses;
     }
-}
-
-void lv_font_harmony_reset_cache(void)
-{
-    uint32_t i;
-
-    memset(s_slots, 0, sizeof(s_slots));
-    for (i = 0u; i < HARMONY_SIZES; i++)
-    {
-        s_fdsc[i].clock = 0u;
-    }
-
-    s_dsc_hits   = 0u;
-    s_dsc_misses = 0u;
 }

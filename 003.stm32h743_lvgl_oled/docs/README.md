@@ -541,7 +541,7 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 页面切换优先预取当前页，旧页由 LRU 自动淘汰；实际绘制优先访问 Glyph Cache，Cache Miss 再走正常 TTF 冷栅格化。
 
 **落点**：全新模块 `bsp/font/glyph_cache.c` + `glyph_cache.h`，替换原 `lvgl_font.c` 的 32 KB 定长"满即整体回绕"
-位图池（`bmp_*` 整段删除）。逻辑侧收口于 CTF 后端（`LV_FONT_ENGINE=2`），GBK 引擎天然跳过预取。
+位图池（`bmp_*` 整段删除）。逻辑侧收口于 CTF 后端（`LV_FONT_ENGINE=1`），GBK 引擎天然跳过预取。
 
 **存储与放置**：单一 **200 KB 池 `s_pool` 放 `.ram_d2` 段（0x30000000，288 KB 空闲）**，栅格化后 8-bpp 字形位图按
 `(unicode, px)` 索引。变长字形（12px≈数百 B vs 32px≈数千 B）用**边界标记空闲堆（free-list + 偏移排序 + 前后合并）**

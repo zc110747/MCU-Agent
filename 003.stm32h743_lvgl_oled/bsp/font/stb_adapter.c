@@ -144,10 +144,16 @@ static void stb_free(void *p, void *u)
 #include "stb_rect_pack.h"
 #include "stb_truetype_htcw.h"
 
-static stbtt_fontinfo s_info;
-static stb_stream_t   s_stream;
-static uint8_t        s_ready;
-static uint32_t       s_box_mismatch; /**< CTF box disagreed with stb's box  */
+/* stb 适配器状态：字体信息、流游标与就绪标志 */
+typedef struct
+{
+    stbtt_fontinfo info;
+    stb_stream_t   stream;
+    uint8_t        ready;
+} stb_state_t;
+
+static stb_state_t g_stb = {0};
+static uint32_t    g_box_mismatch; /**< CTF box disagreed with stb's box  */
 
 /*---------------------------------------------------------------------------*/
 /* Public API                                                                 */
@@ -158,19 +164,19 @@ GlobalType_t stb_adapter_open(ttf_reader_t *r, uint32_t font_index)
     int offset;
     int ok;
 
-    s_ready = 0u;
+    g_stb.ready = 0u;
 
     if (r == NULL)
     {
         return RT_FAIL;
     }
 
-    s_stream.r   = r;
-    s_stream.pos = 0u;
+    g_stb.stream.r   = r;
+    g_stb.stream.pos = 0u;
 
-    /* stb copies the stream object into s_info, so it must outlive the call. */
-    offset = stbtt_GetFontOffsetForIndex(&s_stream, (int)font_index);
-    ok     = stbtt_InitFont(&s_info, &s_stream, offset);
+    /* stb copies the stream object into g_stb.info, so it must outlive the call. */
+    offset = stbtt_GetFontOffsetForIndex(&g_stb.stream, (int)font_index);
+    ok     = stbtt_InitFont(&g_stb.info, &g_stb.stream, offset);
 
     if (ok == 0)
     {
@@ -179,21 +185,21 @@ GlobalType_t stb_adapter_open(ttf_reader_t *r, uint32_t font_index)
 
     s_used         = 0u;
     s_live         = 0u;
-    s_box_mismatch = 0u;
-    s_ready        = 1u;
+    g_box_mismatch = 0u;
+    g_stb.ready        = 1u;
     return RT_OK;
 }
 
 void stb_adapter_close(void)
 {
-    s_ready = 0u;
+    g_stb.ready = 0u;
     s_used  = 0u;
     s_live  = 0u;
 }
 
 int stb_adapter_ready(void)
 {
-    return (int)s_ready;
+    return (int)g_stb.ready;
 }
 
 GlobalType_t stb_adapter_metrics(int16_t *ascent,
@@ -202,12 +208,12 @@ GlobalType_t stb_adapter_metrics(int16_t *ascent,
 {
     int a, d, g;
 
-    if (!s_ready)
+    if (!g_stb.ready)
     {
         return RT_FAIL;
     }
 
-    stbtt_GetFontVMetrics(&s_info, &a, &d, &g);
+    stbtt_GetFontVMetrics(&g_stb.info, &a, &d, &g);
 
     if (ascent != NULL)
     {
@@ -236,7 +242,7 @@ GlobalType_t stb_adapter_render(uint16_t glyph_id,
     float scale;
     int   ix0, iy0, ix1, iy1;
 
-    if (!s_ready || (buf == NULL))
+    if (!g_stb.ready || (buf == NULL))
     {
         return RT_FAIL;
     }
@@ -255,22 +261,22 @@ GlobalType_t stb_adapter_render(uint16_t glyph_id,
         return RT_OK;
     }
 
-    scale = stbtt_ScaleForMappingEmToPixels(&s_info, (float)px_size);
+    scale = stbtt_ScaleForMappingEmToPixels(&g_stb.info, (float)px_size);
 
     /* The CTF derived box is what LVGL positions the glyph by.  stb recomputes
      * the same numbers from the glyf header, so if the two ever disagree the
      * ink lands in the wrong place inside the box - worth counting, and it
      * costs one cached read of the glyph header. */
-    stbtt_GetGlyphBitmapBox(&s_info, (int)glyph_id, scale, scale,
+    stbtt_GetGlyphBitmapBox(&g_stb.info, (int)glyph_id, scale, scale,
                             &ix0, &iy0, &ix1, &iy1);
     if ((ix0 != (int)ofs_x) || (iy1 != -(int)ofs_y))
     {
-        s_box_mismatch++;
+        g_box_mismatch++;
     }
 
     (void)memset(buf, 0, (size_t)box_w * (size_t)box_h);
 
-    stbtt_MakeGlyphBitmap(&s_info, buf,
+    stbtt_MakeGlyphBitmap(&g_stb.info, buf,
                           (int)box_w, (int)box_h, (int)box_w,
                           scale, scale, (int)glyph_id);
 
@@ -282,13 +288,13 @@ int stb_adapter_kerning(uint16_t g1, uint16_t g2, uint16_t px_size)
     int   k;
     float scale;
 
-    if (!s_ready)
+    if (!g_stb.ready)
     {
         return 0;
     }
 
-    scale = stbtt_ScaleForMappingEmToPixels(&s_info, (float)px_size);
-    k     = stbtt_GetGlyphKernAdvance(&s_info, (int)g1, (int)g2);
+    scale = stbtt_ScaleForMappingEmToPixels(&g_stb.info, (float)px_size);
+    k     = stbtt_GetGlyphKernAdvance(&g_stb.info, (int)g1, (int)g2);
 
     return (int)floorf(((float)k * scale) + 0.5f);
 }
@@ -313,5 +319,5 @@ void stb_adapter_arena_stats(uint32_t *peak, uint32_t *fails)
  */
 uint32_t stb_adapter_box_mismatches(void)
 {
-    return s_box_mismatch;
+    return g_box_mismatch;
 }

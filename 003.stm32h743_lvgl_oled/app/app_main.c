@@ -39,8 +39,14 @@
  * there is no point spinning faster than that. */
 #define LVGL_TASK_PERIOD_MS 5U
 
-static uint32_t s_last_led_tick  = 0U;
-static uint32_t s_last_lvgl_tick = 0U;
+/* 主循环节拍：LED 心跳与 LVGL 调度各自的上次触发 tick */
+typedef struct
+{
+    uint32_t last_led;
+    uint32_t last_lvgl;
+} app_tick_t;
+
+static app_tick_t g_app_tick = {0};
 
 /**
  * @brief  Report the SD / font state over the debug UART.
@@ -346,8 +352,8 @@ void application_init(void)
     }
 #endif
 
-    s_last_lvgl_tick = HAL_GetTick();
-    s_last_led_tick  = s_last_lvgl_tick;
+    g_app_tick.last_lvgl = HAL_GetTick();
+    g_app_tick.last_led  = g_app_tick.last_lvgl;
 }
 
 void application_run(void)
@@ -364,18 +370,18 @@ void application_run(void)
     }
 
     /* Heartbeat */
-    if ((now - s_last_led_tick) >= LED_BLINK_MS)
+    if ((now - g_app_tick.last_led) >= LED_BLINK_MS)
     {
-        s_last_led_tick = now;
+        g_app_tick.last_led = now;
         LED_TOGGLE();
     }
 
     /* LVGL housekeeping: timers, redraw, flush.
      * A pending page switch is serviced here so we can time the redraw
      * that actually rasterises the new page's Chinese glyphs. */
-    if ((now - s_last_lvgl_tick) >= LVGL_TASK_PERIOD_MS)
+    if ((now - g_app_tick.last_lvgl) >= LVGL_TASK_PERIOD_MS)
     {
-        s_last_lvgl_tick = now;
+        g_app_tick.last_lvgl = now;
 
         lv_obj_t *sw     = NULL;
         int       sw_idx = -1;

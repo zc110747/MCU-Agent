@@ -33,9 +33,15 @@
  * SPI transactions per full redraw down to four. */
 #define DISP_BUF_LINES 60U
 
-static lv_disp_draw_buf_t s_draw_buf_dsc;
-static lv_disp_drv_t      s_disp_drv;
-static lv_color_t         s_draw_buf[LCD_Width * DISP_BUF_LINES] __attribute__((aligned(32)));
+/* 显示端口状态：LVGL 绘制缓冲与显示驱动描述 */
+typedef struct
+{
+    lv_disp_draw_buf_t draw_buf_dsc;
+    lv_disp_drv_t      disp_drv;
+    lv_color_t         draw_buf[LCD_Width * DISP_BUF_LINES] __attribute__((aligned(32)));
+} disp_port_t;
+
+static disp_port_t g_disp = {0};
 
 /**
  * @brief  Push one rendered area to the panel.
@@ -53,14 +59,14 @@ static void disp_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *co
 
 void lv_port_disp_init(void)
 {
-    lv_disp_draw_buf_init(&s_draw_buf_dsc, s_draw_buf, NULL,
+    lv_disp_draw_buf_init(&g_disp.draw_buf_dsc, g_disp.draw_buf, NULL,
                           LCD_Width * DISP_BUF_LINES);
 
-    lv_disp_drv_init(&s_disp_drv);
-    s_disp_drv.hor_res  = LCD_Width;
-    s_disp_drv.ver_res  = LCD_Height;
-    s_disp_drv.flush_cb = disp_flush;
-    s_disp_drv.draw_buf = &s_draw_buf_dsc;
+    lv_disp_drv_init(&g_disp.disp_drv);
+    g_disp.disp_drv.hor_res  = LCD_Width;
+    g_disp.disp_drv.ver_res  = LCD_Height;
+    g_disp.disp_drv.flush_cb = disp_flush;
+    g_disp.disp_drv.draw_buf = &g_disp.draw_buf_dsc;
 
-    lv_disp_drv_register(&s_disp_drv);
+    lv_disp_drv_register(&g_disp.disp_drv);
 }

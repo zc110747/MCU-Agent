@@ -71,9 +71,15 @@ typedef struct
     lv_obj_t *cache;
 } ui_handles_t;
 
-static ui_handles_t s_ui;
-static uint32_t     s_sd_countdown = 0U; /* 0 -> query on the next tick */
-static uint32_t     s_uptime_sec   = 0U;
+/* 信息页状态：控件句柄 + 刷新节拍 */
+typedef struct
+{
+    ui_handles_t ui;
+    uint32_t     sd_countdown; /* 0 -> query on the next tick */
+    uint32_t     uptime_sec;
+} info_page_t;
+
+static info_page_t g_info = {0};
 
 /*----------------------------------------------------------------------------*/
 /* Data refresh                                                               */
@@ -85,15 +91,15 @@ static void refresh_clock(void)
 
     if (drv_rtc_get(&dt) != RT_OK)
     {
-        lv_label_set_text(s_ui.clock, "--:--:--");
-        lv_label_set_text(s_ui.date, "RTC 未启动");
+        lv_label_set_text(g_info.ui.clock, "--:--:--");
+        lv_label_set_text(g_info.ui.date, "RTC 未启动");
         return;
     }
 
-    lv_label_set_text_fmt(s_ui.clock, "%02d:%02d:%02d",
+    lv_label_set_text_fmt(g_info.ui.clock, "%02d:%02d:%02d",
                           (int)dt.hour, (int)dt.minute, (int)dt.second);
 
-    lv_label_set_text_fmt(s_ui.date, "%04d-%02d-%02d  %s",
+    lv_label_set_text_fmt(g_info.ui.date, "%04d-%02d-%02d  %s",
                           (int)dt.year, (int)dt.month, (int)dt.day,
                           drv_rtc_weekday_cn(dt.weekday));
 }
@@ -107,16 +113,16 @@ static void refresh_sd(void)
 
     if (drv_sd_query_info(&info) != RT_OK)
     {
-        lv_label_set_text(s_ui.sd_val, "读取失败");
-        lv_obj_set_style_text_color(s_ui.sd_val, lv_color_hex(COL_ERR),
+        lv_label_set_text(g_info.ui.sd_val, "读取失败");
+        lv_obj_set_style_text_color(g_info.ui.sd_val, lv_color_hex(COL_ERR),
                                     LV_PART_MAIN);
-        lv_label_set_text(s_ui.sd_fs, "--");
-        lv_bar_set_value(s_ui.sd_bar, 0, LV_ANIM_OFF);
-        lv_label_set_text(s_ui.sd_pct, "--%");
+        lv_label_set_text(g_info.ui.sd_fs, "--");
+        lv_bar_set_value(g_info.ui.sd_bar, 0, LV_ANIM_OFF);
+        lv_label_set_text(g_info.ui.sd_pct, "--%");
         return;
     }
 
-    lv_obj_set_style_text_color(s_ui.sd_val, lv_color_hex(COL_VALUE),
+    lv_obj_set_style_text_color(g_info.ui.sd_val, lv_color_hex(COL_VALUE),
                                 LV_PART_MAIN);
 
     drv_sd_format_size(info.fs_total_bytes - info.fs_free_bytes,
@@ -135,12 +141,12 @@ static void refresh_sd(void)
         }
     }
 
-    lv_label_set_text_fmt(s_ui.sd_val, "已用 %s / %s", used_str, total_str);
-    lv_label_set_text_fmt(s_ui.sd_fs, "%s %s",
+    lv_label_set_text_fmt(g_info.ui.sd_val, "已用 %s / %s", used_str, total_str);
+    lv_label_set_text_fmt(g_info.ui.sd_fs, "%s %s",
                           drv_sd_card_name(info.card_type),
                           drv_sd_fs_name(info.fs_type));
-    lv_bar_set_value(s_ui.sd_bar, (int32_t)pct, LV_ANIM_OFF);
-    lv_label_set_text_fmt(s_ui.sd_pct, "%d%%", (int)pct);
+    lv_bar_set_value(g_info.ui.sd_bar, (int32_t)pct, LV_ANIM_OFF);
+    lv_label_set_text_fmt(g_info.ui.sd_pct, "%d%%", (int)pct);
 }
 
 static void refresh_runtime(void)
@@ -148,10 +154,10 @@ static void refresh_runtime(void)
     uint32_t hits = 0U;
     uint32_t miss = 0U;
 
-    lv_label_set_text_fmt(s_ui.uptime, "运行  %02d:%02d:%02d",
-                          (int)(s_uptime_sec / 3600U),
-                          (int)((s_uptime_sec / 60U) % 60U),
-                          (int)(s_uptime_sec % 60U));
+    lv_label_set_text_fmt(g_info.ui.uptime, "运行  %02d:%02d:%02d",
+                          (int)(g_info.uptime_sec / 3600U),
+                          (int)((g_info.uptime_sec / 60U) % 60U),
+                          (int)(g_info.uptime_sec % 60U));
 
     /* Show the cache counters of whichever engine is actually live. */
     switch (lv_font_provider_engine())
@@ -171,7 +177,7 @@ static void refresh_runtime(void)
         break;
     }
 
-    lv_label_set_text_fmt(s_ui.cache, "缓存  命中 %lu / 读卡 %lu",
+    lv_label_set_text_fmt(g_info.ui.cache, "缓存  命中 %lu / 读卡 %lu",
                           (unsigned long)hits, (unsigned long)miss);
 }
 
@@ -182,19 +188,19 @@ static void ui_page_info_tick(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
 
-    s_uptime_sec++;
+    g_info.uptime_sec++;
 
     refresh_clock();
     refresh_runtime();
 
-    if (s_sd_countdown == 0U)
+    if (g_info.sd_countdown == 0U)
     {
         refresh_sd();
-        s_sd_countdown = SD_REFRESH_PERIOD;
+        g_info.sd_countdown = SD_REFRESH_PERIOD;
     }
     else
     {
-        s_sd_countdown--;
+        g_info.sd_countdown--;
     }
 }
 
@@ -218,83 +224,83 @@ lv_obj_t *ui_page_info_build(void)
                              "STM32H743 信息面板");
 
     /* ---- Clock -----------------------------------------------------------*/
-    s_ui.clock = ui_mk_label_center(scr, CLOCK_Y, UI_FONT(32), COL_CLOCK,
+    g_info.ui.clock = ui_mk_label_center(scr, CLOCK_Y, UI_FONT(32), COL_CLOCK,
                                     "--:--:--");
-    s_ui.date  = ui_mk_label_center(scr, DATE_Y, UI_FONT(16), COL_DATE,
+    g_info.ui.date  = ui_mk_label_center(scr, DATE_Y, UI_FONT(16), COL_DATE,
                                     "---------");
 
     ui_mk_separator(scr, SEP1_Y);
 
     /* ---- SD card ---------------------------------------------------------*/
-    s_ui.sd_head = ui_mk_label(scr, UI_PAD, SD_HEAD_Y, UI_FONT(16),
+    g_info.ui.sd_head = ui_mk_label(scr, UI_PAD, SD_HEAD_Y, UI_FONT(16),
                                COL_LABEL, "SD卡容量");
-    s_ui.sd_fs   = ui_mk_label(scr, 0, SD_HEAD_Y, UI_FONT(16), COL_DIM, "--");
-    ui_align_right(s_ui.sd_fs, SD_HEAD_Y);
+    g_info.ui.sd_fs   = ui_mk_label(scr, 0, SD_HEAD_Y, UI_FONT(16), COL_DIM, "--");
+    ui_align_right(g_info.ui.sd_fs, SD_HEAD_Y);
 
-    s_ui.sd_val = ui_mk_label(scr, UI_PAD, SD_VAL_Y, UI_FONT(16),
+    g_info.ui.sd_val = ui_mk_label(scr, UI_PAD, SD_VAL_Y, UI_FONT(16),
                               COL_VALUE, "读取中...");
 
-    s_ui.sd_bar = lv_bar_create(scr);
-    lv_obj_remove_style_all(s_ui.sd_bar);
-    lv_obj_set_size(s_ui.sd_bar, UI_W - (2 * UI_PAD) - 40, SD_BAR_H);
-    lv_obj_set_pos(s_ui.sd_bar, UI_PAD, SD_BAR_Y);
-    lv_bar_set_range(s_ui.sd_bar, 0, 100);
-    lv_bar_set_value(s_ui.sd_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_ui.sd_bar, lv_color_hex(COL_BAR_BG),
+    g_info.ui.sd_bar = lv_bar_create(scr);
+    lv_obj_remove_style_all(g_info.ui.sd_bar);
+    lv_obj_set_size(g_info.ui.sd_bar, UI_W - (2 * UI_PAD) - 40, SD_BAR_H);
+    lv_obj_set_pos(g_info.ui.sd_bar, UI_PAD, SD_BAR_Y);
+    lv_bar_set_range(g_info.ui.sd_bar, 0, 100);
+    lv_bar_set_value(g_info.ui.sd_bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(g_info.ui.sd_bar, lv_color_hex(COL_BAR_BG),
                               LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_ui.sd_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_ui.sd_bar, 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_ui.sd_bar, lv_color_hex(COL_ACCENT),
+    lv_obj_set_style_bg_opa(g_info.ui.sd_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(g_info.ui.sd_bar, 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(g_info.ui.sd_bar, lv_color_hex(COL_ACCENT),
                               LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_ui.sd_bar, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(s_ui.sd_bar, 2, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(g_info.ui.sd_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(g_info.ui.sd_bar, 2, LV_PART_INDICATOR);
 
-    s_ui.sd_pct = ui_mk_label(scr, 0, SD_BAR_Y - 3, UI_FONT(12),
+    g_info.ui.sd_pct = ui_mk_label(scr, 0, SD_BAR_Y - 3, UI_FONT(12),
                               COL_ACCENT, "--%");
-    ui_align_right(s_ui.sd_pct, SD_BAR_Y - 3);
+    ui_align_right(g_info.ui.sd_pct, SD_BAR_Y - 3);
 
     ui_mk_separator(scr, SEP2_Y);
 
     /* ---- Board info ------------------------------------------------------*/
-    s_ui.freq = ui_mk_label(scr, UI_PAD, INFO1_Y, UI_FONT(16), COL_LABEL, "");
-    lv_label_set_text_fmt(s_ui.freq, "主频  %d MHz",
+    g_info.ui.freq = ui_mk_label(scr, UI_PAD, INFO1_Y, UI_FONT(16), COL_LABEL, "");
+    lv_label_set_text_fmt(g_info.ui.freq, "主频  %d MHz",
                           (int)(HAL_RCC_GetSysClockFreq() / 1000000U));
 
-    s_ui.clksrc = ui_mk_label(scr, 0, INFO1_Y, UI_FONT(16), COL_DIM, "");
+    g_info.ui.clksrc = ui_mk_label(scr, 0, INFO1_Y, UI_FONT(16), COL_DIM, "");
     if (g_clock_source == CLOCK_SRC_HSE_XTAL)
     {
-        lv_label_set_text(s_ui.clksrc, "HSE 25M");
+        lv_label_set_text(g_info.ui.clksrc, "HSE 25M");
     }
     else
     {
-        lv_obj_set_style_text_color(s_ui.clksrc, lv_color_hex(COL_ERR),
+        lv_obj_set_style_text_color(g_info.ui.clksrc, lv_color_hex(COL_ERR),
                                     LV_PART_MAIN);
-        lv_label_set_text(s_ui.clksrc, "HSI 备用");
+        lv_label_set_text(g_info.ui.clksrc, "HSI 备用");
     }
-    ui_align_right(s_ui.clksrc, INFO1_Y);
+    ui_align_right(g_info.ui.clksrc, INFO1_Y);
 
-    s_ui.uptime = ui_mk_label(scr, UI_PAD, INFO2_Y, UI_FONT(16),
+    g_info.ui.uptime = ui_mk_label(scr, UI_PAD, INFO2_Y, UI_FONT(16),
                               COL_LABEL, "运行  00:00:00");
 
     /* Font source line doubles as an RTC clock-source readout. */
-    s_ui.fontinfo = ui_mk_label(scr, UI_PAD, INFO3_Y, UI_FONT(16),
+    g_info.ui.fontinfo = ui_mk_label(scr, UI_PAD, INFO3_Y, UI_FONT(16),
                                 COL_LABEL, "");
     uint32_t mask = lcd_driver_font_status();
-    lv_label_set_text_fmt(s_ui.fontinfo, "字库  %s  时基 %s",
+    lv_label_set_text_fmt(g_info.ui.fontinfo, "字库  %s  时基 %s",
                           lv_font_provider_name(),
                           (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE"
                                                                   : "LSI");
     if (mask == 0U)
     {
-        lv_obj_set_style_text_color(s_ui.fontinfo, lv_color_hex(COL_ERR),
+        lv_obj_set_style_text_color(g_info.ui.fontinfo, lv_color_hex(COL_ERR),
                                     LV_PART_MAIN);
     }
 
-    s_ui.cache = ui_mk_label(scr, UI_PAD, INFO4_Y, UI_FONT(12),
+    g_info.ui.cache = ui_mk_label(scr, UI_PAD, INFO4_Y, UI_FONT(12),
                              COL_DIM, "缓存  命中 0 / 读卡 0");
 
-    s_uptime_sec   = 0U;
-    s_sd_countdown = 0U;
+    g_info.uptime_sec   = 0U;
+    g_info.sd_countdown = 0U;
 
     /* First paint with real values, then hand over to the timer. */
     refresh_clock();
@@ -307,5 +313,5 @@ lv_obj_t *ui_page_info_build(void)
 
 void ui_page_info_request_sd_refresh(void)
 {
-    s_sd_countdown = 0U;
+    g_info.sd_countdown = 0U;
 }

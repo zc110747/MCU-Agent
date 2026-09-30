@@ -47,16 +47,19 @@ typedef struct
     uint8_t  valid;
 } fs_block_t;
 
-static fs_file_t  s_files[FS_MAX_FILES];
-static fs_block_t s_blocks[FS_BLOCK_COUNT];
+/* RAM FS 缓存状态：文件表、块缓存、命中统计与路径暂存 */
+typedef struct
+{
+    fs_file_t  files[FS_MAX_FILES];
+    fs_block_t blocks[FS_BLOCK_COUNT];
+    uint32_t   next_id;  /* 首个分配的 id，非零默认，不可清零 */
+    uint32_t   stamp;    /* lv_port_fs 时钟值，用于块 LRU      */
+    uint32_t   hits;
+    uint32_t   misses;
+    char       path[FS_PATH_MAX]; /* fs_open() 内构建 */
+} fs_cache_t;
 
-static uint32_t s_next_id = 1u;
-static uint32_t s_stamp   = 0u;
-static uint32_t s_hits;
-static uint32_t s_misses;
-
-/* Built in fs_open(): LVGL strips the drive letter before calling us. */
-static char s_path[FS_PATH_MAX];
+static fs_cache_t g_fs = {.next_id = 1u};
 
 /*---------------------------------------------------------------------------*/
 /* Block cache                                                                */
@@ -68,11 +71,11 @@ static fs_block_t *block_find(uint32_t file_id, uint32_t block)
 
     for (i = 0; i < FS_BLOCK_COUNT; i++)
     {
-        if (s_blocks[i].valid != 0u &&
-            s_blocks[i].file_id == file_id &&
-            s_blocks[i].block == block)
+        if (g_fs.blocks[i].valid != 0u &&
+            g_fs.blocks[i].file_id == file_id &&
+            g_fs.blocks[i].block == block)
         {
-            return &s_blocks[i];
+            return &g_fs.blocks[i];
         }
     }
     return NULL;
@@ -84,21 +87,21 @@ static fs_block_t *block_find(uint32_t file_id, uint32_t block)
 static fs_block_t *block_victim(void)
 {
     uint32_t    i;
-    fs_block_t *oldest       = &s_blocks[0];
+    fs_block_t *oldest       = &g_fs.blocks[0];
     uint32_t    oldest_stamp = UINT32_MAX;
 
     for (i = 0; i < FS_BLOCK_COUNT; i++)
     {
-        if (s_blocks[i].valid == 0u)
+        if (g_fs.blocks[i].valid == 0u)
         {
-            return &s_blocks[i];
+            return &g_fs.blocks[i];
         }
 
-        /* s_stamp is free running and wraps, so rank by distance from "now". */
-        if ((s_stamp - s_blocks[i].stamp) <= oldest_stamp)
+        /* g_fs.stamp is free running and wraps, so rank by distance from "now". */
+        if ((g_fs.stamp - g_fs.blocks[i].stamp) <= oldest_stamp)
         {
-            oldest_stamp = s_stamp - s_blocks[i].stamp;
-            oldest       = &s_blocks[i];
+            oldest_stamp = g_fs.stamp - g_fs.blocks[i].stamp;
+            oldest       = &g_fs.blocks[i];
         }
     }
     return oldest;
@@ -116,12 +119,12 @@ static fs_block_t *block_load(fs_file_t *fp, uint32_t block)
     b = block_find(fp->id, block);
     if (b != NULL)
     {
-        s_hits++;
-        b->stamp = ++s_stamp;
+        g_fs.hits++;
+        b->stamp = ++g_fs.stamp;
         return b;
     }
 
-    s_misses++;
+    g_fs.misses++;
     b = block_victim();
 
     if (f_lseek(&fp->f, (FSIZE_t)block * FS_BLOCK_SIZE) != FR_OK)
@@ -144,7 +147,7 @@ static fs_block_t *block_load(fs_file_t *fp, uint32_t block)
     b->file_id = fp->id;
     b->block   = block;
     b->valid   = 1u;
-    b->stamp   = ++s_stamp;
+    b->stamp   = ++g_fs.stamp;
 
     return b;
 }
@@ -172,9 +175,9 @@ static void *fs_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode)
 
     for (i = 0; i < FS_MAX_FILES; i++)
     {
-        if (s_files[i].used == 0u)
+        if (g_fs.files[i].used == 0u)
         {
-            fp = &s_files[i];
+            fp = &g_fs.files[i];
             break;
         }
     }
@@ -185,23 +188,23 @@ static void *fs_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode)
 
     /* LVGL hands us "/SYSTEM/..." - put the volume back or FatFs would look at
      * logical drive 0, which has no file system mounted. */
-    if ((strlen(FS_VOLUME) + strlen(path)) >= sizeof(s_path))
+    if ((strlen(FS_VOLUME) + strlen(path)) >= sizeof(g_fs.path))
     {
         return NULL;
     }
-    strcpy(s_path, FS_VOLUME);
-    strcat(s_path, path);
+    strcpy(g_fs.path, FS_VOLUME);
+    strcat(g_fs.path, path);
 
-    if (f_open(&fp->f, s_path, FA_READ) != FR_OK)
+    if (f_open(&fp->f, g_fs.path, FA_READ) != FR_OK)
     {
         return NULL;
     }
 
     fp->used = 1u;
-    fp->id   = s_next_id++;
-    if (s_next_id == 0u)
+    fp->id   = g_fs.next_id++;
+    if (g_fs.next_id == 0u)
     {
-        s_next_id = 1u;
+        g_fs.next_id = 1u;
     }
 
     return fp;
@@ -222,9 +225,9 @@ static lv_fs_res_t fs_close(lv_fs_drv_t *drv, void *file_p)
         uint32_t i;
         for (i = 0; i < FS_BLOCK_COUNT; i++)
         {
-            if (s_blocks[i].valid != 0u && s_blocks[i].file_id == fp->id)
+            if (g_fs.blocks[i].valid != 0u && g_fs.blocks[i].file_id == fp->id)
             {
-                s_blocks[i].valid = 0u;
+                g_fs.blocks[i].valid = 0u;
             }
         }
     }
@@ -320,12 +323,12 @@ void lv_port_fs_init(void)
 {
     static lv_fs_drv_t drv;
 
-    memset(s_files, 0, sizeof(s_files));
-    memset(s_blocks, 0, sizeof(s_blocks));
-    s_next_id = 1u;
-    s_stamp   = 0u;
-    s_hits    = 0u;
-    s_misses  = 0u;
+    memset(g_fs.files, 0, sizeof(g_fs.files));
+    memset(g_fs.blocks, 0, sizeof(g_fs.blocks));
+    g_fs.next_id = 1u;
+    g_fs.stamp   = 0u;
+    g_fs.hits    = 0u;
+    g_fs.misses  = 0u;
 
     lv_fs_drv_init(&drv);
 
@@ -344,10 +347,10 @@ void lv_port_fs_stats(uint32_t *hits, uint32_t *misses)
 {
     if (hits != NULL)
     {
-        *hits = s_hits;
+        *hits = g_fs.hits;
     }
     if (misses != NULL)
     {
-        *misses = s_misses;
+        *misses = g_fs.misses;
     }
 }

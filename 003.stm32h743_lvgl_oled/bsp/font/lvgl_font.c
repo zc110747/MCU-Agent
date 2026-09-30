@@ -41,15 +41,7 @@
 /* Configuration                                                              */
 /*---------------------------------------------------------------------------*/
 
-/* 16 KB x 4 is the block cache the design calls for.  stb reads TrueType
- * tables a field at a time, so this is what turns tens of thousands of SD
- * transactions into a handful. */
-static uint8_t s_ttf_cache[TTF_BLOCK_SIZE * TTF_BLOCK_COUNT];
-
-/* Index reads are tiny and clustered: 512 B x 8, plus a 2 KB copy of the
- * Level-1 table so the first hop of every lookup costs nothing. */
-static uint8_t s_ctf_cache[CTF_BLOCK_SIZE * CTF_BLOCK_COUNT];
-static uint8_t s_l1_shadow[CTF_L1_SHADOW_SIZE];
+/* Block caches / page pool live in ctf_engine_t below. */
 
 /**
  * Pool for the resident Level-2 page table.
@@ -67,7 +59,6 @@ static uint8_t s_l1_shadow[CTF_L1_SHADOW_SIZE];
 #define CTF_PAGE_POOL_PAGES 288u
 #define CTF_PAGE_POOL_SIZE (CTF_PAGE_POOL_PAGES * CTF_PAGE_SIZE)
 
-static uint8_t s_page_pool[CTF_PAGE_POOL_SIZE] __attribute__((aligned(4)));
 
 /* Rasterised glyph bitmaps live in the LRU glyph cache (glyph_cache.c): a
  * 160 KB pool in RAM_D2, keyed by (unicode, px), with LRU eviction and
@@ -85,30 +76,52 @@ typedef struct
     float    scale;
 } ctf_font_dsc_t;
 
-static ttf_reader_t   s_ttf;
-static ctf_reader_t   s_ctf;
-static lv_font_t      s_font[CTF_FONT_SIZES];
-static ctf_font_dsc_t s_fdsc[CTF_FONT_SIZES];
+/* CTF 引擎状态：块缓存、页池、读取器、字体对象与常驻索引 */
+typedef struct
+{
+    /* 16 KB x 4：把 stb 逐字节读聚合成少量大块读 */
+    uint8_t        ttf_cache[TTF_BLOCK_SIZE * TTF_BLOCK_COUNT];
+    /* 512 B x 8 + 2 KB L1 影子：首跳查找零 IO */
+    uint8_t        ctf_cache[CTF_BLOCK_SIZE * CTF_BLOCK_COUNT];
+    uint8_t        l1_shadow[CTF_L1_SHADOW_SIZE];
+    /* 常驻 L2 页池：288 页预算，NOT_FOUND 查找零 SD 访问 */
+    uint8_t        page_pool[CTF_PAGE_POOL_SIZE] __attribute__((aligned(4)));
+    ttf_reader_t   ttf;
+    ctf_reader_t   ctf;
+    lv_font_t      font[CTF_FONT_SIZES];
+    ctf_font_dsc_t fdsc[CTF_FONT_SIZES];
+    uint8_t        ready;
+    char           ctf_path[96];
+    char           ttf_path[96];
+    ctf_resident_t resident; /* init 时捕获，供 banner 打印 */
+} ctf_engine_t;
 
-static uint8_t s_ready;
-static char    s_ctf_path[96];
-static char    s_ttf_path[96];
+static ctf_engine_t g_eng = {0};
 
-/** What the index pinned in RAM; captured at init so the banner can print it. */
-static ctf_resident_t s_resident;
+/* 统计：均为计数器，miss 路径不打印 */
+typedef struct
+{
+    uint32_t lookups;
+    uint32_t missing;
+} font_stats_t;
 
-/* Statistics.  All of them are just counters - never printed by a miss path. */
-static uint32_t s_lookups;
-static uint32_t s_missing;
+static font_stats_t g_stats = {0};
 
 /* ---- TTF glyph preload (async, page-aware) ------------------------------- */
 #define PRELOAD_Q_MAX 256u
-static uint32_t    s_pl_uni[PRELOAD_Q_MAX];
-static uint16_t    s_pl_px[PRELOAD_Q_MAX];
-static uint16_t    s_pl_head;
-static uint16_t    s_pl_tail;
-static uint16_t    s_pl_count;
-static lv_timer_t *s_pl_timer;
+
+/* 预载环形队列：按 (unicode, px) 去重 */
+typedef struct
+{
+    uint32_t    uni[PRELOAD_Q_MAX];
+    uint16_t    px[PRELOAD_Q_MAX];
+    uint16_t    head;
+    uint16_t    tail;
+    uint16_t    count;
+    lv_timer_t *timer;
+} font_preload_t;
+
+static font_preload_t g_preload = {0};
 
 /*---------------------------------------------------------------------------*/
 /* Rasterised glyph cache (LRU, 160 KB pool in RAM_D2)                        */
@@ -197,17 +210,17 @@ static float scale_for_px(uint16_t px)
     {
         if (s_sizes[i] == px)
         {
-            return s_fdsc[i].scale;
+            return g_eng.fdsc[i].scale;
         }
     }
     for (i = CTF_FONT_SIZES; i > 0u; i--)
     {
         if (px >= s_sizes[i - 1u])
         {
-            return s_fdsc[i - 1u].scale;
+            return g_eng.fdsc[i - 1u].scale;
         }
     }
-    return s_fdsc[0].scale;
+    return g_eng.fdsc[0].scale;
 }
 
 static void preload_enqueue(uint32_t cp, uint16_t px)
@@ -227,22 +240,22 @@ static void preload_enqueue(uint32_t cp, uint16_t px)
     {
         return; /* already cached */
     }
-    for (i = 0u; i < s_pl_count; i++)
+    for (i = 0u; i < g_preload.count; i++)
     {
-        uint16_t idx = (uint16_t)((s_pl_head + i) % PRELOAD_Q_MAX);
-        if ((s_pl_uni[idx] == cp) && (s_pl_px[idx] == px))
+        uint16_t idx = (uint16_t)((g_preload.head + i) % PRELOAD_Q_MAX);
+        if ((g_preload.uni[idx] == cp) && (g_preload.px[idx] == px))
         {
             return; /* already queued */
         }
     }
-    if (s_pl_count >= PRELOAD_Q_MAX)
+    if (g_preload.count >= PRELOAD_Q_MAX)
     {
         return; /* queue full: it will cold-rasterise on draw */
     }
-    s_pl_uni[s_pl_tail] = cp;
-    s_pl_px[s_pl_tail]  = px;
-    s_pl_tail           = (uint16_t)((s_pl_tail + 1u) % PRELOAD_Q_MAX);
-    s_pl_count++;
+    g_preload.uni[g_preload.tail] = cp;
+    g_preload.px[g_preload.tail]  = px;
+    g_preload.tail           = (uint16_t)((g_preload.tail + 1u) % PRELOAD_Q_MAX);
+    g_preload.count++;
 }
 
 static void preload_timer_cb(lv_timer_t *timer)
@@ -253,21 +266,21 @@ static void preload_timer_cb(lv_timer_t *timer)
 
     /* A few glyphs per tick keeps the UI thread responsive; an SD read per
      * glyph is the cost, and most pages finish well within one second. */
-    while ((s_pl_count > 0u) && (processed < 4u))
+    while ((g_preload.count > 0u) && (processed < 4u))
     {
-        uint32_t    cp = s_pl_uni[s_pl_head];
-        uint16_t    px = s_pl_px[s_pl_head];
+        uint32_t    cp = g_preload.uni[g_preload.head];
+        uint16_t    px = g_preload.px[g_preload.head];
         ctf_entry_t e;
         int32_t     ix0, iy0, ix1, iy1;
         uint16_t    w, h;
         uint32_t    bytes;
         uint8_t    *buf;
 
-        s_pl_head = (uint16_t)((s_pl_head + 1u) % PRELOAD_Q_MAX);
-        s_pl_count--;
+        g_preload.head = (uint16_t)((g_preload.head + 1u) % PRELOAD_Q_MAX);
+        g_preload.count--;
         processed++;
 
-        if (ctf_find_unicode(&s_ctf, cp, &e) != CTF_OK)
+        if (ctf_find_unicode(&g_eng.ctf, cp, &e) != CTF_OK)
         {
             continue; /* not in this font: Montserrat / nothing */
         }
@@ -293,12 +306,12 @@ static void preload_timer_cb(lv_timer_t *timer)
                                  (int16_t)ix0, (int16_t)(-iy1));
     }
 
-    if (s_pl_count == 0u)
+    if (g_preload.count == 0u)
     {
-        if (s_pl_timer != NULL)
+        if (g_preload.timer != NULL)
         {
-            lv_timer_del(s_pl_timer);
-            s_pl_timer = NULL;
+            lv_timer_del(g_preload.timer);
+            g_preload.timer = NULL;
         }
     }
 }
@@ -313,7 +326,7 @@ uint16_t lvgl_font_px_of(const lv_font_t *f)
     }
     for (i = 0u; i < CTF_FONT_SIZES; i++)
     {
-        if (f == &s_font[i])
+        if (f == &g_eng.font[i])
         {
             return s_sizes[i];
         }
@@ -326,7 +339,7 @@ void lvgl_font_preload_text(const char *text, uint16_t px)
     const char *p = text;
     uint32_t    cp;
 
-    if ((text == NULL) || (s_ready == 0u))
+    if ((text == NULL) || (g_eng.ready == 0u))
     {
         return;
     }
@@ -336,15 +349,15 @@ void lvgl_font_preload_text(const char *text, uint16_t px)
         preload_enqueue(cp, px);
     }
 
-    if ((s_pl_count > 0u) && (s_pl_timer == NULL))
+    if ((g_preload.count > 0u) && (g_preload.timer == NULL))
     {
-        s_pl_timer = lv_timer_create(preload_timer_cb, 30, NULL);
+        g_preload.timer = lv_timer_create(preload_timer_cb, 30, NULL);
     }
 }
 
 uint32_t lvgl_font_preload_pending(void)
 {
-    return (uint32_t)s_pl_count;
+    return (uint32_t)g_preload.count;
 }
 
 void lvgl_font_preload_label(const lv_obj_t *lbl)
@@ -353,7 +366,7 @@ void lvgl_font_preload_label(const lv_obj_t *lbl)
     uint16_t         px;
     const char      *t;
 
-    if ((s_ready == 0u) || (lbl == NULL))
+    if ((g_eng.ready == 0u) || (lbl == NULL))
     {
         return;
     }
@@ -424,15 +437,15 @@ static bool ctf_get_glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *dsc,
     }
 
     fd = (const ctf_font_dsc_t *)font->dsc;
-    s_lookups++;
+    g_stats.lookups++;
 
-    rc = ctf_find_unicode(&s_ctf, letter, &e);
+    rc = ctf_find_unicode(&g_eng.ctf, letter, &e);
 
     if (rc != CTF_OK)
     {
         /* Not in this font.  Hand it to the fallback chain and stop here:
          * no TTF read, no log line, no placeholder bitmap. */
-        s_missing++;
+        g_stats.missing++;
         return false;
     }
 
@@ -502,10 +515,10 @@ static const uint8_t *ctf_get_glyph_bitmap(const lv_font_t *font, uint32_t lette
         return bmp;
     }
 
-    s_lookups++;
+    g_stats.lookups++;
 
     /* 2. Cold miss: resolve the index entry, then rasterise into the cache. */
-    rc = ctf_find_unicode(&s_ctf, letter, &e);
+    rc = ctf_find_unicode(&g_eng.ctf, letter, &e);
     if (rc != CTF_OK)
     {
         return NULL;
@@ -564,45 +577,45 @@ static void path_copy(char *dst, size_t dst_size, const char *src)
 
 static void build_font(uint32_t i)
 {
-    const ctf_header_t *h = ctf_header(&s_ctf);
+    const ctf_header_t *h = ctf_header(&g_eng.ctf);
     float               scale;
 
     scale = (float)s_sizes[i] / (float)h->units_per_em;
 
-    s_fdsc[i].px    = s_sizes[i];
-    s_fdsc[i].scale = scale;
+    g_eng.fdsc[i].px    = s_sizes[i];
+    g_eng.fdsc[i].scale = scale;
 
-    s_font[i].dsc                 = (const void *)&s_fdsc[i];
-    s_font[i].get_glyph_dsc       = ctf_get_glyph_dsc;
-    s_font[i].get_glyph_bitmap    = ctf_get_glyph_bitmap;
-    s_font[i].line_height         = (lv_coord_t)(scale *
+    g_eng.font[i].dsc                 = (const void *)&g_eng.fdsc[i];
+    g_eng.font[i].get_glyph_dsc       = ctf_get_glyph_dsc;
+    g_eng.font[i].get_glyph_bitmap    = ctf_get_glyph_bitmap;
+    g_eng.font[i].line_height         = (lv_coord_t)(scale *
                                                  ((float)h->ascent - (float)h->descent +
                                                   (float)h->line_gap));
-    s_font[i].base_line           = (lv_coord_t)(scale *
+    g_eng.font[i].base_line           = (lv_coord_t)(scale *
                                                  ((float)h->line_gap - (float)h->descent));
-    s_font[i].subpx               = 0u;
-    s_font[i].underline_position  = (int8_t)(-((int)(s_sizes[i] / 10u)) - 1);
-    s_font[i].underline_thickness = 1;
+    g_eng.font[i].subpx               = 0u;
+    g_eng.font[i].underline_position  = (int8_t)(-((int)(s_sizes[i] / 10u)) - 1);
+    g_eng.font[i].underline_thickness = 1;
 
     /* Latin comes from flash when the index has no such glyph. */
-    s_font[i].fallback = montserrat_for(s_sizes[i]);
+    g_eng.font[i].fallback = montserrat_for(s_sizes[i]);
 }
 
 GlobalType_t lvgl_font_engine_init(const char *ctf_path, const char *ttf_path)
 {
     uint32_t i;
 
-    s_ready = 0u;
-    (void)memset(&s_resident, 0, sizeof(s_resident));
+    g_eng.ready = 0u;
+    (void)memset(&g_eng.resident, 0, sizeof(g_eng.resident));
 
     if ((ctf_path == NULL) || (ttf_path == NULL))
     {
         return RT_FAIL;
     }
 
-    if (ctf_open(&s_ctf, ctf_path,
-                 s_ctf_cache, CTF_BLOCK_SIZE, CTF_BLOCK_COUNT,
-                 s_l1_shadow) != RT_OK)
+    if (ctf_open(&g_eng.ctf, ctf_path,
+                 g_eng.ctf_cache, CTF_BLOCK_SIZE, CTF_BLOCK_COUNT,
+                 g_eng.l1_shadow) != RT_OK)
     {
         return RT_FAIL;
     }
@@ -611,37 +624,37 @@ GlobalType_t lvgl_font_engine_init(const char *ctf_path, const char *ttf_path)
      * directory, and the whole page table if it fits.  A pool that is too small
      * is not fatal - the reader keeps serving page records from its cache - so
      * only a hard I/O error is worth aborting for. */
-    if (ctf_load_resident(&s_ctf, s_page_pool, sizeof(s_page_pool),
-                          &s_resident) != RT_OK)
+    if (ctf_load_resident(&g_eng.ctf, g_eng.page_pool, sizeof(g_eng.page_pool),
+                          &g_eng.resident) != RT_OK)
     {
-        ctf_close(&s_ctf);
+        ctf_close(&g_eng.ctf);
         return RT_FAIL;
     }
 
     /* Refuse to render from a TTF that is not the one the index describes;
      * every offset in the index would point somewhere else. */
-    if (ctf_verify_ttf(&s_ctf, ttf_path, 0) != RT_OK)
+    if (ctf_verify_ttf(&g_eng.ctf, ttf_path, 0) != RT_OK)
     {
-        ctf_close(&s_ctf);
+        ctf_close(&g_eng.ctf);
         return RT_FAIL;
     }
 
-    if (ttf_open(&s_ttf, ttf_path,
-                 s_ttf_cache, TTF_BLOCK_SIZE, TTF_BLOCK_COUNT) != RT_OK)
+    if (ttf_open(&g_eng.ttf, ttf_path,
+                 g_eng.ttf_cache, TTF_BLOCK_SIZE, TTF_BLOCK_COUNT) != RT_OK)
     {
-        ctf_close(&s_ctf);
+        ctf_close(&g_eng.ctf);
         return RT_FAIL;
     }
 
-    if (stb_adapter_open(&s_ttf, 0u) != RT_OK)
+    if (stb_adapter_open(&g_eng.ttf, 0u) != RT_OK)
     {
-        ttf_close(&s_ttf);
-        ctf_close(&s_ctf);
+        ttf_close(&g_eng.ttf);
+        ctf_close(&g_eng.ctf);
         return RT_FAIL;
     }
 
-    (void)memset(s_font, 0, sizeof(s_font));
-    (void)memset(s_fdsc, 0, sizeof(s_fdsc));
+    (void)memset(g_eng.font, 0, sizeof(g_eng.font));
+    (void)memset(g_eng.fdsc, 0, sizeof(g_eng.fdsc));
 
     for (i = 0u; i < CTF_FONT_SIZES; i++)
     {
@@ -650,37 +663,37 @@ GlobalType_t lvgl_font_engine_init(const char *ctf_path, const char *ttf_path)
 
     glyph_cache_init();
 
-    path_copy(s_ctf_path, sizeof(s_ctf_path), ctf_path);
-    path_copy(s_ttf_path, sizeof(s_ttf_path), ttf_path);
+    path_copy(g_eng.ctf_path, sizeof(g_eng.ctf_path), ctf_path);
+    path_copy(g_eng.ttf_path, sizeof(g_eng.ttf_path), ttf_path);
 
-    s_lookups = 0u;
-    s_missing = 0u;
+    g_stats.lookups = 0u;
+    g_stats.missing = 0u;
     glyph_cache_reset_stats();
 
-    s_ready = 1u;
+    g_eng.ready = 1u;
     return RT_OK;
 }
 
 void lvgl_font_engine_deinit(void)
 {
     stb_adapter_close();
-    ttf_close(&s_ttf);
-    ctf_close(&s_ctf);
+    ttf_close(&g_eng.ttf);
+    ctf_close(&g_eng.ctf);
     bmp_flush();
-    (void)memset(&s_resident, 0, sizeof(s_resident));
-    s_ready = 0u;
+    (void)memset(&g_eng.resident, 0, sizeof(g_eng.resident));
+    g_eng.ready = 0u;
 }
 
 int lvgl_font_engine_ready(void)
 {
-    return (int)s_ready;
+    return (int)g_eng.ready;
 }
 
 const lv_font_t *lvgl_font_get(uint16_t px_size)
 {
     uint32_t i;
 
-    if (!s_ready)
+    if (!g_eng.ready)
     {
         return NULL;
     }
@@ -690,21 +703,21 @@ const lv_font_t *lvgl_font_get(uint16_t px_size)
     {
         if (px_size >= s_sizes[i - 1u])
         {
-            return &s_font[i - 1u];
+            return &g_eng.font[i - 1u];
         }
     }
 
-    return &s_font[0];
+    return &g_eng.font[0];
 }
 
 const char *lvgl_font_ctf_path(void)
 {
-    return s_ctf_path;
+    return g_eng.ctf_path;
 }
 
 const char *lvgl_font_ttf_path(void)
 {
-    return s_ttf_path;
+    return g_eng.ttf_path;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -773,7 +786,7 @@ static uint32_t sd_us_so_far(void)
 {
     uint32_t sc, rc;
 
-    ttf_cycles(&s_ttf, &sc, &rc);
+    ttf_cycles(&g_eng.ttf, &sc, &rc);
     return cycles_to_us(sc + rc);
 }
 
@@ -790,7 +803,7 @@ uint32_t lvgl_font_selftest(lvgl_font_probe_t *out, uint32_t capacity)
     uint32_t i;
     uint32_t n = 0u;
 
-    if ((out == NULL) || (capacity == 0u) || !s_ready)
+    if ((out == NULL) || (capacity == 0u) || !g_eng.ready)
     {
         return 0u;
     }
@@ -914,8 +927,8 @@ void lvgl_font_get_stats(lvgl_font_stats_t *out)
 
     (void)memset(out, 0, sizeof(*out));
 
-    out->lookups = s_lookups;
-    out->missing = s_missing;
+    out->lookups = g_stats.lookups;
+    out->missing = g_stats.missing;
 
     {
         uint32_t gh, gm, ge, gb, gn;
@@ -928,22 +941,22 @@ void lvgl_font_get_stats(lvgl_font_stats_t *out)
 
     stb_adapter_arena_stats(&out->arena_peak, &out->arena_fails);
 
-    ttf_stats(&s_ttf, &hits, &misses, &fills, &fill_bytes);
+    ttf_stats(&g_eng.ttf, &hits, &misses, &fills, &fill_bytes);
     out->ttf_hits   = hits;
     out->ttf_misses = misses;
     out->ttf_fills  = fills;
     out->ttf_bytes  = fill_bytes;
 
-    ttf_cycles(&s_ttf, &sc, &rc);
+    ttf_cycles(&g_eng.ttf, &sc, &rc);
     out->ttf_seek_us = cycles_to_us(sc);
     out->ttf_read_us = cycles_to_us(rc);
 
-    ctf_stats(&s_ctf, &c_look, &c_nf, &c_io);
+    ctf_stats(&g_eng.ctf, &c_look, &c_nf, &c_io);
     out->ctf_lookups   = c_look;
     out->ctf_not_found = c_nf;
     out->ctf_io_errors = c_io;
 
-    ctf_page_stats(&s_ctf, &p_ram, &p_sd);
+    ctf_page_stats(&g_eng.ctf, &p_ram, &p_sd);
     out->ctf_page_ram = p_ram;
     out->ctf_page_sd  = p_sd;
 }
@@ -954,23 +967,23 @@ void lvgl_font_get_resident(ctf_resident_t *out)
     {
         return;
     }
-    *out = s_resident;
+    *out = g_eng.resident;
 }
 
 uint32_t lvgl_font_resident_bytes(void)
 {
-    return s_resident.total_bytes;
+    return g_eng.resident.total_bytes;
 }
 
 uint32_t lvgl_font_page_pool_bytes(void)
 {
-    return (uint32_t)sizeof(s_page_pool);
+    return (uint32_t)sizeof(g_eng.page_pool);
 }
 
 void lvgl_font_reset_stats(void)
 {
-    s_lookups = 0u;
-    s_missing = 0u;
+    g_stats.lookups = 0u;
+    g_stats.missing = 0u;
     glyph_cache_reset_stats();
 }
 

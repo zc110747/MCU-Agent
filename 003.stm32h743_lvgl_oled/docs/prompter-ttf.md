@@ -208,7 +208,7 @@ bsp/font/
 ├── glyph_cache.c/.h  200 KB 栅格化字形池（LRU + epoch 钉扎 + 异步预取），放 .ram_d2
 ├── lvgl_font.c/.h    lv_font_t 后端 + 内置 Montserrat 回退 + 预取队列
 └── font_common.h
-bsp/lv_font_provider.c/.h   引擎切换（LV_FONT_ENGINE: 2=CTF+TTF / 1=TTF直读 / 0=GBK 点阵）
+bsp/lv_font_provider.c/.h   引擎切换（LV_FONT_ENGINE: 1=CTF+TTF / 0=GBK 点阵）
 Application/
 ├── ui_common.{c,h}       共享原语 + ui_mk_label（内部透明预取）
 ├── ui_page_info.{c,h}    信息页
