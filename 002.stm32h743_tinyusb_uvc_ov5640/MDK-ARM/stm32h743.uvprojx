@@ -448,6 +448,11 @@
               <FileType>1</FileType>
               <FilePath>..\bsp\usb_descriptors.c</FilePath>
             </File>
+            <File>
+              <FileName>sys_prob.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\sys_prob.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

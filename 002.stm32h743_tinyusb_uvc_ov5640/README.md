@@ -124,6 +124,12 @@ Cortex-M7 Thumb）。它与 CMake 工程共享同一套源码，**源文件组 /
 - **排除 `app/syscalls.c`**（GCC/newlib 专用堆桩），Keil 侧由 `MDK-ARM/mdk_target.c`
   提供 `__use_no_semihosting` 重定向。
 
+`bsp/sys_prob.c`（SWD 调试探针）在 Keil 源文件组中**始终列出**，但整份代码由
+`CAM_DIAGNOSTICS` 宏包裹：未定义时该编译单元不含任何符号（零 flash / 零 RAM / 零运行时
+开销），与 CMake 默认 `ENABLE_CAM_DIAGNOSTICS=OFF` 完全一致。要在 Keil 侧启用探针，
+把 `CAM_DIAGNOSTICS` 加进
+`Options for Target → C/C++ (AC6) → Preprocessor Symbols → Define` 即可，**无需改动源文件列表**。
+
 命令行批量构建（UV4，退出码 0 = 0 Error / 0 Warning）：
 
 ```bat
@@ -245,6 +251,7 @@ stm32h743_uvc_camera/
 ├── bsp/                      # 板级 / 外设驱动
 │   ├── bsp_board.c           # 时钟树、MPU、D-Cache、LED
 │   ├── bsp_camera.c          # OV5640 + DCMI + DMA + 快照 / 撕裂修复
+│   ├── sys_prob.c/.h         # SWD 调试探针（CAM_DIAGNOSTICS 宏开关，默认关闭）
 │   ├── bsp_ov5640_ref.c      # 参考驱动移植（替代 ST BSP 表）
 │   ├── usb_descriptors.c     # UVC 描述符
 │   └── ov5640/               # ST 组件驱动（参考）
@@ -308,7 +315,7 @@ python tools/fps_test.py --interval 1 --count 10
 - [x] DCMI 像素数据正确（参考驱动移植 + 极性修正）
 - [x] USB UVC 实时显示图像
 - [x] 剧烈变化拼接（tearing）修复 —— 消隐期相位锁存 + 三缓冲，A/B 验证通过
-- [x] Keil MDK-ARM（UV4 / ARMCLANG V6.16）零错误零警告构建；源文件组 / include / 宏定义已与 `CMakeLists.txt` 同步（`app/` + `bsp/`，排除 `app/syscalls.c`）
+- [x] Keil MDK-ARM（UV4 / ARMCLANG V6.16）零错误零警告构建；源文件组 / include / 宏定义已与 `CMakeLists.txt` 同步（`app/` + `bsp/` 含 `bsp/sys_prob.c`，排除 `app/syscalls.c`；探针受 `CAM_DIAGNOSTICS` 宏开关，默认关闭）
 - [x] 最终帧率（吞吐）测试 —— 固件实时 fps(`uvc_fps_x10`) + `tools/fps_test.py` 就绪；真机实测见 §10.3
 
 ---
