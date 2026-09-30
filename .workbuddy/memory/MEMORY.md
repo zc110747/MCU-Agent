@@ -42,6 +42,13 @@
 
 ## Keil 构建验证
 
-- `UV4.exe -b -j0 -t <target> -x <uvprojx> -o build_log.htm`；exit 0 = 成功。
+- `UV4.exe -b -j0 <完整路径>\xxx.uvprojx -t <target> -o build_log.htm`；exit 0 = 成功。
+  ⚠️ **uvprojx 路径参数绝不能漏**：不传工程文件时 UV4 静默挂起（无 log、无 .o、
+  无报错，弹工程选择框等输入），构建永不结束（2026-09-30 在 004 实测两次踩坑）。
+  挂起判据：进程存在但 build_log.htm 迟迟不生成 + Objects 目录时间戳不动 →
+  `taskkill //PID <pid> //F` 后带全路径重跑。
+- uvprojx 与 uvoptx 的 `<GroupName>` 必须**两侧同步改**；只改一侧 UV4 构建可能异常。
 - 成败以 build_log.htm 末行 `0 Error(s), 0 Warning(s)` 为准（stdout 不一定回显）。
 - 半主机验证：`fromelf --text -c Objects/*.axf | grep -c " BKPT"` 期望 0。
+- 004 工程 GCC 构建必须走 CMakePresets：`cmake --preset release` + `cmake --build --preset release`
+  （直接 `cmake -S . -B build` 不会加载 arm-none-eabi 工具链，误用宿主 cc.exe 报 -mthumb 不识别）。
