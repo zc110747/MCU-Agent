@@ -11,64 +11,65 @@
 #include "drv_sdio.h"
 #include <string.h>
 
-#define SD_RUN_ERROR_TIMES  4
+#define SD_RUN_ERROR_TIMES 4
 
 static uint8_t is_fdisk_error = 0;
 
-//RAM disk
+// RAM disk
 int RAM_disk_status(void)
 {
-    //for ram, status already ok.
+    // for ram, status already ok.
     return 0;
 }
 
 int RAM_disk_initialize(void)
 {
-    //for ram, not need initialize
+    // for ram, not need initialize
     return 0;
 }
 
 int RAM_disk_read(BYTE *buff, LBA_t sector, UINT count)
 {
-    uint32_t address = RAM_START_ADDRESS + sector*RAM_SECTOR_SIZE;
-    uint32_t size = count * RAM_SECTOR_SIZE;
-    
+    uint32_t address = RAM_START_ADDRESS + sector * RAM_SECTOR_SIZE;
+    uint32_t size    = count * RAM_SECTOR_SIZE;
+
     memcpy(buff, (uint8_t *)address, size);
     return 0;
 }
 
 int RAM_disk_write(const BYTE *buff, LBA_t sector, UINT count)
 {
-    uint32_t address = RAM_START_ADDRESS + sector*RAM_SECTOR_SIZE;
-    uint32_t size = count * RAM_SECTOR_SIZE;
-    
+    uint32_t address = RAM_START_ADDRESS + sector * RAM_SECTOR_SIZE;
+    uint32_t size    = count * RAM_SECTOR_SIZE;
+
     memcpy((uint8_t *)address, buff, size);
     return 0;
 }
 
 int RAM_disk_ioctl(BYTE cmd, void *buff)
 {
-    switch(cmd)
+    switch (cmd)
     {
-        case GET_BLOCK_SIZE:
-            *(DWORD *)buff = RAM_SECTOR_SIZE;
-            break;
-        case GET_SECTOR_COUNT:
-            *(DWORD *)buff = RAM_SECTOR_COUNT;
-            break;
-        case CTRL_SYNC:
-            break;
+    case GET_BLOCK_SIZE:
+        *(DWORD *)buff = RAM_SECTOR_SIZE;
+        break;
+    case GET_SECTOR_COUNT:
+        *(DWORD *)buff = RAM_SECTOR_COUNT;
+        break;
+    case CTRL_SYNC:
+        break;
     }
     return 0;
 }
 
-//MMC disk
+// MMC disk
 int MMC_disk_status(void)
 {
-    if(is_fdisk_error == 1) {
+    if (is_fdisk_error == 1)
+    {
         return RES_ERROR;
     }
-    
+
     return RES_OK;
 }
 
@@ -80,28 +81,31 @@ int MMC_disk_initialize(void)
 
 int MMC_disk_read(BYTE *buff, LBA_t sector, UINT count)
 {
-    uint8_t res = 0;
+    uint8_t res   = 0;
     uint8_t index = 0;
-    
-    if (is_fdisk_error == 1) {
+
+    if (is_fdisk_error == 1)
+    {
         return RES_ERROR;
     }
-    
+
     do
     {
         res = sdcard_read_disk(buff, sector, count);
-        if (res != HAL_OK) {
+        if (res != HAL_OK)
+        {
             index++;
             drv_sdcard_init();
         }
-        
+
         if (index == SD_RUN_ERROR_TIMES)
         {
             is_fdisk_error = 1;
         }
-    }while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
-    
-    if (res != HAL_OK) {
+    } while (res != HAL_OK && index < SD_RUN_ERROR_TIMES);
+
+    if (res != HAL_OK)
+    {
         return RES_ERROR;
     }
     return RES_OK;
@@ -109,13 +113,14 @@ int MMC_disk_read(BYTE *buff, LBA_t sector, UINT count)
 
 int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
 {
-    uint8_t res = 0;
+    uint8_t res   = 0;
     uint8_t index = 0;
-    
-    if (is_fdisk_error == 1) {
+
+    if (is_fdisk_error == 1)
+    {
         return RES_ERROR;
     }
-    
+
     do
     {
         res = sdcard_write_disk(buff, sector, count);
@@ -124,14 +129,15 @@ int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
             index++;
             drv_sdcard_init();
         }
-        
+
         if (index == SD_RUN_ERROR_TIMES)
         {
             is_fdisk_error = 1;
         }
-    }while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
+    } while (res != HAL_OK && index < SD_RUN_ERROR_TIMES);
 
-    if (res != HAL_OK) {
+    if (res != HAL_OK)
+    {
         return RES_ERROR;
     }
     return RES_OK;
@@ -139,40 +145,40 @@ int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
 
 int MMC_disk_ioctl(BYTE cmd, void *buff)
 {
-    DRESULT res = RES_OK;
+    DRESULT                res = RES_OK;
     HAL_SD_CardInfoTypeDef info;
 
-    switch(cmd)
+    switch (cmd)
     {
-        case GET_BLOCK_SIZE:
-            /* Erase block size expressed in sectors */
-            *(DWORD *)buff = 1;
-            break;
-        case GET_SECTOR_SIZE:
-            *(WORD *)buff = MMC_SECTOR_SIZE;
-            break;
-        case GET_SECTOR_COUNT:
-            /* Ask the card rather than trusting a hard coded constant, so the
-               same firmware works with any capacity. */
-            if (HAL_SD_GetCardInfo(&hsd1, &info) == HAL_OK)
-            {
-                *(DWORD *)buff = (DWORD)info.LogBlockNbr;
-            }
-            else
-            {
-                *(DWORD *)buff = MMC_SECTOR_COUNT;
-            }
-            break;
-        case CTRL_SYNC:
-            break;
-        default:
-            res = RES_PARERR;
-            break;
+    case GET_BLOCK_SIZE:
+        /* Erase block size expressed in sectors */
+        *(DWORD *)buff = 1;
+        break;
+    case GET_SECTOR_SIZE:
+        *(WORD *)buff = MMC_SECTOR_SIZE;
+        break;
+    case GET_SECTOR_COUNT:
+        /* Ask the card rather than trusting a hard coded constant, so the
+           same firmware works with any capacity. */
+        if (HAL_SD_GetCardInfo(&hsd1, &info) == HAL_OK)
+        {
+            *(DWORD *)buff = (DWORD)info.LogBlockNbr;
+        }
+        else
+        {
+            *(DWORD *)buff = MMC_SECTOR_COUNT;
+        }
+        break;
+    case CTRL_SYNC:
+        break;
+    default:
+        res = RES_PARERR;
+        break;
     }
     return res;
 }
 
-//USB disk
+// USB disk
 int USB_disk_status(void)
 {
     return 0;

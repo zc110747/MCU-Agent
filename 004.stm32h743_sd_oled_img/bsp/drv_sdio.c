@@ -1,26 +1,26 @@
 /**
-  ******************************************************************************
-  * @file    bsp_sdcard.c
-  * @brief   SDMMC1 block device + FatFs volume management.
-  *
-  * Transfer mode
-  * -------------
-  * HAL_SD_ReadBlocks()/HAL_SD_WriteBlocks() are the *polling* variants: the CPU
-  * moves data byte-by-byte through the SDMMC FIFO. That means
-  *   - no D-Cache maintenance is required (no DMA writes behind the cache),
-  *   - the destination buffer needs no particular alignment,
-  *   - the buffer may live in DTCM (which SDMMC IDMA could not reach).
-  * Throughput is around 5-8 MB/s, which is far more than a 5s slideshow needs.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_sdcard.c
+ * @brief   SDMMC1 block device + FatFs volume management.
+ *
+ * Transfer mode
+ * -------------
+ * HAL_SD_ReadBlocks()/HAL_SD_WriteBlocks() are the *polling* variants: the CPU
+ * moves data byte-by-byte through the SDMMC FIFO. That means
+ *   - no D-Cache maintenance is required (no DMA writes behind the cache),
+ *   - the destination buffer needs no particular alignment,
+ *   - the buffer may live in DTCM (which SDMMC IDMA could not reach).
+ * Throughput is around 5-8 MB/s, which is far more than a 5s slideshow needs.
+ ******************************************************************************
+ */
 
 #include "drv_sdio.h"
 #include "bsp_log.h"
 
 #include "diskio.h"
 
-#define SD_OP_TIMEOUT_MS      2000U
-#define SD_READY_TIMEOUT_MS   1000U
+#define SD_OP_TIMEOUT_MS 2000U
+#define SD_READY_TIMEOUT_MS 1000U
 
 static FATFS s_fatfs;
 static int   s_mounted = 0;
@@ -42,7 +42,8 @@ GlobalType_t drv_sdcard_init(void)
     hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
     hsd1.Init.ClockDiv            = 6;
 
-    if (HAL_SD_Init(&hsd1) != HAL_OK) {
+    if (HAL_SD_Init(&hsd1) != HAL_OK)
+    {
         /* No card inserted is not fatal: the app reports it on screen. */
         return RT_FAIL;
     }
@@ -51,14 +52,16 @@ GlobalType_t drv_sdcard_init(void)
 }
 
 /**
-  * @brief  Wait until the card returns to the transfer state.
-  */
+ * @brief  Wait until the card returns to the transfer state.
+ */
 static HAL_StatusTypeDef sd_wait_ready(void)
 {
     uint32_t tick = HAL_GetTick();
 
-    while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER) {
-        if ((HAL_GetTick() - tick) > SD_READY_TIMEOUT_MS) {
+    while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
+    {
+        if ((HAL_GetTick() - tick) > SD_READY_TIMEOUT_MS)
+        {
             return HAL_TIMEOUT;
         }
     }
@@ -111,7 +114,8 @@ HAL_StatusTypeDef bsp_sdcard_read_blocks(uint8_t *buf, uint32_t start_block, uin
     HAL_StatusTypeDef status;
 
     status = HAL_SD_ReadBlocks(&hsd1, buf, start_block, nblocks, SD_OP_TIMEOUT_MS);
-    if (status != HAL_OK) {
+    if (status != HAL_OK)
+    {
         return status;
     }
     return sd_wait_ready();
@@ -122,7 +126,8 @@ HAL_StatusTypeDef bsp_sdcard_write_blocks(const uint8_t *buf, uint32_t start_blo
     HAL_StatusTypeDef status;
 
     status = HAL_SD_WriteBlocks(&hsd1, (uint8_t *)buf, start_block, nblocks, SD_OP_TIMEOUT_MS);
-    if (status != HAL_OK) {
+    if (status != HAL_OK)
+    {
         return status;
     }
     return sd_wait_ready();
@@ -147,7 +152,8 @@ GlobalType_t bsp_sdcard_mount(void)
 
     /* opt = 1 -> mount immediately so errors surface here, not at f_open() */
     res = f_mount(&s_fatfs, SD_DRIVE_PATH, 1);
-    if (res != FR_OK) {
+    if (res != FR_OK)
+    {
         PRINT_LOG("[E] f_mount(%s) failed, FRESULT=%d\r\n", SD_DRIVE_PATH, res);
         return RT_FAIL;
     }
@@ -173,7 +179,8 @@ void bsp_sdcard_dump_info(void)
     HAL_SD_CardInfoTypeDef info = {0};
     uint64_t               bytes;
 
-    if (HAL_SD_GetCardInfo(&hsd1, &info) != HAL_OK) {
+    if (HAL_SD_GetCardInfo(&hsd1, &info) != HAL_OK)
+    {
         PRINT_LOG("[W] HAL_SD_GetCardInfo failed\r\n");
         return;
     }
@@ -181,8 +188,8 @@ void bsp_sdcard_dump_info(void)
     bytes = (uint64_t)info.LogBlockNbr * (uint64_t)info.LogBlockSize;
 
     PRINT_LOG("[I] SD card: type=%lu, blocks=%lu, blocksize=%lu, capacity=%lu MB\r\n",
-          (unsigned long)info.CardType,
-          (unsigned long)info.LogBlockNbr,
-          (unsigned long)info.LogBlockSize,
-          (unsigned long)(bytes >> 20));
+              (unsigned long)info.CardType,
+              (unsigned long)info.LogBlockNbr,
+              (unsigned long)info.LogBlockSize,
+              (unsigned long)(bytes >> 20));
 }
