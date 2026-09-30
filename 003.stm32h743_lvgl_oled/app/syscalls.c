@@ -1,13 +1,13 @@
 /**
-  ******************************************************************************
-  * @file    syscalls.c
-  * @brief   Minimal newlib syscall stubs + printf retarget to USART1 (PA9/PA10).
-  *
-  *  printf() is wired to the debug UART through _write().  The link uses
-  *  -u _printf_float only when floating point output is needed; the default
-  *  build keeps newlib-nano's integer-only formatter to save flash.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    syscalls.c
+ * @brief   Minimal newlib syscall stubs + printf retarget to USART1 (PA9/PA10).
+ *
+ *  printf() is wired to the debug UART through _write().  The link uses
+ *  -u _printf_float only when floating point output is needed; the default
+ *  build keeps newlib-nano's integer-only formatter to save flash.
+ ******************************************************************************
+ */
 #include "main.h"
 
 #include <errno.h>
@@ -16,8 +16,8 @@
 #include <sys/unistd.h>
 
 /* Provided by the linker script */
-extern char end;      /* start of the heap  */
-extern char _estack;  /* top of the stack   */
+extern char end;     /* start of the heap  */
+extern char _estack; /* top of the stack   */
 
 #ifndef UART_TX_TIMEOUT
 #define UART_TX_TIMEOUT 100U

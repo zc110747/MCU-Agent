@@ -1,37 +1,37 @@
 /**
-  ******************************************************************************
-  * @file    drv_oled_text.c
-  * @brief   GBK Chinese font reader (SD card backed).
-  *
-  *  Layout of the .FON files
-  *  ------------------------
-  *  Standard GBK "dot matrix" files: glyphs are stored in code order, two byte
-  *  GBK code (qh, ql) mapped to a linear index
-  *
-  *      index  = 190 * (qh - 0x81) + (ql - 0x40 or 0x41)
-  *      offset = index * bytes_per_glyph
-  *
-  *  The stored bitmap is MSB first, column scan.  The display driver wants LSB
-  *  first, row scan, so every glyph goes through Convert_Font_MSB_Column_to_LSB_Row().
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    drv_oled_text.c
+ * @brief   GBK Chinese font reader (SD card backed).
+ *
+ *  Layout of the .FON files
+ *  ------------------------
+ *  Standard GBK "dot matrix" files: glyphs are stored in code order, two byte
+ *  GBK code (qh, ql) mapped to a linear index
+ *
+ *      index  = 190 * (qh - 0x81) + (ql - 0x40 or 0x41)
+ *      offset = index * bytes_per_glyph
+ *
+ *  The stored bitmap is MSB first, column scan.  The display driver wants LSB
+ *  first, row scan, so every glyph goes through Convert_Font_MSB_Column_to_LSB_Row().
+ ******************************************************************************
+ */
 #include "drv_oled_text.h"
 #include "ff.h"
 
-#define FONT_NUMS       5
-#define FONT_MAX_BYTES  192     /* 32x32 needs 128, leave headroom */
+#define FONT_NUMS 5
+#define FONT_MAX_BYTES 192 /* 32x32 needs 128, leave headroom */
 
 /* Index into font_name[] / fil_list[] */
 #define FONT_IDX_UNIGBK 0
-#define FONT_IDX_GBK12  1
-#define FONT_IDX_GBK16  2
-#define FONT_IDX_GBK24  3
-#define FONT_IDX_GBK32  4
+#define FONT_IDX_GBK12 1
+#define FONT_IDX_GBK16 2
+#define FONT_IDX_GBK24 3
+#define FONT_IDX_GBK32 4
 
 typedef struct
 {
-    FATFS   fs;                     /* volume 1: work area          */
-    FIL     fil_list[FONT_NUMS];    /* kept open for the whole run  */
+    FATFS   fs;                  /* volume 1: work area          */
+    FIL     fil_list[FONT_NUMS]; /* kept open for the whole run  */
     uint8_t fil_valid[FONT_NUMS];
     uint8_t mounted;
 } LCD_FS_INFO;
@@ -50,9 +50,9 @@ static const char *font_name[FONT_NUMS] = {
 static uint8_t read_buffer[FONT_MAX_BYTES];
 
 /**
-  * @brief  Mount volume 1 (SD) and open every font file we know about.
-  * @retval RT_OK if at least one GBKxx.FON is available.
-  */
+ * @brief  Mount volume 1 (SD) and open every font file we know about.
+ * @retval RT_OK if at least one GBKxx.FON is available.
+ */
 GlobalType_t lcd_driver_font_init(void)
 {
     FRESULT res;
@@ -105,12 +105,12 @@ uint32_t lcd_driver_font_status(void)
 }
 
 /**
-  * @brief  Transpose a glyph from MSB + column scan to LSB + row scan.
-  * @param  src    source bitmap (MSB, column scan)
-  * @param  dst    destination bitmap (LSB, row scan)
-  * @param  width  glyph width in pixels
-  * @param  height glyph height in pixels
-  */
+ * @brief  Transpose a glyph from MSB + column scan to LSB + row scan.
+ * @param  src    source bitmap (MSB, column scan)
+ * @param  dst    destination bitmap (LSB, row scan)
+ * @param  width  glyph width in pixels
+ * @param  height glyph height in pixels
+ */
 static void Convert_Font_MSB_Column_to_LSB_Row(const uint8_t *src, uint8_t *dst,
                                                uint16_t width, uint16_t height)
 {
@@ -143,27 +143,32 @@ static void Convert_Font_MSB_Column_to_LSB_Row(const uint8_t *src, uint8_t *dst,
 }
 
 /**
-  * @brief  Map a font height to the file that holds it.
-  * @retval index into fil_list[], or 0xFF when unsupported.
-  */
+ * @brief  Map a font height to the file that holds it.
+ * @retval index into fil_list[], or 0xFF when unsupported.
+ */
 static uint8_t font_index_from_height(uint16_t height)
 {
     switch (height)
     {
-        case 12: return FONT_IDX_GBK12;
-        case 16: return FONT_IDX_GBK16;
-        case 24: return FONT_IDX_GBK24;
-        case 32: return FONT_IDX_GBK32;
-        default: return 0xFF;
+    case 12:
+        return FONT_IDX_GBK12;
+    case 16:
+        return FONT_IDX_GBK16;
+    case 24:
+        return FONT_IDX_GBK24;
+    case 32:
+        return FONT_IDX_GBK32;
+    default:
+        return 0xFF;
     }
 }
 
 /**
-  * @brief  Seek to a glyph and read it verbatim from the .FON file.
-  * @param  code  2 byte GBK code, lead byte first
-  * @param  dst   destination, at least font->Sizes bytes
-  * @note   No bit reordering: the data stays MSB first / column scan.
-  */
+ * @brief  Seek to a glyph and read it verbatim from the .FON file.
+ * @param  code  2 byte GBK code, lead byte first
+ * @param  dst   destination, at least font->Sizes bytes
+ * @note   No bit reordering: the data stays MSB first / column scan.
+ */
 static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT *font)
 {
     uint8_t  qh, ql;
@@ -214,9 +219,9 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
 }
 
 /**
-  * @brief  Blank a glyph buffer so a read failure shows up as a gap, never as
-  *         garbage left over from the previous character.
-  */
+ * @brief  Blank a glyph buffer so a read failure shows up as a gap, never as
+ *         garbage left over from the previous character.
+ */
 static void font_blank(uint8_t *pbuffer, const pFONT *font)
 {
     uint16_t n = font->Sizes;
@@ -229,8 +234,8 @@ static void font_blank(uint8_t *pbuffer, const pFONT *font)
 }
 
 /**
-  * @brief  Read one GBK glyph into pbuffer (LSB, row scan).
-  */
+ * @brief  Read one GBK glyph into pbuffer (LSB, row scan).
+ */
 GlobalType_t lcd_driver_get_hzmat(uint8_t *code, uint8_t *pbuffer, pFONT *font)
 {
     if (code == NULL || pbuffer == NULL || font == NULL)
@@ -250,8 +255,8 @@ GlobalType_t lcd_driver_get_hzmat(uint8_t *code, uint8_t *pbuffer, pFONT *font)
 }
 
 /**
-  * @brief  Read one GBK glyph without touching the bit order (see header).
-  */
+ * @brief  Read one GBK glyph without touching the bit order (see header).
+ */
 GlobalType_t lcd_driver_get_hzmat_raw(const uint8_t *code, uint8_t *pbuffer, const pFONT *font)
 {
     if (code == NULL || pbuffer == NULL || font == NULL)
@@ -272,7 +277,7 @@ GlobalType_t lcd_driver_get_hzmat_raw(const uint8_t *code, uint8_t *pbuffer, con
  * SD card resident font descriptors (pTable == NULL -> read from file)
  *   Sizes = width/8 rounded up * height
  * -------------------------------------------------------------------------*/
-pFONT CH_TEXT_Font12 = { NULL, 12, 12,  24, 0 };
-pFONT CH_TEXT_Font16 = { NULL, 16, 16,  32, 0 };
-pFONT CH_TEXT_Font24 = { NULL, 24, 24,  72, 0 };
-pFONT CH_TEXT_Font32 = { NULL, 32, 32, 128, 0 };
+pFONT CH_TEXT_Font12 = {NULL, 12, 12, 24, 0};
+pFONT CH_TEXT_Font16 = {NULL, 16, 16, 32, 0};
+pFONT CH_TEXT_Font24 = {NULL, 24, 24, 72, 0};
+pFONT CH_TEXT_Font32 = {NULL, 32, 32, 128, 0};

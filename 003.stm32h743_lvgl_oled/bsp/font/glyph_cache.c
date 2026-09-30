@@ -1,10 +1,10 @@
 /**
-  ******************************************************************************
-  * @file    glyph_cache.c
-  * @brief   Rasterised-glyph cache: 200 KB pool, LRU + page-epoch pinning.
-  * @see     glyph_cache.h
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    glyph_cache.c
+ * @brief   Rasterised-glyph cache: 200 KB pool, LRU + page-epoch pinning.
+ * @see     glyph_cache.h
+ ******************************************************************************
+ */
 #include "glyph_cache.h"
 #include <string.h>
 
@@ -29,29 +29,29 @@ typedef struct
 /* Entry table.  Compact array; a slot is free when used == 0. */
 typedef struct
 {
-    uint32_t  unicode;
-    uint16_t  px;
-    uint16_t  w;
-    uint16_t  h;
-    uint32_t  off;     /* byte offset into s_pool                         */
-    uint32_t  bytes;   /* allocated bytes (4-aligned)                     */
-    uint32_t  lru;     /* access stamp; higher = more recent              */
-    uint32_t  epoch;   /* page generation it belongs to                   */
-    uint8_t   used;
+    uint32_t unicode;
+    uint16_t px;
+    uint16_t w;
+    uint16_t h;
+    uint32_t off;   /* byte offset into s_pool                         */
+    uint32_t bytes; /* allocated bytes (4-aligned)                     */
+    uint32_t lru;   /* access stamp; higher = more recent              */
+    uint32_t epoch; /* page generation it belongs to                   */
+    uint8_t  used;
 } gc_entry_t;
 
 static gc_entry_t s_ent[GLYPH_CACHE_MAX_ENTRIES];
 static free_blk_t s_free[GLYPH_CACHE_MAX_ENTRIES + 1u];
 static uint32_t   s_free_n;
 
-static uint32_t   s_free_bytes;   /* total free bytes in s_pool            */
-static uint32_t   s_lru;          /* monotonically increasing stamp        */
-static uint32_t   s_epoch;        /* current page generation               */
+static uint32_t s_free_bytes; /* total free bytes in s_pool            */
+static uint32_t s_lru;        /* monotonically increasing stamp        */
+static uint32_t s_epoch;      /* current page generation               */
 
 /* Counters (never printed on a miss path). */
-static uint32_t   s_hits;
-static uint32_t   s_misses;
-static uint32_t   s_evicts;
+static uint32_t s_hits;
+static uint32_t s_misses;
+static uint32_t s_evicts;
 
 /*---------------------------------------------------------------------------*/
 /* Heap (free-list with simple coalescing)                                    */
@@ -162,7 +162,7 @@ static uint32_t heap_alloc(uint32_t need)
 
     if (s_free[i].size > need)
     {
-        s_free[i].off  += need;
+        s_free[i].off += need;
         s_free[i].size -= need;
     }
     else
@@ -225,18 +225,18 @@ void glyph_cache_init(void)
 {
     (void)memset(s_ent, 0, sizeof(s_ent));
     heap_init();
-    s_lru        = 0u;
-    s_epoch      = 0u;
-    s_hits       = 0u;
-    s_misses     = 0u;
-    s_evicts     = 0u;
+    s_lru    = 0u;
+    s_epoch  = 0u;
+    s_hits   = 0u;
+    s_misses = 0u;
+    s_evicts = 0u;
 }
 
 void glyph_cache_reset(void)
 {
     (void)memset(s_ent, 0, sizeof(s_ent));
     heap_init();
-    s_lru   = 0u;
+    s_lru = 0u;
     /* epoch is intentionally preserved across a reset so a warm reload of the
      * same page still pins correctly. */
 }
@@ -254,7 +254,7 @@ void glyph_cache_bump_epoch(void)
 }
 
 const uint8_t *glyph_cache_lookup(uint32_t unicode, uint16_t px,
-                                 uint16_t *w, uint16_t *h, uint32_t *bytes)
+                                  uint16_t *w, uint16_t *h, uint32_t *bytes)
 {
     gc_entry_t *e = entry_find(unicode, px);
 
@@ -277,7 +277,7 @@ const uint8_t *glyph_cache_lookup(uint32_t unicode, uint16_t px,
 }
 
 uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
-                           uint16_t w, uint16_t h, uint32_t *bytes)
+                            uint16_t w, uint16_t h, uint32_t *bytes)
 {
     gc_entry_t *e;
     uint32_t    need;
@@ -295,7 +295,7 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
     }
 
     need = (uint32_t)((uint32_t)w * (uint32_t)h);
-    need = (need + 3u) & ~3u;          /* 4-byte align */
+    need = (need + 3u) & ~3u; /* 4-byte align */
     if (need == 0u)
     {
         return NULL;
@@ -314,7 +314,7 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
 
             if ((c->used == 0u) || (c->epoch == s_epoch))
             {
-                continue;               /* current page is pinned */
+                continue; /* current page is pinned */
             }
             if (first || (c->lru < worst))
             {
@@ -326,7 +326,7 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
 
         if (victim < 0)
         {
-            return NULL;                /* nothing evictable -> cannot fit */
+            return NULL; /* nothing evictable -> cannot fit */
         }
 
         heap_free(s_ent[victim].off, s_ent[victim].bytes);
@@ -343,7 +343,7 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
     e = entry_alloc();
     if (e == NULL)
     {
-        heap_free(off, need);          /* table full: drop the reservation */
+        heap_free(off, need); /* table full: drop the reservation */
         return NULL;
     }
 
@@ -362,13 +362,16 @@ uint8_t *glyph_cache_insert(uint32_t unicode, uint16_t px,
 }
 
 void glyph_cache_stats(uint32_t *hits, uint32_t *misses, uint32_t *evicts,
-                      uint32_t *used_bytes, uint32_t *entries)
+                       uint32_t *used_bytes, uint32_t *entries)
 {
     uint32_t i;
 
-    if (hits != NULL)    *hits    = s_hits;
-    if (misses != NULL)  *misses  = s_misses;
-    if (evicts != NULL)  *evicts  = s_evicts;
+    if (hits != NULL)
+        *hits = s_hits;
+    if (misses != NULL)
+        *misses = s_misses;
+    if (evicts != NULL)
+        *evicts = s_evicts;
 
     if ((used_bytes != NULL) || (entries != NULL))
     {
@@ -383,7 +386,9 @@ void glyph_cache_stats(uint32_t *hits, uint32_t *misses, uint32_t *evicts,
                 n++;
             }
         }
-        if (used_bytes != NULL) *used_bytes = used;
-        if (entries != NULL)    *entries    = n;
+        if (used_bytes != NULL)
+            *used_bytes = used;
+        if (entries != NULL)
+            *entries = n;
     }
 }

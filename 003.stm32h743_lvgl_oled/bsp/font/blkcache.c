@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    blkcache.c
-  * @brief   Implementation of the LRU block cache - see blkcache.h.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    blkcache.c
+ * @brief   Implementation of the LRU block cache - see blkcache.h.
+ ******************************************************************************
+ */
 #include "blkcache.h"
 #include <string.h>
 
@@ -25,16 +25,16 @@ static int32_t find_slot(const blkcache_t *c, uint32_t block)
 }
 
 /**
-  * Pick the slot to reuse: an empty one if there is any, otherwise the least
-  * recently used.  Ties (only possible before the clock wraps, or after a
-  * flush) resolve to the lowest index.
-  */
+ * Pick the slot to reuse: an empty one if there is any, otherwise the least
+ * recently used.  Ties (only possible before the clock wraps, or after a
+ * flush) resolve to the lowest index.
+ */
 static uint32_t victim_slot(blkcache_t *c)
 {
     uint32_t i;
-    uint32_t best = 0u;
+    uint32_t best     = 0u;
     uint32_t best_age = 0xFFFFFFFFu;
-    int      found = 0;
+    int      found    = 0;
 
     for (i = 0u; i < c->block_count; i++)
     {
@@ -107,10 +107,10 @@ GlobalType_t blkcache_read(blkcache_t *c, uint32_t offset,
 {
     while (len > 0u)
     {
-        uint32_t  block = offset >> c->block_shift;
-        uint32_t  in_blk = offset & (c->block_size - 1u);
-        int32_t   slot;
-        uint32_t  chunk;
+        uint32_t block  = offset >> c->block_shift;
+        uint32_t in_blk = offset & (c->block_size - 1u);
+        int32_t  slot;
+        uint32_t chunk;
 
         slot = find_slot(c, block);
         if (slot < 0)
@@ -154,8 +154,8 @@ GlobalType_t blkcache_read(blkcache_t *c, uint32_t offset,
         (void)memcpy(dst, c->buf + ((uint32_t)slot * c->block_size) + in_blk, chunk);
 
         offset += chunk;
-        dst    += chunk;
-        len    -= chunk;
+        dst += chunk;
+        len -= chunk;
     }
     return RT_OK;
 }
@@ -172,11 +172,23 @@ void blkcache_flush(blkcache_t *c)
 }
 
 void blkcache_stats(const blkcache_t *c,
-                    uint32_t *hits,  uint32_t *misses,
+                    uint32_t *hits, uint32_t *misses,
                     uint32_t *fills, uint32_t *fill_bytes)
 {
-    if (hits)       { *hits       = c->hits; }
-    if (misses)     { *misses     = c->misses; }
-    if (fills)      { *fills      = c->fills; }
-    if (fill_bytes) { *fill_bytes = c->fill_bytes; }
+    if (hits)
+    {
+        *hits = c->hits;
+    }
+    if (misses)
+    {
+        *misses = c->misses;
+    }
+    if (fills)
+    {
+        *fills = c->fills;
+    }
+    if (fill_bytes)
+    {
+        *fill_bytes = c->fill_bytes;
+    }
 }

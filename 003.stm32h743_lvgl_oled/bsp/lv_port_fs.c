@@ -1,10 +1,10 @@
 /**
-  ******************************************************************************
-  * @file    lv_port_fs.c
-  * @brief   LVGL file system driver on top of FatFs, with a read block cache.
-  * @see     lv_port_fs.h for why this exists instead of LV_USE_FS_FATFS.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    lv_port_fs.c
+ * @brief   LVGL file system driver on top of FatFs, with a read block cache.
+ * @see     lv_port_fs.h for why this exists instead of LV_USE_FS_FATFS.
+ ******************************************************************************
+ */
 #include "lv_port_fs.h"
 #include "lvgl.h"
 #include "ff.h"
@@ -13,19 +13,19 @@
 
 /* Logical drive the LVGL driver is registered under, and the FatFs volume it
  * maps to.  They must stay in sync with lcd_driver_font_init() (f_mount "1:"). */
-#define FS_LETTER       '1'
-#define FS_VOLUME       "1:"
+#define FS_LETTER '1'
+#define FS_VOLUME "1:"
 
 /* Concurrent open files.  The HarmonyOS engine keeps one handle per font size
  * (12/16/24/32), so four is the working set; a couple spare costs nothing. */
-#define FS_MAX_FILES    6u
+#define FS_MAX_FILES 6u
 
 /* Cache geometry: 16 blocks x 512 B = 8 kB, shared by every open file. */
-#define FS_BLOCK_SIZE   512u
-#define FS_BLOCK_COUNT  16u
+#define FS_BLOCK_SIZE 512u
+#define FS_BLOCK_COUNT 16u
 
 /* Longest path we will hand to FatFs: "1:" + '/' + LFN. */
-#define FS_PATH_MAX     (FF_MAX_LFN + 8u)
+#define FS_PATH_MAX (FF_MAX_LFN + 8u)
 
 /*---------------------------------------------------------------------------*/
 /* State                                                                      */
@@ -33,9 +33,9 @@
 
 typedef struct
 {
-    FIL      f;         /* FatFs file object (holds its own 512 B sector buf) */
+    FIL      f; /* FatFs file object (holds its own 512 B sector buf) */
     uint8_t  used;
-    uint32_t id;        /* identifies this file inside the block cache        */
+    uint32_t id; /* identifies this file inside the block cache        */
 } fs_file_t;
 
 typedef struct
@@ -43,20 +43,20 @@ typedef struct
     uint8_t  data[FS_BLOCK_SIZE];
     uint32_t file_id;
     uint32_t block;
-    uint32_t stamp;     /* lv_port_fs clock value at the last fill            */
+    uint32_t stamp; /* lv_port_fs clock value at the last fill            */
     uint8_t  valid;
 } fs_block_t;
 
 static fs_file_t  s_files[FS_MAX_FILES];
 static fs_block_t s_blocks[FS_BLOCK_COUNT];
 
-static uint32_t   s_next_id = 1u;
-static uint32_t   s_stamp   = 0u;
-static uint32_t   s_hits;
-static uint32_t   s_misses;
+static uint32_t s_next_id = 1u;
+static uint32_t s_stamp   = 0u;
+static uint32_t s_hits;
+static uint32_t s_misses;
 
 /* Built in fs_open(): LVGL strips the drive letter before calling us. */
-static char       s_path[FS_PATH_MAX];
+static char s_path[FS_PATH_MAX];
 
 /*---------------------------------------------------------------------------*/
 /* Block cache                                                                */
@@ -79,12 +79,12 @@ static fs_block_t *block_find(uint32_t file_id, uint32_t block)
 }
 
 /**
-  * @brief  Reserve a block: an unused one if any, else the least recently used.
-  */
+ * @brief  Reserve a block: an unused one if any, else the least recently used.
+ */
 static fs_block_t *block_victim(void)
 {
     uint32_t    i;
-    fs_block_t *oldest = &s_blocks[0];
+    fs_block_t *oldest       = &s_blocks[0];
     uint32_t    oldest_stamp = UINT32_MAX;
 
     for (i = 0; i < FS_BLOCK_COUNT; i++)
@@ -105,9 +105,9 @@ static fs_block_t *block_victim(void)
 }
 
 /**
-  * @brief  Return a cache block holding byte range [block*512, +512) of fp.
-  * @retval NULL on a card error.
-  */
+ * @brief  Return a cache block holding byte range [block*512, +512) of fp.
+ * @retval NULL on a card error.
+ */
 static fs_block_t *block_load(fs_file_t *fp, uint32_t block)
 {
     fs_block_t *b;
@@ -157,8 +157,8 @@ static void *fs_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode)
 {
     LV_UNUSED(drv);
 
-    uint32_t    i;
-    fs_file_t  *fp = NULL;
+    uint32_t   i;
+    fs_file_t *fp = NULL;
 
     /* Read only: nothing here ever writes to the card. */
     if (mode != LV_FS_MODE_RD)
@@ -237,17 +237,17 @@ static lv_fs_res_t fs_read(lv_fs_drv_t *drv, void *file_p, void *buf,
 {
     LV_UNUSED(drv);
 
-    fs_file_t *fp  = (fs_file_t *)file_p;
-    uint8_t   *dst = (uint8_t *)buf;
-    uint32_t   pos = (uint32_t)f_tell(&fp->f);
+    fs_file_t *fp   = (fs_file_t *)file_p;
+    uint8_t   *dst  = (uint8_t *)buf;
+    uint32_t   pos  = (uint32_t)f_tell(&fp->f);
     uint32_t   left = btr;
 
     while (left != 0u)
     {
-        uint32_t     blk   = pos / FS_BLOCK_SIZE;
-        uint32_t     off   = pos - (blk * FS_BLOCK_SIZE);
-        uint32_t     chunk = FS_BLOCK_SIZE - off;
-        fs_block_t  *b;
+        uint32_t    blk   = pos / FS_BLOCK_SIZE;
+        uint32_t    off   = pos - (blk * FS_BLOCK_SIZE);
+        uint32_t    chunk = FS_BLOCK_SIZE - off;
+        fs_block_t *b;
 
         if (chunk > left)
         {
@@ -263,8 +263,8 @@ static lv_fs_res_t fs_read(lv_fs_drv_t *drv, void *file_p, void *buf,
 
         memcpy(dst, b->data + off, chunk);
 
-        dst  += chunk;
-        pos  += chunk;
+        dst += chunk;
+        pos += chunk;
         left -= chunk;
     }
 
@@ -285,10 +285,17 @@ static lv_fs_res_t fs_seek(lv_fs_drv_t *drv, void *file_p, uint32_t pos,
 
     switch (whence)
     {
-        case LV_FS_SEEK_SET: target = (FSIZE_t)pos;                       break;
-        case LV_FS_SEEK_CUR: target = (FSIZE_t)(f_tell(&fp->f) + pos);    break;
-        case LV_FS_SEEK_END: target = (FSIZE_t)(f_size(&fp->f) + pos);    break;
-        default:             return LV_FS_RES_INV_PARAM;
+    case LV_FS_SEEK_SET:
+        target = (FSIZE_t)pos;
+        break;
+    case LV_FS_SEEK_CUR:
+        target = (FSIZE_t)(f_tell(&fp->f) + pos);
+        break;
+    case LV_FS_SEEK_END:
+        target = (FSIZE_t)(f_size(&fp->f) + pos);
+        break;
+    default:
+        return LV_FS_RES_INV_PARAM;
     }
 
     return (f_lseek(&fp->f, target) == FR_OK) ? LV_FS_RES_OK
@@ -323,7 +330,7 @@ void lv_port_fs_init(void)
     lv_fs_drv_init(&drv);
 
     drv.letter     = FS_LETTER;
-    drv.cache_size = 0u;        /* we do our own, multi-block caching */
+    drv.cache_size = 0u; /* we do our own, multi-block caching */
     drv.open_cb    = fs_open;
     drv.close_cb   = fs_close;
     drv.read_cb    = fs_read;

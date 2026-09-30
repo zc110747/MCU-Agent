@@ -1,8 +1,8 @@
 /**
-  ******************************************************************************
-  * @file    drv_sdio.c
-  * @brief   SDMMC1 block device layer used by FatFs.
-  *
+ ******************************************************************************
+ * @file    drv_sdio.c
+ * @brief   SDMMC1 block device layer used by FatFs.
+ *
  *  Buffers handed to HAL_SD_ReadBlocks()/WriteBlocks() are moved by the CPU
  *  draining the SDMMC FIFO (polling path, NOT the SDMMC internal DMA), so the
  *  D-Cache can stay enabled with no coherency hazard.  All RAM lives in
@@ -10,16 +10,16 @@
  *  to HAL_SD_ReadBlocks_DMA(), that IDMA master cannot reach DTCM, so the DMA
  *  buffer must be placed in AXI-SRAM / SRAM_D2 / SRAM4 and marked
  *  non-cacheable by the MPU.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ */
 #include "drv_sdio.h"
 #include "ff.h"
 #include <string.h>
 #include <stdio.h>
 
 /**
-  * @brief  (Re)initialise the SD card after a transfer error.
-  */
+ * @brief  (Re)initialise the SD card after a transfer error.
+ */
 GlobalType_t drv_sdcard_init(void)
 {
     if (HAL_SD_DeInit(&hsd1) != HAL_OK)
@@ -48,8 +48,8 @@ GlobalType_t drv_sdcard_init(void)
 }
 
 /**
-  * @brief  Wait until the card leaves the programming/receiving state.
-  */
+ * @brief  Wait until the card leaves the programming/receiving state.
+ */
 static HAL_StatusTypeDef sdcard_wait_ready(void)
 {
     uint32_t tickstart = HAL_GetTick();
@@ -112,15 +112,15 @@ HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
 /* FF_MIN_SS == FF_MAX_SS in ffconf.h, so the sector size is a compile-time
  * constant and FATFS has no ssize member to read it from. */
 #if FF_MAX_SS == FF_MIN_SS
-  #define SD_SECTOR_SIZE(fs)    ((uint32_t)FF_MIN_SS)
+#define SD_SECTOR_SIZE(fs) ((uint32_t)FF_MIN_SS)
 #else
-  #define SD_SECTOR_SIZE(fs)    ((uint32_t)(fs)->ssize)
+#define SD_SECTOR_SIZE(fs) ((uint32_t)(fs)->ssize)
 #endif
 
 GlobalType_t drv_sd_query_info(sd_info_t *info)
 {
     HAL_SD_CardInfoTypeDef ci;
-    FATFS                 *fs   = NULL;
+    FATFS                 *fs            = NULL;
     DWORD                  free_clusters = 0;
     uint32_t               sector;
 
@@ -158,10 +158,10 @@ GlobalType_t drv_sd_query_info(sd_info_t *info)
 
 void drv_sd_format_size(uint64_t bytes, char *out, uint32_t out_len)
 {
-    static const char *const unit[5] = { "B", "KB", "MB", "GB", "TB" };
-    uint32_t idx   = 0U;
-    uint64_t whole = bytes;
-    uint32_t frac  = 0U;
+    static const char *const unit[5] = {"B", "KB", "MB", "GB", "TB"};
+    uint32_t                 idx     = 0U;
+    uint64_t                 whole   = bytes;
+    uint32_t                 frac    = 0U;
 
     if ((out == NULL) || (out_len == 0U))
     {
@@ -170,7 +170,7 @@ void drv_sd_format_size(uint64_t bytes, char *out, uint32_t out_len)
 
     while ((whole >= 1024U) && (idx < 4U))
     {
-        frac   = (uint32_t)(((whole % 1024U) * 10U) / 1024U);
+        frac = (uint32_t)(((whole % 1024U) * 10U) / 1024U);
         whole /= 1024U;
         idx++;
     }
@@ -192,11 +192,16 @@ const char *drv_sd_fs_name(uint8_t fs_type)
 {
     switch (fs_type)
     {
-        case FS_FAT12: return "FAT12";
-        case FS_FAT16: return "FAT16";
-        case FS_FAT32: return "FAT32";
-        case FS_EXFAT: return "exFAT";
-        default:       return "-";
+    case FS_FAT12:
+        return "FAT12";
+    case FS_FAT16:
+        return "FAT16";
+    case FS_FAT32:
+        return "FAT32";
+    case FS_EXFAT:
+        return "exFAT";
+    default:
+        return "-";
     }
 }
 
@@ -204,8 +209,11 @@ const char *drv_sd_card_name(uint8_t card_type)
 {
     switch (card_type)
     {
-        case CARD_SDSC:      return "SDSC";
-        case CARD_SDHC_SDXC: return "SDHC/SDXC";
-        default:             return "?";
+    case CARD_SDSC:
+        return "SDSC";
+    case CARD_SDHC_SDXC:
+        return "SDHC/SDXC";
+    default:
+        return "?";
     }
 }

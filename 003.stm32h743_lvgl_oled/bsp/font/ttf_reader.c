@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    ttf_reader.c
-  * @brief   Implementation of the cached TTF reader - see ttf_reader.h.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ttf_reader.c
+ * @brief   Implementation of the cached TTF reader - see ttf_reader.h.
+ ******************************************************************************
+ */
 #include "ttf_reader.h"
 #include <string.h>
 
@@ -15,7 +15,7 @@
  * absent in the PC-side host test.  Both builds compile this file, so the
  * timing code has to disappear cleanly rather than be stubbed per-platform. */
 #if defined(DWT) && defined(CoreDebug)
-    #define TTF_HAVE_CYCLES 1
+#define TTF_HAVE_CYCLES 1
 #endif
 
 #ifdef TTF_HAVE_CYCLES
@@ -25,7 +25,7 @@ static void ttf_cycles_start(void)
     {
         CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
         DWT->CYCCNT = 0u;
-        DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+        DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     }
 }
 #endif
@@ -36,10 +36,10 @@ static GlobalType_t ttf_fill(void     *ctx,
                              uint32_t  len,
                              uint32_t *got)
 {
-    ttf_reader_t *r = (ttf_reader_t *)ctx;
+    ttf_reader_t *r  = (ttf_reader_t *)ctx;
     UINT          br = 0u;
 #ifdef TTF_HAVE_CYCLES
-    uint32_t      c0;
+    uint32_t c0;
 #endif
 
 #ifdef TTF_HAVE_CYCLES
@@ -192,7 +192,7 @@ GlobalType_t ttf_read_u32(ttf_reader_t *r, uint32_t offset, uint32_t *v)
         return RT_FAIL;
     }
     *v = ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) |
-         ((uint32_t)b[2] << 8)  | (uint32_t)b[3];
+         ((uint32_t)b[2] << 8) | (uint32_t)b[3];
     return RT_OK;
 }
 
@@ -205,7 +205,7 @@ void ttf_cache_flush(ttf_reader_t *r)
 }
 
 void ttf_stats(const ttf_reader_t *r,
-               uint32_t *hits,  uint32_t *misses,
+               uint32_t *hits, uint32_t *misses,
                uint32_t *fills, uint32_t *fill_bytes)
 {
     if (r == NULL)

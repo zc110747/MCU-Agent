@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    stm32h7xx_it.c
-  * @brief   Interrupt service routines.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    stm32h7xx_it.c
+ * @brief   Interrupt service routines.
+ ******************************************************************************
+ */
 #include "main.h"
 #include "stm32h7xx_it.h"
 #include "bsp_log.h"
@@ -63,8 +63,8 @@ void PendSV_Handler(void)
 }
 
 /**
-  * @brief  1 ms system tick, drives HAL_Delay() / HAL_GetTick().
-  */
+ * @brief  1 ms system tick, drives HAL_Delay() / HAL_GetTick().
+ */
 void SysTick_Handler(void)
 {
     HAL_IncTick();
@@ -75,19 +75,19 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief  SDMMC1 global interrupt.
-  * @note   Required by the HAL SD driver: on STM32H7 HAL_SD_ReadBlocks()/
-  *         HAL_SD_WriteBlocks() use the SDMMC internal DMA and rely on this
-  *         IRQ to complete the transfer bookkeeping.
-  */
+ * @brief  SDMMC1 global interrupt.
+ * @note   Required by the HAL SD driver: on STM32H7 HAL_SD_ReadBlocks()/
+ *         HAL_SD_WriteBlocks() use the SDMMC internal DMA and rely on this
+ *         IRQ to complete the transfer bookkeeping.
+ */
 void SDMMC1_IRQHandler(void)
 {
     HAL_SD_IRQHandler(&hsd1);
 }
 
 /**
-  * @brief  USART1 global interrupt - drains the PRINT_LOG TX ring.
-  */
+ * @brief  USART1 global interrupt - drains the PRINT_LOG TX ring.
+ */
 void USART1_IRQHandler(void)
 {
     log_uart_tx_irq();

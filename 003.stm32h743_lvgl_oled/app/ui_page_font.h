@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    ui_page_font.h
-  * @brief   Font-engine status page (Chinese) - used to eyeball glyph latency.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ui_page_font.h
+ * @brief   Font-engine status page (Chinese) - used to eyeball glyph latency.
+ ******************************************************************************
+ */
 #ifndef __UI_PAGE_FONT_H
 #define __UI_PAGE_FONT_H
 

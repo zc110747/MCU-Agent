@@ -1,30 +1,30 @@
 /**
-  ******************************************************************************
-  * @file    ui_page_info.c
-  * @brief   Main info panel - see ui_page_info.h.
-  *
-  *  Layout (all coordinates in pixels, origin top-left)
-  *
-  *      0   ┌───────────────────────────────┐
-  *          │  STM32H743 信息面板           │  28 px header
-  *     28   ├───────────────────────────────┤
-  *          │          20:34:48             │  32 px clock
-  *          │     2026-08-05  星期三        │  16 px date
-  *     98   ├───────────────────────────────┤
-  *          │  SD卡容量            FAT32    │
-  *          │  可用 12.3 GB / 29.7 GB       │
-  *          │  ▓▓▓▓▓▓▓░░░░░░░░░░░░░  58%    │
-  *    156   ├───────────────────────────────┤
-  *          │  主频  480 MHz         HSE    │
-  *          │  运行  00:12:34               │
-  *          │  字库  鸿蒙TTF         LSE     │  16 px
-  *          │  缓存  命中 512 / 读卡 96     │  12 px
-  *    240   └───────────────────────────────┘
-  *
-  *  Every label is created once; the refresh timer only rewrites the text, so
-  *  LVGL redraws just the dirty rectangles and the SPI traffic stays low.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ui_page_info.c
+ * @brief   Main info panel - see ui_page_info.h.
+ *
+ *  Layout (all coordinates in pixels, origin top-left)
+ *
+ *      0   ┌───────────────────────────────┐
+ *          │  STM32H743 信息面板           │  28 px header
+ *     28   ├───────────────────────────────┤
+ *          │          20:34:48             │  32 px clock
+ *          │     2026-08-05  星期三        │  16 px date
+ *     98   ├───────────────────────────────┤
+ *          │  SD卡容量            FAT32    │
+ *          │  可用 12.3 GB / 29.7 GB       │
+ *          │  ▓▓▓▓▓▓▓░░░░░░░░░░░░░  58%    │
+ *    156   ├───────────────────────────────┤
+ *          │  主频  480 MHz         HSE    │
+ *          │  运行  00:12:34               │
+ *          │  字库  鸿蒙TTF         LSE     │  16 px
+ *          │  缓存  命中 512 / 读卡 96     │  12 px
+ *    240   └───────────────────────────────┘
+ *
+ *  Every label is created once; the refresh timer only rewrites the text, so
+ *  LVGL redraws just the dirty rectangles and the SPI traffic stays low.
+ ******************************************************************************
+ */
 #include "ui_page_info.h"
 #include "ui_common.h"
 #include "lvgl.h"
@@ -39,21 +39,21 @@
 #include <stdio.h>
 
 /* SD capacity is re-read every N refresh ticks (tick = 1 s). */
-#define SD_REFRESH_PERIOD   30U
+#define SD_REFRESH_PERIOD 30U
 
 /* Page-specific geometry (shared geometry/palette lives in ui_common.h). */
-#define CLOCK_Y             34
-#define DATE_Y              74
-#define SEP1_Y              98
-#define SD_HEAD_Y           104
-#define SD_VAL_Y            124
-#define SD_BAR_Y            146
-#define SD_BAR_H            8
-#define SEP2_Y              160
-#define INFO1_Y             166
-#define INFO2_Y             186
-#define INFO3_Y             206
-#define INFO4_Y             226
+#define CLOCK_Y 34
+#define DATE_Y 74
+#define SEP1_Y 98
+#define SD_HEAD_Y 104
+#define SD_VAL_Y 124
+#define SD_BAR_Y 146
+#define SD_BAR_H 8
+#define SEP2_Y 160
+#define INFO1_Y 166
+#define INFO2_Y 186
+#define INFO3_Y 206
+#define INFO4_Y 226
 
 typedef struct
 {
@@ -72,7 +72,7 @@ typedef struct
 } ui_handles_t;
 
 static ui_handles_t s_ui;
-static uint32_t     s_sd_countdown = 0U;   /* 0 -> query on the next tick */
+static uint32_t     s_sd_countdown = 0U; /* 0 -> query on the next tick */
 static uint32_t     s_uptime_sec   = 0U;
 
 /*----------------------------------------------------------------------------*/
@@ -156,20 +156,19 @@ static void refresh_runtime(void)
     /* Show the cache counters of whichever engine is actually live. */
     switch (lv_font_provider_engine())
     {
-        case FONT_ENGINE_HARMONYOS:
-            lv_font_harmony_stats(&hits, &miss);
-            break;
-        case FONT_ENGINE_CTF:
-        {
-            lvgl_font_stats_t st;
-            lvgl_font_get_stats(&st);
-            hits = st.bmp_hits;
-            miss = st.bmp_misses;
-            break;
-        }
-        default:
-            lv_font_gbk_cache_stats(&hits, &miss);
-            break;
+    case FONT_ENGINE_HARMONYOS:
+        lv_font_harmony_stats(&hits, &miss);
+        break;
+    case FONT_ENGINE_CTF: {
+        lvgl_font_stats_t st;
+        lvgl_font_get_stats(&st);
+        hits = st.bmp_hits;
+        miss = st.bmp_misses;
+        break;
+    }
+    default:
+        lv_font_gbk_cache_stats(&hits, &miss);
+        break;
     }
 
     lv_label_set_text_fmt(s_ui.cache, "缓存  命中 %lu / 读卡 %lu",
@@ -177,8 +176,8 @@ static void refresh_runtime(void)
 }
 
 /**
-  * @brief  1 Hz refresh timer.
-  */
+ * @brief  1 Hz refresh timer.
+ */
 static void ui_page_info_tick(lv_timer_t *timer)
 {
     LV_UNUSED(timer);

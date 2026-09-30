@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    ctf_reader.c
-  * @brief   Implementation of the CTF index reader - see ctf_reader.h.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ctf_reader.c
+ * @brief   Implementation of the CTF index reader - see ctf_reader.h.
+ ******************************************************************************
+ */
 #include "ctf_reader.h"
 #include <string.h>
 
@@ -14,7 +14,7 @@
 /* of RAM and a couple of thousand cycles, and only when a CRC is requested.   */
 /* -------------------------------------------------------------------------- */
 
-#define CRC_SCRATCH  1024u
+#define CRC_SCRATCH 1024u
 
 static uint32_t s_crc_table[256];
 static int      s_crc_ready = 0;
@@ -133,12 +133,12 @@ void ctf_entry_parse(const uint8_t *b, ctf_entry_t *e)
 }
 
 /**
-  * Does [off, off + count*rec) fit inside a file of @p total bytes?
-  *
-  * Written as an overflow-safe sequence: the multiplication is guarded first,
-  * then the two comparisons never wrap.  A corrupt header must not be able to
-  * produce a range that looks valid.
-  */
+ * Does [off, off + count*rec) fit inside a file of @p total bytes?
+ *
+ * Written as an overflow-safe sequence: the multiplication is guarded first,
+ * then the two comparisons never wrap.  A corrupt header must not be able to
+ * produce a range that looks valid.
+ */
 static int range_ok(uint32_t off, uint32_t count, uint32_t rec, uint32_t total)
 {
     uint32_t bytes;
@@ -173,7 +173,7 @@ static GlobalType_t ctf_fill(void     *ctx,
                              uint32_t  len,
                              uint32_t *got)
 {
-    ctf_reader_t *c = (ctf_reader_t *)ctx;
+    ctf_reader_t *c  = (ctf_reader_t *)ctx;
     UINT          br = 0u;
 
     if (f_lseek(&c->f, (FSIZE_t)offset) != FR_OK)
@@ -251,9 +251,9 @@ GlobalType_t ctf_open(ctf_reader_t *c,
 
     /* Every section must live inside the file, with no overflow anywhere. */
     if (!range_ok(c->h.table_index_offset, c->h.table_index_count, CTF_TABLE_SIZE, c->size) ||
-        !range_ok(c->h.l1_index_offset,    c->h.l1_index_count,    CTF_L1_SIZE,    c->size) ||
-        !range_ok(c->h.page_index_offset,  c->h.page_index_count,  CTF_PAGE_SIZE,  c->size) ||
-        !range_ok(c->h.entry_offset,       c->h.entry_count,       CTF_ENTRY_SIZE, c->size))
+        !range_ok(c->h.l1_index_offset, c->h.l1_index_count, CTF_L1_SIZE, c->size) ||
+        !range_ok(c->h.page_index_offset, c->h.page_index_count, CTF_PAGE_SIZE, c->size) ||
+        !range_ok(c->h.entry_offset, c->h.entry_count, CTF_ENTRY_SIZE, c->size))
     {
         (void)f_close(&c->f);
         return RT_FAIL;
@@ -279,13 +279,13 @@ GlobalType_t ctf_open(ctf_reader_t *c,
 /* -------------------------------------------------------------------------- */
 
 /**
-  * Are all the plane->page pointers inside the region we just pooled?
-  *
-  * The lookup path turns a file offset into a pool offset by subtracting
-  * page_index_offset.  That subtraction is only safe if every non-empty plane
-  * points at or after page_index_offset and its whole run fits, so it is proven
-  * once here instead of being re-checked per lookup.
-  */
+ * Are all the plane->page pointers inside the region we just pooled?
+ *
+ * The lookup path turns a file offset into a pool offset by subtracting
+ * page_index_offset.  That subtraction is only safe if every non-empty plane
+ * points at or after page_index_offset and its whole run fits, so it is proven
+ * once here instead of being re-checked per lookup.
+ */
 static int page_pointers_ok(const ctf_reader_t *c)
 {
     uint32_t plane;
@@ -350,7 +350,7 @@ GlobalType_t ctf_load_resident(ctf_reader_t   *c,
                 c->io_errors++;
                 c->table_ready = 0u;
                 c->table_count = 0u;
-                rc = RT_FAIL;
+                rc             = RT_FAIL;
                 break;
             }
             ctf_table_parse(raw, &c->tables[i]);
@@ -410,19 +410,21 @@ void ctf_resident_info(const ctf_reader_t *c, ctf_resident_t *out)
 
     out->table_resident = c->table_ready;
     out->table_bytes    = (c->table_ready != 0u)
-                          ? (c->table_count * CTF_TABLE_SIZE) : 0u;
+                              ? (c->table_count * CTF_TABLE_SIZE)
+                              : 0u;
 
-    out->l1_resident    = c->l1_ready;
-    out->l1_bytes       = (c->l1_ready != 0u)
-                          ? (c->h.l1_index_count * CTF_L1_SIZE) : 0u;
+    out->l1_resident = c->l1_ready;
+    out->l1_bytes    = (c->l1_ready != 0u)
+                           ? (c->h.l1_index_count * CTF_L1_SIZE)
+                           : 0u;
 
-    out->page_resident  = c->page_all_ready;
-    out->page_bytes     = (c->page_all_ready != 0u) ? c->page_bytes : 0u;
-    out->page_needed    = c->h.page_index_count * CTF_PAGE_SIZE;
-    out->page_capacity  = c->page_pool_size;
+    out->page_resident = c->page_all_ready;
+    out->page_bytes    = (c->page_all_ready != 0u) ? c->page_bytes : 0u;
+    out->page_needed   = c->h.page_index_count * CTF_PAGE_SIZE;
+    out->page_capacity = c->page_pool_size;
 
-    out->entry_bytes    = c->h.entry_count * CTF_ENTRY_SIZE;
-    out->total_bytes    = out->table_bytes + out->l1_bytes + out->page_bytes;
+    out->entry_bytes = c->h.entry_count * CTF_ENTRY_SIZE;
+    out->total_bytes = out->table_bytes + out->l1_bytes + out->page_bytes;
 }
 
 uint32_t ctf_resident_bytes(const ctf_reader_t *c)
@@ -491,13 +493,13 @@ const ctf_header_t *ctf_header(const ctf_reader_t *c)
 
 ctf_result_t ctf_find_unicode(ctf_reader_t *c, uint32_t cp, ctf_entry_t *out)
 {
-    uint32_t         plane;
-    uint32_t         page_no;
-    uint32_t         low;
-    ctf_l1_t         l1;
+    uint32_t          plane;
+    uint32_t          page_no;
+    uint32_t          low;
+    ctf_l1_t          l1;
     const ctf_page_t *pg;
-    uint8_t          raw[CTF_PAGE_SIZE];
-    uint32_t         entry_at;
+    uint8_t           raw[CTF_PAGE_SIZE];
+    uint32_t          entry_at;
 
     if (c == NULL || c->open == 0u)
     {
@@ -660,8 +662,8 @@ GlobalType_t ctf_verify_ttf(const ctf_reader_t *c, const char *ttf_path, int do_
     if ((do_crc != 0) && (c->h.ttf_crc32 != 0u))
     {
         static uint8_t scratch[CRC_SCRATCH];
-        uint32_t crc = 0xFFFFFFFFu;
-        UINT     br;
+        uint32_t       crc = 0xFFFFFFFFu;
+        UINT           br;
 
         if (s_crc_ready == 0)
         {
@@ -697,9 +699,18 @@ void ctf_stats(const ctf_reader_t *c,
     {
         return;
     }
-    if (lookups)    { *lookups    = c->lookups; }
-    if (not_found)  { *not_found  = c->not_found; }
-    if (io_errors)  { *io_errors  = c->io_errors; }
+    if (lookups)
+    {
+        *lookups = c->lookups;
+    }
+    if (not_found)
+    {
+        *not_found = c->not_found;
+    }
+    if (io_errors)
+    {
+        *io_errors = c->io_errors;
+    }
 }
 
 void ctf_page_stats(const ctf_reader_t *c,
@@ -709,6 +720,12 @@ void ctf_page_stats(const ctf_reader_t *c,
     {
         return;
     }
-    if (ram_hits)  { *ram_hits = c->page_ram_hits; }
-    if (sd_reads)  { *sd_reads = c->page_sd_reads; }
+    if (ram_hits)
+    {
+        *ram_hits = c->page_ram_hits;
+    }
+    if (sd_reads)
+    {
+        *sd_reads = c->page_sd_reads;
+    }
 }

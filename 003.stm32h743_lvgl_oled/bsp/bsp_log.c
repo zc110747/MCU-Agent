@@ -1,22 +1,22 @@
 /**
-  ******************************************************************************
-  * @file    bsp_log.c
-  * @brief   Crash-safe formatted logging for the bare-metal STM32H743 build.
-  *
-  *   printf_log() is a drop-in replacement for printf() that formats into a
-  *   stack-local buffer, then pushes the bytes into a TX ring buffer. A
-  *   transmit (TXE) interrupt drains the ring buffer byte-by-byte, so the
-  *   caller never blocks on the UART.
-  *
-  *   Design notes:
-  *   - The formatting buffer (LOG_BUF_SIZE) from the previous version is kept.
-  *   - uart_write() updates the shared ring-buffer indices inside a critical
-  *     section where the UART TX interrupt is DISABLED, so the ISR cannot
-  *     race on those indices. This is the "close the serial interrupt during
-  *     the write" requirement.
-  *   - Only UART_IT_TXE is ever enabled; RX and error interrupts stay off.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_log.c
+ * @brief   Crash-safe formatted logging for the bare-metal STM32H743 build.
+ *
+ *   printf_log() is a drop-in replacement for printf() that formats into a
+ *   stack-local buffer, then pushes the bytes into a TX ring buffer. A
+ *   transmit (TXE) interrupt drains the ring buffer byte-by-byte, so the
+ *   caller never blocks on the UART.
+ *
+ *   Design notes:
+ *   - The formatting buffer (LOG_BUF_SIZE) from the previous version is kept.
+ *   - uart_write() updates the shared ring-buffer indices inside a critical
+ *     section where the UART TX interrupt is DISABLED, so the ISR cannot
+ *     race on those indices. This is the "close the serial interrupt during
+ *     the write" requirement.
+ *   - Only UART_IT_TXE is ever enabled; RX and error interrupts stay off.
+ ******************************************************************************
+ */
 #include "bsp_log.h"
 #include "main.h"
 #include <stdio.h>
@@ -32,12 +32,12 @@
  * ------------------------------------------------------------------------- */
 #define UART_TX_BUF_SIZE 1024U
 
-static uint8_t  uart_tx_buf[UART_TX_BUF_SIZE];
-static volatile uint16_t uart_tx_w = 0U;   /* next write slot (uart_write) */
-static volatile uint16_t uart_tx_r = 0U;   /* next read  slot (ISR)        */
-static volatile uint16_t uart_tx_n = 0U;   /* bytes pending in the ring    */
-static volatile uint8_t  uart_tx_active = 0U; /* 1 = a transmission is running */
-static uint8_t  uart_tx_nvic_on = 0U;      /* USART1 NVIC enabled?         */
+static uint8_t           uart_tx_buf[UART_TX_BUF_SIZE];
+static volatile uint16_t uart_tx_w       = 0U; /* next write slot (uart_write) */
+static volatile uint16_t uart_tx_r       = 0U; /* next read  slot (ISR)        */
+static volatile uint16_t uart_tx_n       = 0U; /* bytes pending in the ring    */
+static volatile uint8_t  uart_tx_active  = 0U; /* 1 = a transmission is running */
+static uint8_t           uart_tx_nvic_on = 0U; /* USART1 NVIC enabled?         */
 
 /* Enable the USART1 global interrupt once (idempotent). */
 static void uart_tx_enable_irq(void)
@@ -69,7 +69,7 @@ static int uart_write(const uint8_t *data, int len)
     while ((written < len) && (uart_tx_n < UART_TX_BUF_SIZE))
     {
         uart_tx_buf[uart_tx_w] = data[written++];
-        uart_tx_w = (uart_tx_w + 1U) % UART_TX_BUF_SIZE;
+        uart_tx_w              = (uart_tx_w + 1U) % UART_TX_BUF_SIZE;
         uart_tx_n++;
     }
 
@@ -78,9 +78,9 @@ static int uart_write(const uint8_t *data, int len)
      * the rest. */
     if (!uart_tx_active && (uart_tx_n > 0U))
     {
-        uart_tx_active = 1U;
+        uart_tx_active       = 1U;
         huart1.Instance->TDR = uart_tx_buf[uart_tx_r];
-        uart_tx_r = (uart_tx_r + 1U) % UART_TX_BUF_SIZE;
+        uart_tx_r            = (uart_tx_r + 1U) % UART_TX_BUF_SIZE;
         uart_tx_n--;
     }
 
@@ -99,7 +99,7 @@ void log_uart_tx_irq(void)
         if (uart_tx_n > 0U)
         {
             huart1.Instance->TDR = uart_tx_buf[uart_tx_r];
-            uart_tx_r = (uart_tx_r + 1U) % UART_TX_BUF_SIZE;
+            uart_tx_r            = (uart_tx_r + 1U) % UART_TX_BUF_SIZE;
             uart_tx_n--;
         }
         else
@@ -120,13 +120,16 @@ void log_uart_init(void)
 void vprintf_log(const char *fmt, va_list ap)
 {
 #if PRINT_LOG_ENABLE == 0
-    (void)fmt; (void)ap;
+    (void)fmt;
+    (void)ap;
     return;
 #else
     char buf[LOG_BUF_SIZE];
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    if (n < 0) return;
-    if (n > (int)sizeof(buf) - 1) n = (int)sizeof(buf) - 1;
+    int  n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    if (n < 0)
+        return;
+    if (n > (int)sizeof(buf) - 1)
+        n = (int)sizeof(buf) - 1;
     uart_write((const uint8_t *)buf, n);
 #endif
 }

@@ -1,15 +1,15 @@
 /**
-  ******************************************************************************
-  * @file    stb_adapter.c
-  * @brief   stb_truetype wired to ttf_reader - see stb_adapter.h.
-  *
-  *  Nothing in stb_truetype is modified.  The only things supplied here are
-  *    - the two stream macros that turn stb's per-byte reads into cached reads,
-  *    - the scratch allocator,
-  *    - a thin, allocation-free API around the three calls the LVGL backend
-  *      actually needs.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    stb_adapter.c
+ * @brief   stb_truetype wired to ttf_reader - see stb_adapter.h.
+ *
+ *  Nothing in stb_truetype is modified.  The only things supplied here are
+ *    - the two stream macros that turn stb's per-byte reads into cached reads,
+ *    - the scratch allocator,
+ *    - a thin, allocation-free API around the three calls the LVGL backend
+ *      actually needs.
+ ******************************************************************************
+ */
 #include "stb_adapter.h"
 #include <string.h>
 #include <math.h>
@@ -25,20 +25,20 @@ typedef struct
 } stb_stream_t;
 
 /**
-  * A seek is a store.  stb seeks before every single read, so this is where
-  * the design pays for itself - there is no f_lseek() to issue.
-  */
+ * A seek is a store.  stb seeks before every single read, so this is where
+ * the design pays for itself - there is no f_lseek() to issue.
+ */
 static void stb_stream_seek(stb_stream_t *s, uint32_t pos)
 {
     s->pos = pos;
 }
 
 /**
-  * @note  On a short or failed read the destination is zero filled.  stb's
-  *        ttBYTE()/ttUSHORT() helpers read into a local and return it without
-  *        checking a result, so leaving the buffer alone would hand it stack
-  *        garbage.  Zeros make it walk off the end of a table instead.
-  */
+ * @note  On a short or failed read the destination is zero filled.  stb's
+ *        ttBYTE()/ttUSHORT() helpers read into a local and return it without
+ *        checking a result, so leaving the buffer alone would hand it stack
+ *        garbage.  Zeros make it walk off the end of a table instead.
+ */
 static void stb_stream_read(stb_stream_t *s, void *dst, uint32_t len)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -53,8 +53,8 @@ static void stb_stream_read(stb_stream_t *s, void *dst, uint32_t len)
     }
 }
 
-#define STBTT_STREAM_TYPE          stb_stream_t *
-#define STBTT_STREAM_SEEK(s, x)    stb_stream_seek((s), (uint32_t)(x))
+#define STBTT_STREAM_TYPE stb_stream_t *
+#define STBTT_STREAM_SEEK(s, x) stb_stream_seek((s), (uint32_t)(x))
 #define STBTT_STREAM_READ(s, x, y) stb_stream_read((s), (x), (uint32_t)(y))
 
 /*---------------------------------------------------------------------------*/
@@ -62,18 +62,18 @@ static void stb_stream_read(stb_stream_t *s, void *dst, uint32_t len)
 /*---------------------------------------------------------------------------*/
 
 static uint8_t  s_arena[STB_ADAPTER_ARENA_SIZE] __attribute__((aligned(8)));
-static uint32_t s_used;      /**< bump pointer                                */
-static uint32_t s_live;      /**< allocations not yet freed                   */
-static uint32_t s_peak;      /**< high-water mark                             */
-static uint32_t s_fails;     /**< allocations the arena could not serve       */
+static uint32_t s_used;  /**< bump pointer                                */
+static uint32_t s_live;  /**< allocations not yet freed                   */
+static uint32_t s_peak;  /**< high-water mark                             */
+static uint32_t s_fails; /**< allocations the arena could not serve       */
 
 /**
-  * Bump allocation, bulk release.  stb allocates the vertex array, the edge
-  * array and a chain of active-edge chunks for one glyph and frees all of them
-  * before returning, so no per-block bookkeeping is needed: memory is handed
-  * out of the arena and the whole arena is reclaimed the moment the last block
-  * is freed.
-  */
+ * Bump allocation, bulk release.  stb allocates the vertex array, the edge
+ * array and a chain of active-edge chunks for one glyph and frees all of them
+ * before returning, so no per-block bookkeeping is needed: memory is handed
+ * out of the arena and the whole arena is reclaimed the moment the last block
+ * is freed.
+ */
 static void *stb_alloc(size_t n, void *u)
 {
     uint32_t need;
@@ -118,7 +118,7 @@ static void stb_free(void *p, void *u)
 
     if (s_live == 0u)
     {
-        s_used = 0u;    /* everything is back - start the next glyph clean */
+        s_used = 0u; /* everything is back - start the next glyph clean */
     }
 }
 
@@ -134,12 +134,12 @@ static void stb_free(void *p, void *u)
 /* stb's asserts are all "cannot happen" geometry checks.  A failed one must
  * not drag assert()/printf() into the rasteriser; reads are bounds checked and
  * zero filled, so carrying on is safe. */
-#define STBTT_assert(x)                     ((void)0)
-#define STBTT_malloc(x, u)                  stb_alloc((x), (u))
-#define STBTT_free(x, u)                    stb_free((x), (u))
-#define STBTT_HEAP_FACTOR_SIZE_32           64u
-#define STBTT_HEAP_FACTOR_SIZE_128          32u
-#define STBTT_HEAP_FACTOR_SIZE_DEFAULT      16u
+#define STBTT_assert(x) ((void)0)
+#define STBTT_malloc(x, u) stb_alloc((x), (u))
+#define STBTT_free(x, u) stb_free((x), (u))
+#define STBTT_HEAP_FACTOR_SIZE_32 64u
+#define STBTT_HEAP_FACTOR_SIZE_128 32u
+#define STBTT_HEAP_FACTOR_SIZE_DEFAULT 16u
 
 #include "stb_rect_pack.h"
 #include "stb_truetype_htcw.h"
@@ -147,7 +147,7 @@ static void stb_free(void *p, void *u)
 static stbtt_fontinfo s_info;
 static stb_stream_t   s_stream;
 static uint8_t        s_ready;
-static uint32_t       s_box_mismatch;   /**< CTF box disagreed with stb's box  */
+static uint32_t       s_box_mismatch; /**< CTF box disagreed with stb's box  */
 
 /*---------------------------------------------------------------------------*/
 /* Public API                                                                 */
@@ -155,8 +155,8 @@ static uint32_t       s_box_mismatch;   /**< CTF box disagreed with stb's box  *
 
 GlobalType_t stb_adapter_open(ttf_reader_t *r, uint32_t font_index)
 {
-    int  offset;
-    int  ok;
+    int offset;
+    int ok;
 
     s_ready = 0u;
 
@@ -306,11 +306,11 @@ void stb_adapter_arena_stats(uint32_t *peak, uint32_t *fails)
 }
 
 /**
-  * @brief  How often the CTF-derived box disagreed with stb's own.
-  *
-  *  Must stay at zero.  Anything else means get_glyph_dsc() and the rasteriser
-  *  are working from different geometry and the ink lands in the wrong place.
-  */
+ * @brief  How often the CTF-derived box disagreed with stb's own.
+ *
+ *  Must stay at zero.  Anything else means get_glyph_dsc() and the rasteriser
+ *  are working from different geometry and the ink lands in the wrong place.
+ */
 uint32_t stb_adapter_box_mismatches(void)
 {
     return s_box_mismatch;

@@ -1,27 +1,27 @@
 /**
-  ******************************************************************************
-  * @file    lv_font_harmony.c
-  * @brief   LVGL fonts rendered from HarmonyOS Sans TC .ttf files on the SD card.
-  * @see     lv_font_harmony.h
-  *
-  *  Rendering pipeline
-  *  ------------------
-  *      LVGL  ->  harmony_get_glyph_dsc()      descriptor cache (RAM)
-  *                     | miss
-  *                     v
-  *              tiny_ttf / stb_truetype       random access into the .ttf
-  *                     |
-  *                     v
-  *              lv_port_fs block cache        RAM
-  *                     |
-  *                     v
-  *              FatFs / SDMMC                 SD card
-  *
-  *  The descriptor cache is what makes this usable: LVGL re-measures every
-  *  character on every layout and every draw pass, and stb_truetype in stream
-  *  mode turns one measurement into a few dozen seek+1-byte-read pairs.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    lv_font_harmony.c
+ * @brief   LVGL fonts rendered from HarmonyOS Sans TC .ttf files on the SD card.
+ * @see     lv_font_harmony.h
+ *
+ *  Rendering pipeline
+ *  ------------------
+ *      LVGL  ->  harmony_get_glyph_dsc()      descriptor cache (RAM)
+ *                     | miss
+ *                     v
+ *              tiny_ttf / stb_truetype       random access into the .ttf
+ *                     |
+ *                     v
+ *              lv_port_fs block cache        RAM
+ *                     |
+ *                     v
+ *              FatFs / SDMMC                 SD card
+ *
+ *  The descriptor cache is what makes this usable: LVGL re-measures every
+ *  character on every layout and every draw pass, and stb_truetype in stream
+ *  mode turns one measurement into a few dozen seek+1-byte-read pairs.
+ ******************************************************************************
+ */
 #include "bsp_log.h"
 #include "lv_font_harmony.h"
 #include "lv_font_gbk.h"
@@ -31,10 +31,10 @@
 
 #if defined(LV_USE_TINY_TTF) && LV_USE_TINY_TTF && \
     defined(LV_TINY_TTF_FILE_SUPPORT) && LV_TINY_TTF_FILE_SUPPORT
-    #define HARMONY_TTF_AVAILABLE   1
-    #include "extra/libs/tiny_ttf/lv_tiny_ttf.h"
+#define HARMONY_TTF_AVAILABLE 1
+#include "extra/libs/tiny_ttf/lv_tiny_ttf.h"
 #else
-    #define HARMONY_TTF_AVAILABLE   0
+#define HARMONY_TTF_AVAILABLE 0
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -42,20 +42,20 @@
 /*---------------------------------------------------------------------------*/
 
 /* Keep in sync with the LV_FONT_DECLARE list in lv_font_gbk.h */
-#define HARMONY_SIZES       4u
+#define HARMONY_SIZES 4u
 
 /* Descriptor cache depth per size.  The UI shows roughly 60 distinct
  * characters per size, so 64 keeps a steady state at zero card traffic. */
-#define HARMONY_DSC_SLOTS   64u
+#define HARMONY_DSC_SLOTS 64u
 
-#define HARMONY_NAME_MAX    64u
-#define HARMONY_PATH_MAX    (sizeof(HARMONY_FONT_DIR) + HARMONY_NAME_MAX)
+#define HARMONY_NAME_MAX 64u
+#define HARMONY_PATH_MAX (sizeof(HARMONY_FONT_DIR) + HARMONY_NAME_MAX)
 
-static const uint16_t s_sizes[HARMONY_SIZES] = { 12u, 16u, 24u, 32u };
+static const uint16_t s_sizes[HARMONY_SIZES] = {12u, 16u, 24u, 32u};
 
 /* Bitmap LRU budget per size, in bytes, drawn from the LVGL heap.  A glyph
  * costs box_w * box_h, so this is ~28 / 32 / 21 / 16 glyphs respectively. */
-static const size_t   s_bmp_cache[HARMONY_SIZES] = { 4096u, 8192u, 12288u, 16384u };
+static const size_t s_bmp_cache[HARMONY_SIZES] = {4096u, 8192u, 12288u, 16384u};
 
 /*---------------------------------------------------------------------------*/
 /* Descriptor cache                                                           */
@@ -63,32 +63,32 @@ static const size_t   s_bmp_cache[HARMONY_SIZES] = { 4096u, 8192u, 12288u, 16384
 
 typedef struct
 {
-    uint32_t             letter;
-    uint16_t             stamp;     /* value of the owning font's clock */
-    uint8_t              used;
-    lv_font_glyph_dsc_t  dsc;
+    uint32_t            letter;
+    uint16_t            stamp; /* value of the owning font's clock */
+    uint8_t             used;
+    lv_font_glyph_dsc_t dsc;
 } dsc_slot_t;
 
 typedef struct
 {
-    lv_font_t   *ttf;               /* the tiny_ttf font we wrap */
-    dsc_slot_t  *slots;
-    uint16_t     n;
-    uint16_t     clock;
+    lv_font_t  *ttf; /* the tiny_ttf font we wrap */
+    dsc_slot_t *slots;
+    uint16_t    n;
+    uint16_t    clock;
 } harmony_dsc_t;
 
-static dsc_slot_t     s_slots[HARMONY_SIZES][HARMONY_DSC_SLOTS];
-static harmony_dsc_t  s_fdsc[HARMONY_SIZES];
-static lv_font_t      s_font[HARMONY_SIZES];
-static uint8_t        s_valid[HARMONY_SIZES];
+static dsc_slot_t    s_slots[HARMONY_SIZES][HARMONY_DSC_SLOTS];
+static harmony_dsc_t s_fdsc[HARMONY_SIZES];
+static lv_font_t     s_font[HARMONY_SIZES];
+static uint8_t       s_valid[HARMONY_SIZES];
 
-static uint8_t        s_ready;
-static char           s_file[HARMONY_NAME_MAX];
-static char           s_path[HARMONY_PATH_MAX];
-static uint32_t       s_file_bytes;
+static uint8_t  s_ready;
+static char     s_file[HARMONY_NAME_MAX];
+static char     s_path[HARMONY_PATH_MAX];
+static uint32_t s_file_bytes;
 
-static uint32_t       s_dsc_hits;
-static uint32_t       s_dsc_misses;
+static uint32_t s_dsc_hits;
+static uint32_t s_dsc_misses;
 
 /*---------------------------------------------------------------------------*/
 /* Weight selection                                                           */
@@ -128,12 +128,12 @@ static int ends_with(const char *name, const char *ext)
 }
 
 /**
-  * @brief  Rank a file name by how desirable it is as the UI font.
-  * @retval higher is better, 0 means "not a font file".
-  */
+ * @brief  Rank a file name by how desirable it is as the UI font.
+ * @retval higher is better, 0 means "not a font file".
+ */
 static int score_name(const char *name)
 {
-    static const char *const pref[] = { "REGULAR", "MEDIUM", "BOLD", "LIGHT", "THIN", "BLACK" };
+    static const char *const pref[] = {"REGULAR", "MEDIUM", "BOLD", "LIGHT", "THIN", "BLACK"};
 
     char     up[HARMONY_NAME_MAX];
     uint32_t i;
@@ -160,7 +160,7 @@ static int score_name(const char *name)
         }
     }
 
-    return 2;   /* a font, but the weight is not in the table */
+    return 2; /* a font, but the weight is not in the table */
 }
 
 /*---------------------------------------------------------------------------*/
@@ -168,8 +168,8 @@ static int score_name(const char *name)
 /*---------------------------------------------------------------------------*/
 
 /**
-  * @brief  Pick the best *.ttf in HARMONY_FONT_DIR, listing everything found.
-  */
+ * @brief  Pick the best *.ttf in HARMONY_FONT_DIR, listing everything found.
+ */
 static GlobalType_t harmony_scan(void)
 {
     DIR      dir;
@@ -207,11 +207,11 @@ static GlobalType_t harmony_scan(void)
         sc = score_name(fno.fname);
         if (sc == 0)
         {
-            continue;               /* not a font file, not interesting */
+            continue; /* not a font file, not interesting */
         }
 
         PRINT_LOG("[TTF ]   %-40s %8lu B  score %d\r\n",
-               fno.fname, (unsigned long)fno.fsize, sc);
+                  fno.fname, (unsigned long)fno.fsize, sc);
 
         if (sc > best_score)
         {
@@ -232,7 +232,7 @@ static GlobalType_t harmony_scan(void)
 
     strncpy(s_file, best, HARMONY_NAME_MAX - 1u);
     s_file[HARMONY_NAME_MAX - 1u] = '\0';
-    s_file_bytes = best_bytes;
+    s_file_bytes                  = best_bytes;
 
     {
         int n = snprintf(s_path, sizeof(s_path), "%s/%s", HARMONY_FONT_DIR, s_file);
@@ -251,16 +251,20 @@ static GlobalType_t harmony_scan(void)
 /*---------------------------------------------------------------------------*/
 
 /**
-  * @brief  GBK bitmap font used when the .ttf has no glyph for a code point.
-  */
+ * @brief  GBK bitmap font used when the .ttf has no glyph for a code point.
+ */
 static const lv_font_t *gbk_fallback(uint16_t size)
 {
     switch (size)
     {
-        case 12u:  return &lv_font_gbk_12;
-        case 24u:  return &lv_font_gbk_24;
-        case 32u:  return &lv_font_gbk_32;
-        default:   return &lv_font_gbk_16;
+    case 12u:
+        return &lv_font_gbk_12;
+    case 24u:
+        return &lv_font_gbk_24;
+    case 32u:
+        return &lv_font_gbk_32;
+    default:
+        return &lv_font_gbk_16;
     }
 }
 
@@ -281,8 +285,8 @@ static bool harmony_get_glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *ds
     {
         if ((h->slots[i].used != 0u) && (h->slots[i].letter == letter))
         {
-            h->slots[i].stamp = h->clock;
-            *dsc_out = h->slots[i].dsc;
+            h->slots[i].stamp      = h->clock;
+            *dsc_out               = h->slots[i].dsc;
             dsc_out->resolved_font = font;
             s_dsc_hits++;
             return true;
@@ -293,7 +297,7 @@ static bool harmony_get_glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *ds
 
     if (!h->ttf->get_glyph_dsc(h->ttf, dsc_out, letter, 0u))
     {
-        return false;                       /* let LVGL try ->fallback */
+        return false; /* let LVGL try ->fallback */
     }
 
     if (dsc_out->is_placeholder)
@@ -402,9 +406,9 @@ GlobalType_t lv_font_harmony_init(void)
             s_font[i].fallback            = gbk_fallback(s_sizes[i]);
 
             PRINT_LOG("[TTF ]   %2u px: line %d, base %d (%lu ms)\r\n",
-                   (unsigned)s_sizes[i],
-                   (int)s_font[i].line_height, (int)s_font[i].base_line,
-                   (unsigned long)((uint32_t)HAL_GetTick() - t0));
+                      (unsigned)s_sizes[i],
+                      (int)s_font[i].line_height, (int)s_font[i].base_line,
+                      (unsigned long)((uint32_t)HAL_GetTick() - t0));
         }
 
         if (ok == 0u)

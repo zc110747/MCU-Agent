@@ -1,14 +1,14 @@
 /**
-  ******************************************************************************
-  * @file    ui_page_boot.c
-  * @brief   Boot / font-preload loading page - see ui_page_boot.h.
-  *
-  *  Shown first at power-on.  Displays "Waiting..." plus a progress bar that
-  *  the orchestrator (app_ui.c) fills while the TTF glyphs are preloaded into
-  *  the glyph cache.  For the GBK engine there is nothing to preload, so the
-  *  bar simply animates across the mandatory minimum 2 s.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ui_page_boot.c
+ * @brief   Boot / font-preload loading page - see ui_page_boot.h.
+ *
+ *  Shown first at power-on.  Displays "Waiting..." plus a progress bar that
+ *  the orchestrator (app_ui.c) fills while the TTF glyphs are preloaded into
+ *  the glyph cache.  For the GBK engine there is nothing to preload, so the
+ *  bar simply animates across the mandatory minimum 2 s.
+ ******************************************************************************
+ */
 #include "ui_page_boot.h"
 #include "ui_common.h"
 #include "lvgl.h"
@@ -30,7 +30,7 @@ lv_obj_t *ui_page_boot_build(void)
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, LV_PART_MAIN);
     (void)ui_mk_label_center(hdr, 6, UI_FONT(16), COL_HDR_TXT, "STM32H743");
 
-    (void)ui_mk_label_center(scr, 96,  UI_FONT(16), COL_DATE, "Waiting...");
+    (void)ui_mk_label_center(scr, 96, UI_FONT(16), COL_DATE, "Waiting...");
 
     s_bar = lv_bar_create(scr);
     lv_obj_remove_style_all(s_bar);
@@ -45,7 +45,7 @@ lv_obj_t *ui_page_boot_build(void)
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(s_bar, 4, LV_PART_INDICATOR);
 
-    s_pct = ui_mk_label_center(scr, 176, UI_FONT(12), COL_DIM, "0%");
+    s_pct    = ui_mk_label_center(scr, 176, UI_FONT(12), COL_DIM, "0%");
     s_status = ui_mk_label_center(scr, 204, UI_FONT(12), COL_LABEL, "系统启动中...");
 
     return scr;

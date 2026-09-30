@@ -52,9 +52,9 @@ void log_uart_init(void);
  *         - When PRINT_LOG_ENABLE == 0 it expands to nothing (compiled out).
  */
 #if PRINT_LOG_ENABLE
-  #define PRINT_LOG(fmt, ...)   printf_log(fmt, ##__VA_ARGS__)
+#define PRINT_LOG(fmt, ...) printf_log(fmt, ##__VA_ARGS__)
 #else
-  #define PRINT_LOG(fmt, ...)   ((void)0)
+#define PRINT_LOG(fmt, ...) ((void)0)
 #endif
 
 #ifdef __cplusplus

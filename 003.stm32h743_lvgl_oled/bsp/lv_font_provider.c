@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    lv_font_provider.c
-  * @brief   Font engine selection - see lv_font_cfg.h for the switch itself.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    lv_font_provider.c
+ * @brief   Font engine selection - see lv_font_cfg.h for the switch itself.
+ ******************************************************************************
+ */
 #include "bsp_log.h"
 #include "lv_font_provider.h"
 #include "lv_font_gbk.h"
@@ -16,17 +16,21 @@
 static FontEngine_t s_engine = FONT_ENGINE_GBK;
 
 /**
-  * @brief  The always-available engine: compiled-in bitmaps + GBKxx.FON.
-  */
+ * @brief  The always-available engine: compiled-in bitmaps + GBKxx.FON.
+ */
 static const lv_font_t *gbk_font(uint16_t size)
 {
     switch (size)
     {
-        case 12u:  return &lv_font_gbk_12;
-        case 24u:  return &lv_font_gbk_24;
-        case 32u:  return &lv_font_gbk_32;
-        case 16u:
-        default:   return &lv_font_gbk_16;
+    case 12u:
+        return &lv_font_gbk_12;
+    case 24u:
+        return &lv_font_gbk_24;
+    case 32u:
+        return &lv_font_gbk_32;
+    case 16u:
+    default:
+        return &lv_font_gbk_16;
     }
 }
 
@@ -49,9 +53,9 @@ static int stem_cmp(const char *name, const char *stem)
 }
 
 /**
-  * Swap a trailing ".ctf" for ".ttf" in place.
-  * @retval RT_OK when the buffer really ended in .ctf
-  */
+ * Swap a trailing ".ctf" for ".ttf" in place.
+ * @retval RT_OK when the buffer really ended in .ctf
+ */
 static GlobalType_t ctf_to_ttf(char *path, uint32_t path_size)
 {
     size_t len = strlen(path);
@@ -72,15 +76,15 @@ static GlobalType_t ctf_to_ttf(char *path, uint32_t path_size)
     return RT_OK;
 }
 
-GlobalType_t lv_font_provider_locate(char *ctf_path,
-                                     char *ttf_path,
+GlobalType_t lv_font_provider_locate(char    *ctf_path,
+                                     char    *ttf_path,
                                      uint32_t path_size)
 {
-    DIR           dir;
-    FILINFO       fi;
-    FIL           probe;
-    char          found[128];
-    int           have = 0;
+    DIR     dir;
+    FILINFO fi;
+    FIL     probe;
+    char    found[128];
+    int     have = 0;
 
     if ((ctf_path == NULL) || (ttf_path == NULL) || (path_size < 32u))
     {
@@ -91,8 +95,7 @@ GlobalType_t lv_font_provider_locate(char *ctf_path,
     ttf_path[0] = '\0';
 
     /* 1. The configured name. */
-    if (snprintf(found, sizeof(found), "%s/%s.ctf", CTF_FONT_DIR, CTF_FONT_NAME)
-        < (int)sizeof(found))
+    if (snprintf(found, sizeof(found), "%s/%s.ctf", CTF_FONT_DIR, CTF_FONT_NAME) < (int)sizeof(found))
     {
         if (f_stat(found, &fi) == FR_OK)
         {
@@ -111,7 +114,7 @@ GlobalType_t lv_font_provider_locate(char *ctf_path,
             }
             if (fi.fname[0] == '\0')
             {
-                break;    /* end of directory */
+                break; /* end of directory */
             }
             if ((fi.fattrib & AM_DIR) != 0u)
             {
@@ -125,8 +128,7 @@ GlobalType_t lv_font_provider_locate(char *ctf_path,
             {
                 continue;
             }
-            if (snprintf(found, sizeof(found), "%s/%s", CTF_FONT_DIR, fi.fname)
-                < (int)sizeof(found))
+            if (snprintf(found, sizeof(found), "%s/%s", CTF_FONT_DIR, fi.fname) < (int)sizeof(found))
             {
                 have = 1;
             }
@@ -171,13 +173,13 @@ GlobalType_t lv_font_provider_locate(char *ctf_path,
 /*---------------------------------------------------------------------------*/
 
 /**
-  * @brief  Report what the index pinned in RAM once the card is up.
-  *
-  *  The page table is the only variable part - it scales with the number of
-  *  Unicode planes the font covers - so the figure is measured, not assumed.
-  *  "pages: on card" is the degraded case: the pool was too small and the second
-  *  hop of a lookup goes back to reading 40-byte records through the cache.
-  */
+ * @brief  Report what the index pinned in RAM once the card is up.
+ *
+ *  The page table is the only variable part - it scales with the number of
+ *  Unicode planes the font covers - so the figure is measured, not assumed.
+ *  "pages: on card" is the degraded case: the pool was too small and the second
+ *  hop of a lookup goes back to reading 40-byte records through the cache.
+ */
 static void log_resident(void)
 {
     ctf_resident_t r;
@@ -245,7 +247,7 @@ GlobalType_t lv_font_provider_init(void)
     {
         s_engine = FONT_ENGINE_HARMONYOS;
         PRINT_LOG("[FONT] engine: HarmonyOS Sans TC (%s)\r\n",
-               lv_font_harmony_file());
+                  lv_font_harmony_file());
         return RT_OK;
     }
 #endif
@@ -264,10 +266,13 @@ const char *lv_font_provider_name(void)
 {
     switch (s_engine)
     {
-        case FONT_ENGINE_CTF:         return "鸿蒙CTF";
-        case FONT_ENGINE_HARMONYOS:   return "鸿蒙TTF";
-        case FONT_ENGINE_GBK:
-        default:                      return "GBK点阵";
+    case FONT_ENGINE_CTF:
+        return "鸿蒙CTF";
+    case FONT_ENGINE_HARMONYOS:
+        return "鸿蒙TTF";
+    case FONT_ENGINE_GBK:
+    default:
+        return "GBK点阵";
     }
 }
 
@@ -308,7 +313,7 @@ uint16_t lv_font_provider_px_of(const lv_font_t *f)
     {
         return lvgl_font_px_of(f);
     }
-    return 0u;   /* GBK / HarmonyOS engines have no glyph cache to preload */
+    return 0u; /* GBK / HarmonyOS engines have no glyph cache to preload */
 }
 
 void lv_font_provider_on_page_shown(void)
