@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug (OpenOCD + ST-Link)",
+      "name": "Debug (OpenOCD)",
       "type": "cortex-debug",
       "request": "launch",
       "servertype": "openocd",
@@ -11,10 +11,8 @@
       "configFiles": [
         "${workspaceFolder}/openocd.cfg"
       ],
-      "openocdPath": "openocd",
       "gdbPath": "arm-none-eabi-gdb",
       "device": "STM32H743ZI",
-      "interface": "swd",
       "runToEntryPoint": "main",
       "preLaunchTask": "build",
       "showDevDebugOutput": "none",
@@ -30,10 +28,8 @@
       "configFiles": [
         "${workspaceFolder}/openocd.cfg"
       ],
-      "openocdPath": "openocd",
       "gdbPath": "arm-none-eabi-gdb",
       "device": "STM32H743ZI",
-      "interface": "swd",
       "showDevDebugOutput": "none",
       "svdFile": "${workspaceFolder}/STM32H743.svd"
     }

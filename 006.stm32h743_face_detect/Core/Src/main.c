@@ -9,8 +9,9 @@
 #include "main.h"
 
 #include "app_face.h"
-#include "drv_uart.h"
+#include "bsp_log.h"
 
+UART_HandleTypeDef huart1;
 DCMI_HandleTypeDef hdcmi;
 DMA_HandleTypeDef  hdma_dcmi;
 I2C_HandleTypeDef  hi2c4;
@@ -35,7 +36,7 @@ int main(void)
 
     MX_GPIO_Init();
     MX_DMA_Init();
-    (void)drv_uart_init();      /* console first: everything after can log */
+    (void)bsp_log_init();       /* console first: everything after can log */
     MX_SPI6_Init();
     MX_DCMI_Init();
     MX_I2C4_Init();

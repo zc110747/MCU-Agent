@@ -41,6 +41,7 @@
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_font_gbk.h"
+#include "ui_font.h"
 #include "bsp_log.h"
 
 #define LED_BLINK_MS        500U
@@ -142,11 +143,11 @@ static void show_fault(const char *l1, const char *l2, const char *l3)
     lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    ui_label_center(scr,  60, &lv_font_gbk_16, COL_ERR,  "STORAGE FAULT");
-    ui_label_center(scr, 100, &lv_font_gbk_16, COL_TEXT, l1);
-    ui_label_center(scr, 122, &lv_font_gbk_16, COL_TEXT, l2);
-    ui_label_center(scr, 144, &lv_font_gbk_16, COL_TEXT, l3);
-    ui_label_center(scr, 190, &lv_font_gbk_16, COL_DIM,  "console still works");
+    ui_label_center(scr,  60, &ui_font_16, COL_ERR,  "STORAGE FAULT");
+    ui_label_center(scr, 100, &ui_font_16, COL_TEXT, l1);
+    ui_label_center(scr, 122, &ui_font_16, COL_TEXT, l2);
+    ui_label_center(scr, 144, &ui_font_16, COL_TEXT, l3);
+    ui_label_center(scr, 190, &ui_font_16, COL_DIM,  "console still works");
 }
 
 /*----------------------------------------------------------------------------
@@ -243,6 +244,8 @@ void application_init(void)
     PRINT_LOG("[LVGL] v%d.%d.%d, %u KB heap\r\n",
            LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
            (unsigned)(LV_MEM_SIZE / 1024U));
+
+    ui_font_init();
 
     if (s_font_ready != 0U)
     {

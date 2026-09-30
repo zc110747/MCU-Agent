@@ -271,11 +271,11 @@ void  LCD_DisplayNumber( uint16_t x, uint16_t y, int32_t number, uint8_t len)
 
 	if( g_oled_info.ShowNum_Mode == Fill_Zero)	// 多余位补0
 	{
-		sprintf( Number_Buffer , "%0.*d",len, number );
+		sprintf( Number_Buffer , "%.*ld",len, (long)number );
 	}
 	else			// 多余位补空格
 	{	
-		sprintf( Number_Buffer , "%*d",len, number );	// 将 number 转换成字符串，便于显示		
+		sprintf( Number_Buffer , "%*ld",len, (long)number );	// 将 number 转换成字符串，便于显示		
 	}
 	
 	LCD_DisplayText(x, y,(char *)Number_Buffer) ;  // 将转换得到的字符串显示出来

@@ -37,17 +37,29 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id,
      * interrupt OUT (report_type = OUTPUT/INVALID) and SET_REPORT control
      * (report_type = FEATURE). Do NOT gate on a specific report_type,
      * otherwise interrupt-OUT commands get silently dropped and the host
-     * sees no response (e.g. OpenOCD "CMD_INFO failed"). */
-    ESP_LOGI(TAG, "SET_REPORT type=%u id=%u len=%u b0=%02X b1=%02X",
+     * sees no response (e.g. OpenOCD "CMD_INFO failed").
+     * NOTE: this runs on EVERY HID packet; keep it at VERBOSE so the
+     * serial log never becomes the download-speed bottleneck. */
+    ESP_LOGV(TAG, "SET_REPORT type=%u id=%u len=%u b0=%02X b1=%02X",
              (unsigned)report_type, (unsigned)report_id, (unsigned)bufsize,
              buffer ? buffer[0] : 0, buffer ? buffer[1] : 0);
     if (bufsize > 0 && buffer != NULL) {
         usb_dap_msg_t msg = { .len = 0 };
         msg.len = (bufsize > USB_DAP_PACKET_SIZE) ? USB_DAP_PACKET_SIZE : bufsize;
         memcpy(msg.data, buffer, msg.len);
-        ESP_LOGI(TAG, "HID OUT cmd=0x%02X len=%u", buffer[0], (unsigned)msg.len);
+        ESP_LOGV(TAG, "HID OUT cmd=0x%02X len=%u", buffer[0], (unsigned)msg.len);
         if (s_rx_queue) {
-            xQueueSend(s_rx_queue, &msg, 0);
+            /* NEVER drop DAP commands silently: OpenOCD pipelines many HID OUT
+             * reports (JTAG/SWD flash download bursts). A dropped command means
+             * the host waits for a response that never comes -> timeout + retry
+             * = multi-second stalls. Queue is deep enough to absorb a full
+             * OpenOCD command batch; if it ever overflows, complain loudly. */
+            if (xQueueSend(s_rx_queue, &msg, 0) != pdTRUE) {
+                static uint32_t s_dropped;
+                s_dropped++;
+                ESP_LOGE(TAG, "rx queue FULL, DAP cmd 0x%02X DROPPED (total %u)",
+                         buffer[0], (unsigned)s_dropped);
+            }
         }
     }
 }
@@ -63,7 +75,7 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id,
 void tud_hid_report_complete_cb(uint8_t itf, uint8_t const *report, uint16_t len)
 {
     (void)itf; (void)report; (void)len;
-    ESP_LOGI(TAG, "RESP complete itf=%u len=%u", (unsigned)itf, (unsigned)len);
+    ESP_LOGV(TAG, "RESP complete itf=%u len=%u", (unsigned)itf, (unsigned)len);
     if (s_tx_done) {
         xSemaphoreGive(s_tx_done);
     }
@@ -88,6 +100,18 @@ QueueHandle_t usb_device_rx_queue(void)
     return s_rx_queue;
 }
 
+bool usb_device_is_connected(void)
+{
+    /* Must be tud_mounted(), not tud_connected(): on ESP32-S3 tud_connected()
+     * only reflects VBUS being present, so a charger would look like a host. */
+    return tud_mounted();
+}
+
+bool usb_device_vbus_present(void)
+{
+    return tud_connected();
+}
+
 esp_err_t usb_device_send_response(const uint8_t *data, size_t len)
 {
     if (data == NULL) {
@@ -98,7 +122,7 @@ esp_err_t usb_device_send_response(const uint8_t *data, size_t len)
         return ESP_ERR_INVALID_STATE;
     }
 
-    ESP_LOGI(TAG, "RESP payload=%u b0=%02X b1=%02X b2=%02X",
+    ESP_LOGV(TAG, "RESP payload=%u b0=%02X b1=%02X b2=%02X",
              (unsigned)len, data[0], data[1], data[2]);
 
     /* CMSIS-DAP v1 host tools (OpenOCD / Keil) read a FULL 64-byte report per
@@ -109,7 +133,7 @@ esp_err_t usb_device_send_response(const uint8_t *data, size_t len)
      * STM32H7 implementation: tud_hid_report(0, resp_buf, DAP_PACKET_SIZE). */
     for (;;) {
         if (tud_hid_report(0, data, USB_DAP_PACKET_SIZE)) {
-            ESP_LOGI(TAG, "RESP sent ok (full %u)", (unsigned)USB_DAP_PACKET_SIZE);
+            ESP_LOGV(TAG, "RESP sent ok (full %u)", (unsigned)USB_DAP_PACKET_SIZE);
             return ESP_OK;
         }
         ESP_LOGW(TAG, "RESP tud_hid_report busy, retry");
@@ -147,7 +171,7 @@ esp_err_t usb_device_init(void)
         return err;
     }
 
-    s_rx_queue = xQueueCreate(4, sizeof(usb_dap_msg_t));
+    s_rx_queue = xQueueCreate(32, sizeof(usb_dap_msg_t));
     s_tx_done = xSemaphoreCreateBinary();
     if (s_rx_queue == NULL || s_tx_done == NULL) {
         return ESP_ERR_NO_MEM;

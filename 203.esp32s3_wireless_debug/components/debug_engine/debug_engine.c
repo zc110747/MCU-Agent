@@ -18,6 +18,31 @@ static const char *TAG = "debug";
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_connected = false;
 
+/* ------------------------------------------------------------------ */
+/* Wireless-debug RAM reservation (external PSRAM)                      */
+/* ------------------------------------------------------------------ */
+#if CONFIG_WIRELESS_DEBUG_RESERVE_RAM
+#include "esp_heap_caps.h"
+static void *s_wireless_debug_pool = NULL;
+
+static void wireless_debug_reserve_init(void)
+{
+    size_t size = (size_t)CONFIG_WIRELESS_DEBUG_RESERVE_RAM_SIZE_KB * 1024u;
+    /* Carve the pool out of external PSRAM and keep it for the whole lifetime
+     * of the firmware - it is intentionally NEVER freed. This guarantees a
+     * contiguous buffer region for the future DAP-over-WiFi transport, away
+     * from the scarce internal DRAM that the bit-bang IRAM code needs. */
+    s_wireless_debug_pool = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_wireless_debug_pool) {
+        ESP_LOGI(TAG, "wireless-debug pool reserved: %u KB @ %p (PSRAM)",
+                 (unsigned)CONFIG_WIRELESS_DEBUG_RESERVE_RAM_SIZE_KB,
+                 s_wireless_debug_pool);
+    } else {
+        ESP_LOGW(TAG, "wireless-debug pool reserve FAILED (PSRAM unavailable?)");
+    }
+}
+#endif
+
 esp_err_t debug_init(void)
 {
     if (s_mutex == NULL) {
@@ -30,7 +55,14 @@ esp_err_t debug_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    return jtag_init();
+    err = jtag_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+#if CONFIG_WIRELESS_DEBUG_RESERVE_RAM
+    wireless_debug_reserve_init();
+#endif
+    return ESP_OK;
 }
 
 esp_err_t debug_engine_lock(uint32_t timeout_ms)

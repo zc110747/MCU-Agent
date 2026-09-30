@@ -9,6 +9,7 @@
   ******************************************************************************
   */
 #include "stm32h7xx_hal.h"
+#include "bsp_log.h"
 #include "uart.h"
 #include "led.h"
 
@@ -29,28 +30,26 @@ int main(void)
        app is also runnable on its own (e.g. flashed directly). */
     SCB->VTOR = 0x08020000UL;
 
-    if (BSP_UART_Init() != HAL_OK) {
-        Error_Handler();
-    }
+    BSP_UART_Init();
 
-    BSP_UART_Printf("\r\n");
-    BSP_UART_Printf("========================================\r\n");
+    PRINT_LOG("\r\n");
+    PRINT_LOG("========================================\r\n");
     /* Print the live version slot @0x08021000 so a successful upgrade is
        unmistakable (the slot is part of the flashed image). */
     {
         const uint8_t *app_ver = (const uint8_t *)0x08021000UL;
-        BSP_UART_Printf("  STM32H743 TEST APP  v%u.%u.%u.%u\r\n",
+        PRINT_LOG("  STM32H743 TEST APP  v%u.%u.%u.%u\r\n",
                         app_ver[0], app_ver[1], app_ver[2], app_ver[3]);
     }
-    BSP_UART_Printf("  (bootloader jumped here @0x08020000)\r\n");
-    BSP_UART_Printf("========================================\r\n");
+    PRINT_LOG("  (bootloader jumped here @0x08020000)\r\n");
+    PRINT_LOG("========================================\r\n");
 
     BSP_LED_Init();
 
     while (1) {
         BSP_LED_Toggle();
         HAL_Delay(LED_BLINK_MS);          /* 1000 ms => 1 Hz heartbeat */
-        BSP_UART_Printf(" app alive @1Hz\r\n");
+        PRINT_LOG(" app alive @1Hz\r\n");
     }
 }
 

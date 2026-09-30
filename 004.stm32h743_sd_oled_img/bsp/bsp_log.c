@@ -1,23 +1,23 @@
 /**
-  ******************************************************************************
-  * @file    bsp_log.c
-  * @brief   USART1 console (PA9/PA10, 115200-8-N-1) + non-blocking PRINT_LOG.
-  *
-  *   printf_log() is a drop-in replacement for printf() that formats into a
-  *   stack-local buffer, then pushes the bytes into a TX ring buffer. A
-  *   transmit (TXE) interrupt drains the ring buffer byte-by-byte, so the
-  *   caller never blocks on the UART.
-  *
-  *   Design notes:
-  *   - The formatting buffer (LOG_BUF_SIZE) covers all current log lines;
-  *     longer lines are truncated by vsnprintf (it returns the would-be len).
-  *   - uart_write() updates the shared ring-buffer indices inside a critical
-  *     section where the UART TX interrupt is DISABLED, so the ISR cannot
-  *     race on those indices. This is the "close the serial interrupt during
-  *     the write" requirement.
-  *   - Only UART_IT_TXE is ever enabled; RX and error interrupts stay off.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_log.c
+ * @brief   USART1 console (PA9/PA10, 115200-8-N-1) + non-blocking PRINT_LOG.
+ *
+ *   printf_log() is a drop-in replacement for printf() that formats into a
+ *   stack-local buffer, then pushes the bytes into a TX ring buffer. A
+ *   transmit (TXE) interrupt drains the ring buffer byte-by-byte, so the
+ *   caller never blocks on the UART.
+ *
+ *   Design notes:
+ *   - The formatting buffer (LOG_BUF_SIZE) covers all current log lines;
+ *     longer lines are truncated by vsnprintf (it returns the would-be len).
+ *   - uart_write() updates the shared ring-buffer indices inside a critical
+ *     section where the UART TX interrupt is DISABLED, so the ISR cannot
+ *     race on those indices. This is the "close the serial interrupt during
+ *     the write" requirement.
+ *   - Only UART_IT_TXE is ever enabled; RX and error interrupts stay off.
+ ******************************************************************************
+ */
 
 #include "bsp_log.h"
 
@@ -25,7 +25,7 @@
 #include <string.h>
 #include <stdarg.h>
 
-#define LOG_UART_TIMEOUT_MS   100U
+#define LOG_UART_TIMEOUT_MS 100U
 
 /* Per-call format buffer. 256 bytes covers all current log lines. */
 #define LOG_BUF_SIZE 256
@@ -35,21 +35,27 @@
  * ------------------------------------------------------------------------- */
 #define UART_TX_BUF_SIZE 1024U
 
-static uint8_t  uart_tx_buf[UART_TX_BUF_SIZE];
-static volatile uint16_t uart_tx_w = 0U;   /* next write slot (uart_write) */
-static volatile uint16_t uart_tx_r = 0U;   /* next read  slot (ISR)        */
-static volatile uint16_t uart_tx_n = 0U;   /* bytes pending in the ring    */
-static volatile uint8_t  uart_tx_active = 0U; /* 1 = a transmission is running */
-static uint8_t  uart_tx_nvic_on = 0U;      /* USART1 NVIC enabled?         */
+/* TX 环形缓冲状态：写入方填充、TX 中断消费 */
+typedef struct
+{
+    uint8_t           buf[UART_TX_BUF_SIZE];
+    volatile uint16_t w;      /* next write slot (uart_write) */
+    volatile uint16_t r;      /* next read  slot (ISR)        */
+    volatile uint16_t n;      /* bytes pending in the ring    */
+    volatile uint8_t  active; /* 1 = a transmission is running */
+    uint8_t           nvic_on; /* USART1 NVIC enabled?         */
+} log_tx_ring_t;
+
+static log_tx_ring_t g_log_tx = {0};
 
 /* Enable the USART1 global interrupt once (idempotent). */
 void log_uart_init(void)
 {
-    if (!uart_tx_nvic_on)
+    if (!g_log_tx.nvic_on)
     {
         HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
         HAL_NVIC_EnableIRQ(USART1_IRQn);
-        uart_tx_nvic_on = 1U;
+        g_log_tx.nvic_on = 1U;
     }
 }
 
@@ -65,26 +71,26 @@ static int uart_write(const uint8_t *data, int len)
     log_uart_init();
 
     /* CRITICAL SECTION: close the serial TX interrupt so the ISR cannot
-     * modify uart_tx_r / uart_tx_n while we are appending. */
+     * modify g_log_tx.r / g_log_tx.n while we are appending. */
     __HAL_UART_DISABLE_IT(&huart1, UART_IT_TXE);
 
     int written = 0;
-    while ((written < len) && (uart_tx_n < UART_TX_BUF_SIZE))
+    while ((written < len) && (g_log_tx.n < UART_TX_BUF_SIZE))
     {
-        uart_tx_buf[uart_tx_w] = data[written++];
-        uart_tx_w = (uart_tx_w + 1U) % UART_TX_BUF_SIZE;
-        uart_tx_n++;
+        g_log_tx.buf[g_log_tx.w] = data[written++];
+        g_log_tx.w              = (g_log_tx.w + 1U) % UART_TX_BUF_SIZE;
+        g_log_tx.n++;
     }
 
-    /* If the transmitter is idle, prime the first byte. uart_tx_active == 0
+    /* If the transmitter is idle, prime the first byte. g_log_tx.active == 0
      * guarantees TDR is empty, so writing it is safe. The ISR then drains
      * the rest. */
-    if (!uart_tx_active && (uart_tx_n > 0U))
+    if (!g_log_tx.active && (g_log_tx.n > 0U))
     {
-        uart_tx_active = 1U;
-        huart1.Instance->TDR = uart_tx_buf[uart_tx_r];
-        uart_tx_r = (uart_tx_r + 1U) % UART_TX_BUF_SIZE;
-        uart_tx_n--;
+        g_log_tx.active       = 1U;
+        huart1.Instance->TDR = g_log_tx.buf[g_log_tx.r];
+        g_log_tx.r            = (g_log_tx.r + 1U) % UART_TX_BUF_SIZE;
+        g_log_tx.n--;
     }
 
     /* Re-open the serial TX interrupt; it fires once TDR is empty. */
@@ -99,17 +105,17 @@ void log_uart_tx_irq(void)
     if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TXE) &&
         __HAL_UART_GET_IT_SOURCE(&huart1, UART_IT_TXE))
     {
-        if (uart_tx_n > 0U)
+        if (g_log_tx.n > 0U)
         {
-            huart1.Instance->TDR = uart_tx_buf[uart_tx_r];
-            uart_tx_r = (uart_tx_r + 1U) % UART_TX_BUF_SIZE;
-            uart_tx_n--;
+            huart1.Instance->TDR = g_log_tx.buf[g_log_tx.r];
+            g_log_tx.r            = (g_log_tx.r + 1U) % UART_TX_BUF_SIZE;
+            g_log_tx.n--;
         }
         else
         {
             /* Nothing left to send: stop the TX interrupt. */
             __HAL_UART_DISABLE_IT(&huart1, UART_IT_TXE);
-            uart_tx_active = 0U;
+            g_log_tx.active = 0U;
         }
     }
 }
@@ -141,16 +147,20 @@ GlobalType_t bsp_log_init(void)
     huart1.Init.ClockPrescaler         = UART_PRESCALER_DIV1;
     huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
 
-    if (HAL_UART_Init(&huart1) != HAL_OK) {
+    if (HAL_UART_Init(&huart1) != HAL_OK)
+    {
         return RT_FAIL;
     }
-    if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK) {
+    if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+    {
         return RT_FAIL;
     }
-    if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK) {
+    if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+    {
         return RT_FAIL;
     }
-    if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK) {
+    if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+    {
         return RT_FAIL;
     }
 
@@ -165,7 +175,8 @@ GlobalType_t bsp_log_init(void)
 
 void bsp_log_write(const char *data, int len)
 {
-    if (data == NULL || len <= 0) {
+    if (data == NULL || len <= 0)
+    {
         return;
     }
     /* Route through the non-blocking ring buffer instead of blocking on the UART. */
@@ -175,13 +186,16 @@ void bsp_log_write(const char *data, int len)
 void vprintf_log(const char *fmt, va_list ap)
 {
 #if PRINT_LOG_ENABLE == 0
-    (void)fmt; (void)ap;
+    (void)fmt;
+    (void)ap;
     return;
 #else
     char buf[LOG_BUF_SIZE];
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    if (n < 0) return;
-    if (n > (int)sizeof(buf) - 1) n = (int)sizeof(buf) - 1;
+    int  n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    if (n < 0)
+        return;
+    if (n > (int)sizeof(buf) - 1)
+        n = (int)sizeof(buf) - 1;
     uart_write((const uint8_t *)buf, n);
 #endif
 }

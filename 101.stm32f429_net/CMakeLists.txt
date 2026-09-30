@@ -69,24 +69,35 @@ set(CMSIS_SOURCES
   sys_startup/gcc/startup_stm32f429xx.s
 )
 
-# Only the HAL modules we actually use (their HAL_*_MODULE_ENABLED are set
-# in app/stm32f4xx_hal_conf.h, so each .c compiles cleanly).
+# Only the HAL modules we actually use (do NOT glob the whole Src dir).
+# Reverse-looked-up from the HAL_*() calls in app/ bsp/:
+#   ETH  GPIO  I2C  PWR  RCC  SDRAM(+FMC LL)  TIM(timebase TIM7)  UART
+#   (+ the 5 mandatory core modules)
+# dma/dma_ex ARE required: ARMCLANG keeps the DMA-mode code inside hal_i2c.c /
+#   hal_uart.c as a unit (no --gc-sections refinement), so HAL_DMA_* must resolve.
+# NOT included: flash / flash_ex (only register-level FLASH_ACR macros are used).
+set(HAL_DIR ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Src)
 set(HAL_SOURCES
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_eth.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sdram.c
-  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_fmc.c
+  # --- mandatory core ---
+  ${HAL_DIR}/stm32f4xx_hal.c
+  ${HAL_DIR}/stm32f4xx_hal_cortex.c
+  ${HAL_DIR}/stm32f4xx_hal_rcc.c
+  ${HAL_DIR}/stm32f4xx_hal_rcc_ex.c
+  ${HAL_DIR}/stm32f4xx_hal_gpio.c
+  # --- power ---
+  ${HAL_DIR}/stm32f4xx_hal_pwr.c
+  ${HAL_DIR}/stm32f4xx_hal_pwr_ex.c
+  # --- dma (referenced by i2c/uart drivers) ---
+  ${HAL_DIR}/stm32f4xx_hal_dma.c
+  ${HAL_DIR}/stm32f4xx_hal_dma_ex.c
+  # --- peripherals actually used ---
+  ${HAL_DIR}/stm32f4xx_hal_eth.c
+  ${HAL_DIR}/stm32f4xx_hal_i2c.c
+  ${HAL_DIR}/stm32f4xx_hal_tim.c
+  ${HAL_DIR}/stm32f4xx_hal_tim_ex.c
+  ${HAL_DIR}/stm32f4xx_hal_uart.c
+  ${HAL_DIR}/stm32f4xx_hal_sdram.c
+  ${HAL_DIR}/stm32f4xx_ll_fmc.c
 )
 
 # FreeRTOS V11 kernel (native API): core + ARM_CM4F port + heap_4.

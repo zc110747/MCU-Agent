@@ -5,7 +5,7 @@
  */
 #include "drv_dcmi.h"
 #include "drv_dcmi_ov5640.h"
-#include "logger.h"
+#include "bsp_log.h"
 
 extern I2C_HandleTypeDef  hi2c4;
 extern DCMI_HandleTypeDef hdcmi;
@@ -36,17 +36,17 @@ GlobalType_t drv_dcmi_init(void)
 {
     if (drv_dcmi_ov5640_init() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "ov5640 init failed");
+        PRINT_LOG("ov5640 init failed");
         return RT_FAIL;
     }
 
     if (dcmi_config_crop() != RT_OK)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "dcmi crop config failed");
+        PRINT_LOG("dcmi crop config failed");
         return RT_FAIL;
     }
 
-    PRINT_LOG(LOG_INFO, HAL_GetTick(), "dcmi ready: sensor %dx%d, crop %dx%d",
+    PRINT_LOG("dcmi ready: sensor %dx%d, crop %dx%d",
               OV5640_WIDTH, OV5640_HEIGHT, CAPTURE_WIDTH, CAPTURE_HEIGHT);
     return RT_OK;
 }

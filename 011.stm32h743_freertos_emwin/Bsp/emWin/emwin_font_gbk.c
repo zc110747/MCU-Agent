@@ -55,13 +55,19 @@ static const pFONT * ascii_font_for_height(uint8_t h)
     }
 }
 
-/* ---- draw a row-scan bitmap at (x0,y0) ----------------------------------
- *  The compiled ASCII tables (ASCII_Font*) store MSB-first row scan, while
- *  the SD-backed Chinese glyphs have been transposed to LSB-first row scan
- *  by lcd_driver_get_hzmat().  `msb_first` selects the in-byte bit order so
- *  a single routine can render either kind of glyph without repacking.
+/* ---- draw an LSB-first row-scan bitmap at (x0,y0) -----------------------
+ *  BOTH glyph sources use the same layout: LSB-first row scan, i.e. bit 0 of
+ *  a byte is the LEFTMOST pixel and consecutive bytes continue to the right.
+ *    - the compiled ASCII tables (ASCII_Font*): this is how the original
+ *      blitter reads them - drv_spi_oled.c::oled_display_char() tests
+ *      `disChar & 0x01` and then shifts right;
+ *    - the SD Chinese glyphs, transposed into that same layout by
+ *      lcd_driver_get_hzmat() -> Convert_Font_MSB_Column_to_LSB_Row().
+ *  Reading the tables MSB-first mirrors every glyph horizontally; for the
+ *  8 px ASCII fonts one byte is exactly one row, so the mistake is a clean
+ *  mirror that still looks almost readable.
  * ------------------------------------------------------------------------*/
-static void draw_lsb_rows(int x0, int y0, int w, int h, const uint8_t * bits, int msb_first)
+static void draw_lsb_rows(int x0, int y0, int w, int h, const uint8_t * bits)
 {
     int bpr = (w + 7) >> 3;
     for (int row = 0; row < h; row++)
@@ -69,8 +75,7 @@ static void draw_lsb_rows(int x0, int y0, int w, int h, const uint8_t * bits, in
         const uint8_t * line = bits + (size_t)row * (size_t)bpr;
         for (int col = 0; col < w; col++)
         {
-            uint8_t bit = msb_first ? (uint8_t)(0x80u >> (col & 7))
-                                    : (uint8_t)(1u << (col & 7));
+            uint8_t bit = (uint8_t)(1u << (col & 7));   /* LSB-first: bit 0 = leftmost */
             if (line[col >> 3] & bit)
             {
                 GUI_DrawPixel(x0 + col, y0 + row);
@@ -115,28 +120,46 @@ static void emwin_gbk_disp_char(U16 c)
     uint8_t h = (uint8_t)(pFont ? pFont->YSize : 16);
     int x0 = GUI_GetDispPosX();
     int y0 = GUI_GetDispPosY();
+    int dist;
 
     if (c < 0x80U)
     {
         if (c < 0x20U) c = 0x20U;                 /* control chars -> space */
         const pFONT * af = ascii_font_for_height(h);
-        if (af->pTable == NULL) return;
-        const uint8_t * bits = af->pTable + (size_t)(c - 0x20U) * af->Sizes;
-        /* Compiled ASCII tables are MSB-first row scan -> msb_first = 1 */
-        draw_lsb_rows(x0, y0, (int)af->Width, (int)af->Height, bits, 1);
+        dist = (int)af->Width + 1;                /* 1px gap between ASCII */
+        if (af->pTable != NULL)
+        {
+            const uint8_t * bits = af->pTable + (size_t)(c - 0x20U) * af->Sizes;
+            draw_lsb_rows(x0, y0, (int)af->Width, (int)af->Height, bits);
+        }
     }
     else
     {
-        uint16_t gbk = lv_gbk_from_unicode((uint32_t)c);
-        if (gbk == 0U) return;                   /* unmapped -> blank */
         const pFONT * cf = ch_font_for_height(h);
-        const uint8_t * bits = gbk_cache_lookup(h, gbk, cf);
-        if (bits != NULL)
+        dist = (int)cf->Width;                    /* Chinese glyphs touch */
+        uint16_t gbk = lv_gbk_from_unicode((uint32_t)c);
+        if (gbk != 0U)
         {
-            /* SD Chinese glyphs are already LSB-first row scan -> msb_first = 0 */
-            draw_lsb_rows(x0, y0, (int)cf->Width, (int)cf->Height, bits, 0);
+            const uint8_t * bits = gbk_cache_lookup(h, gbk, cf);
+            if (bits != NULL)
+            {
+                draw_lsb_rows(x0, y0, (int)cf->Width, (int)cf->Height, bits);
+            }
         }
     }
+
+    /* IMPORTANT - who advances the text cursor
+     * ----------------------------------------
+     *  emWin's line renderer for this font class (GUIPROP_EXT__DispLine, the
+     *  pfDispLine of GUI_ENC_APIList_EXT) only loops "decode char -> call
+     *  pfDispChar"; it NEVER moves the text cursor itself.  A callback font
+     *  must therefore advance GUI_pContext->DispPosX on its own - exactly what
+     *  emWin's built-in GUIPROP_EXT_DispChar does at its tail:
+     *      DispPosX += XMag * XDist;
+     *  Omitting this makes every glyph of a string pile up on the first
+     *  character's x position, i.e. the UI looks like it never drew any text.
+     *  GUI_GotoX() is the public API that performs exactly that one store. */
+    GUI_GotoX(x0 + (int)(pFont ? pFont->XMag : 1U) * dist);
 }
 
 static int emwin_gbk_get_char_distx(U16P c, int * pSizeX)

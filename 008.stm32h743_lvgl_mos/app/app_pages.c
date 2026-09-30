@@ -16,6 +16,7 @@
   */
 #include "app_page.h"
 #include "lv_font_gbk.h"
+#include "ui_font.h"
 #include "menu_icons.h"
 #include "drv_rtc.h"
 #include "drv_sdio.h"
@@ -57,16 +58,16 @@ static void clock_enter(lv_obj_t *root)
 {
     (void)ui_header(root, "时钟");
 
-    s_clk_time = ui_label_center(root, 70,  &lv_font_gbk_32, 0x00E5FF, "--:--:--");
-    s_clk_date = ui_label_center(root, 120, &lv_font_gbk_16, COL_TEXT, "----");
-    s_clk_src  = ui_label_center(root, 160, &lv_font_gbk_12, COL_DIM, "");
+    s_clk_time = ui_label_center(root, 70,  &ui_font_32, 0x00E5FF, "--:--:--");
+    s_clk_date = ui_label_center(root, 120, &ui_font_16, COL_TEXT, "----");
+    s_clk_src  = ui_label_center(root, 160, &ui_font_12, COL_DIM, "");
 
     lv_label_set_text_fmt(s_clk_src, "时基 %s",
                           (drv_rtc_clock_source() == RTC_CLK_LSE)
                               ? "LSE 32.768kHz 晶振"
                               : "LSI 内部 RC (会漂移)");
 
-    (void)ui_label_center(root, UI_H - 22, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label_center(root, UI_H - 22, &ui_font_12, COL_DIM,
                           "B 返回主菜单");
 
     s_clk_last = 0U;
@@ -156,22 +157,22 @@ static void sysinfo_enter(lv_obj_t *root)
 
     (void)ui_header(root, "系统信息");
 
-    lbl = ui_label(root, UI_PAD, 36, &lv_font_gbk_16, COL_LABEL, "");
+    lbl = ui_label(root, UI_PAD, 36, &ui_font_16, COL_LABEL, "");
     lv_label_set_text_fmt(lbl, "主频  %d MHz  (%s)",
                           (int)(HAL_RCC_GetSysClockFreq() / 1000000U),
                           (g_clock_source == CLOCK_SRC_HSE_XTAL) ? "HSE 25M"
                                                                  : "HSI 备用");
 
-    lbl = ui_label(root, UI_PAD, 58, &lv_font_gbk_16, COL_LABEL, "");
+    lbl = ui_label(root, UI_PAD, 58, &ui_font_16, COL_LABEL, "");
     lv_label_set_text_fmt(lbl, "总线  HCLK %d MHz",
                           (int)(HAL_RCC_GetHCLKFreq() / 1000000U));
 
-    s_si_uptime = ui_label(root, UI_PAD, 80, &lv_font_gbk_16, COL_LABEL,
+    s_si_uptime = ui_label(root, UI_PAD, 80, &ui_font_16, COL_LABEL,
                            "运行  00:00:00");
 
     ui_separator(root, 104);
 
-    s_si_sd = ui_label(root, UI_PAD, 110, &lv_font_gbk_16, COL_VALUE,
+    s_si_sd = ui_label(root, UI_PAD, 110, &ui_font_16, COL_VALUE,
                        "SD    读取中...");
 
     s_si_bar = lv_bar_create(root);
@@ -189,19 +190,19 @@ static void sysinfo_enter(lv_obj_t *root)
 
     ui_separator(root, 152);
 
-    s_si_heap = ui_label(root, UI_PAD, 158, &lv_font_gbk_16, COL_LABEL, "");
+    s_si_heap = ui_label(root, UI_PAD, 158, &ui_font_16, COL_LABEL, "");
     lv_label_set_text_fmt(s_si_heap, "LVGL  v%d.%d.%d  %d KB",
                           LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR,
                           LVGL_VERSION_PATCH, (int)(LV_MEM_SIZE / 1024U));
 
-    s_si_cache = ui_label(root, UI_PAD, 180, &lv_font_gbk_16, COL_LABEL,
+    s_si_cache = ui_label(root, UI_PAD, 180, &ui_font_16, COL_LABEL,
                           "字库  命中 0 / 读卡 0");
 
-    lbl = ui_label(root, UI_PAD, 202, &lv_font_gbk_12, COL_DIM, "");
+    lbl = ui_label(root, UI_PAD, 202, &ui_font_12, COL_DIM, "");
     lv_label_set_text_fmt(lbl, "控制台  UART1 + USB CDC (%s)",
                           (bsp_console_usb_ready() != 0) ? "已连接" : "未连接");
 
-    (void)ui_label_center(root, UI_H - 22, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label_center(root, UI_H - 22, &ui_font_12, COL_DIM,
                           "B 返回主菜单");
 
     s_si_last         = 0U;
@@ -325,13 +326,13 @@ static void keytest_enter(lv_obj_t *root)
         lv_obj_set_style_radius(box, 3, LV_PART_MAIN);
         lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 
-        (void)ui_label(box, 3, 4, &lv_font_gbk_12, COL_TEXT,
+        (void)ui_label(box, 3, 4, &ui_font_12, COL_TEXT,
                        bsp_key_name((key_id_t)i));
 
         s_kt_box[i] = box;
     }
 
-    s_kt_mask = ui_label(root, UI_PAD, 140, &lv_font_gbk_12, COL_ACCENT,
+    s_kt_mask = ui_label(root, UI_PAD, 140, &ui_font_12, COL_ACCENT,
                          "mask 0x000");
 
     ui_separator(root, 158);
@@ -340,7 +341,7 @@ static void keytest_enter(lv_obj_t *root)
     {
         s_kt_text[i][0] = '\0';
         s_kt_log[i] = ui_label(root, UI_PAD, (lv_coord_t)(164 + (i * 16)),
-                               &lv_font_gbk_12, COL_DIM, "");
+                               &ui_font_12, COL_DIM, "");
     }
 
     s_kt_last_mask = 0xFFFFFFFFU;           /* force the first repaint */
@@ -409,28 +410,28 @@ static void about_enter(lv_obj_t *root)
 {
     (void)ui_header(root, "关于");
 
-    (void)ui_label(root, UI_PAD, 36, &lv_font_gbk_16, COL_TEXT,
+    (void)ui_label(root, UI_PAD, 36, &ui_font_16, COL_TEXT,
                    "LVGL 菜单 + NES 模拟器");
-    (void)ui_label(root, UI_PAD, 58, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label(root, UI_PAD, 58, &ui_font_12, COL_DIM,
                    "STM32H743ZIT6  480MHz  HSE 25MHz");
-    (void)ui_label(root, UI_PAD, 74, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label(root, UI_PAD, 74, &ui_font_12, COL_DIM,
                    "ST7789 240x240 @ SPI6   SD @ SDMMC1");
-    (void)ui_label(root, UI_PAD, 90, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label(root, UI_PAD, 90, &ui_font_12, COL_DIM,
                    __DATE__ "  " __TIME__);
 
     ui_separator(root, 110);
 
-    (void)ui_label(root, UI_PAD, 116, &lv_font_gbk_16, COL_LABEL, "串口指令");
-    (void)ui_label(root, UI_PAD, 138, &lv_font_gbk_12, COL_VALUE,
+    (void)ui_label(root, UI_PAD, 116, &ui_font_16, COL_LABEL, "串口指令");
+    (void)ui_label(root, UI_PAD, 138, &ui_font_12, COL_VALUE,
                    "help / status / menu");
-    (void)ui_label(root, UI_PAD, 154, &lv_font_gbk_12, COL_VALUE,
+    (void)ui_label(root, UI_PAD, 154, &ui_font_12, COL_VALUE,
                    "open <page>   back");
-    (void)ui_label(root, UI_PAD, 170, &lv_font_gbk_12, COL_VALUE,
+    (void)ui_label(root, UI_PAD, 170, &ui_font_12, COL_VALUE,
                    "key <name>  down/up <name>");
-    (void)ui_label(root, UI_PAD, 186, &lv_font_gbk_12, COL_VALUE,
+    (void)ui_label(root, UI_PAD, 186, &ui_font_12, COL_VALUE,
                    "rom list | load <n> | reset");
 
-    (void)ui_label_center(root, UI_H - 22, &lv_font_gbk_12, COL_DIM,
+    (void)ui_label_center(root, UI_H - 22, &ui_font_12, COL_DIM,
                           "B 返回主菜单");
 }
 

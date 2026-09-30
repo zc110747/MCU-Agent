@@ -9,7 +9,12 @@ set "FAIL=0"
 set "SKIP=0"
 
 REM --- project list in build order ---
-set "PROJ_LIST=001.stm32h743_tinyusb_cdc_msc 002.stm32h743_tinyusb_uvc_ov5640 003.stm32h743_lvgl_oled 004.stm32h743_sd_oled_img 005.stm32h743_person_detect 006.stm32h743_face_detect 007.stm32h743_cmsis_dap 008.stm32h743_lvgl_mos 009.stm32h743_zephyr 010.stm32h743_boot 101.stm32f429_net 102.stm32f429_tinyusb_ui 201.esp32s3_rtos 202.esp32s3_usb_wifi"
+set "PROJ_LIST="
+for /f "usebackq delims=" %%L in ("project.list") do (
+  set "PROJ_LIST=!PROJ_LIST! %%L"
+)
+set "PROJ_LIST=!PROJ_LIST:~1!"
+echo %PROJ_LIST%
 
 echo ============================================================
 echo  One-Click Build All Projects

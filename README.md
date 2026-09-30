@@ -24,7 +24,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 ⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝到内存卡内访问**
 
-⚠️注意：**项目.workbuddy/skills整理提炼了开发这些项目过程中的技能，是本项目最重要的成果，可以直接使用workbuddy安装**
+⚠️注意：**项目 `.workbuddy/skills/` 整理提炼了开发这些项目过程中的技能，是本项目最重要的成果，现已沉淀 18 个 skill（含能力表索引）。覆盖 STM32 / ESP32 / Zephyr 三域：总方法论、环境工具链、工程结构与内存架构、外设驱动与显示、调试取证与验收、ESP32 平台。可直接同步到 `~/.workbuddy/skills/` 全局复用：索引见 [STM32_skills_能力表.md](./.workbuddy/skills/STM32_skills_能力表.md)**
 
 ## 项目说明
 
@@ -51,8 +51,9 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 ✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
 ✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
 ✅ 009.基于zephyr系统实现lvgl显示功能  
-✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader
+✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
 ✅ 011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)  
+✅ 012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)  
 
 🚀 **STM32F429IGT6项目**
 
@@ -62,7 +63,8 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 🚀 **esp32s3项目**
 
 ✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)  
-✅ 202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享  
+✅ 202.ESP32-S3 USB 远程硬件仿真器
+✅ 203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)  
 
 具体项目效果和提示词说明如下。
 
@@ -74,9 +76,9 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 ![image](./document/image/001-01.jpg)
 
-提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/prompter.md)  
+提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/doc/prompter.md)  
 
-**AI开发**：项目框架、tinyusb移植、复合设备
+**AI开发**：项目框架、tinyusb移植、复合设备  
 **个人参与**: 仿真环境、提示词
 
 工作量：
@@ -93,8 +95,8 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、UVC驱动实现
-**个人参与**: 仿真环境、提示词、OV5640驱动 
+**AI开发**：项目框架、tinyusb移植、UVC驱动实现  
+**个人参与**: 仿真环境、提示词、OV5640驱动  
 
 工作量：
 
@@ -110,7 +112,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./003.stm32h743_lvgl_oled/prompter.md)
 
-**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植
+**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植  
 **个人参与**: 仿真环境、提示词、OLED驱动
 
 工作量：
@@ -127,7 +129,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./004.stm32h743_sd_oled_img/prompter.md)
 
-**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持
+**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持  
 **个人参与**: 仿真环境、提示词、OLED驱动
 
 工作量：
@@ -144,7 +146,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./005.stm32h743_person_detect/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示 
+**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示  
 **个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
 
 工作量：
@@ -161,7 +163,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./006.stm32h743_face_detect/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示
+**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示    
 **个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
 
 工作量：
@@ -178,7 +180,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./007.stm32h743_cmsis_dap/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持
+**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持  
 **个人参与**: 仿真环境、提示词、jtag/swd接口处理(找到arm官方例程) 
 
 工作量：
@@ -211,7 +213,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 提示词内容：[项目提示词](./008.stm32h743_lvgl_mos/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现
+**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现  
 **个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动
 
 工作量：
@@ -227,7 +229,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [009.基于zephyr实现lvgl界面](./009.stm32h743_zephyr/README.md)
 
-**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持
+**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持  
 **个人参与**: 仿真环境、提示词、oled驱动、功能引导
 
 - **lvgl界面**
@@ -274,13 +276,29 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 2. 解决 STemWin 预编译库与 binutils 2.44 不兼容（锁定 GNU Arm Embedded 14.2.rel1 工具链）
 3. 修复 GUI_Init 死循环（CRC 时钟未使能）、ARGB 色序差异、LCD_* 符号冲突
 
+#### 基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)
+
+🚀 [012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)](./012.stm32h743_usb_serial/README.md)
+
+**AI开发**：桥接架构、环形缓冲、USB CDC 描述符与调度、流控自管理、PC 侧压测/延迟工具  
+**个人参与**: 仿真环境、提示词、真机压测验收
+
+工作量：
+
+1. 无 RTOS 下实现 USB CDC ACM ↔ UART4 双方向透明转发（D-Cache 开启、不使用 MPU 划区）
+2. 修复环形缓冲满/空二义性导致的数据覆盖（保留 1 字节不用）
+3. 修复 7 数据位+校验时校验位污染数据字节（按数据位掩码就地掩蔽）
+4. 修复 RTS 配成复用模式却未启用 HwFlowCtl 导致的引脚悬空、流控失效
+5. 定位并排除主机侧读数方式造成的 34 ms "假延迟"（`read(in_waiting or 4096)`）
+6. PA0/PA1 短接自回环 + Python 一键自动化压测/延迟/流控/7bit 校验回归
+
 ### STM32F429IGT6项目
 
 #### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
 
 🚀 [101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)](./101.stm32f429_net/README.md)
 
-**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端
+**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端  
 **个人参与**: 仿真环境、提示词、基础驱动、功能引导
 
 - **web访问http**
@@ -309,7 +327,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板](./102.stm32f429_tinyusb_ui/README.md)
 
-**AI开发**：工程骨架、TinyUSB USB Host(MSC)、FatFs exFAT、LVGL、GT911/GT9147 软件I2C触摸、FreeRTOS+SDRAM、PRINT_LOG 日志系统
+**AI开发**：工程骨架、TinyUSB USB Host(MSC)、FatFs exFAT、LVGL、GT911/GT9147 软件I2C触摸、FreeRTOS+SDRAM、PRINT_LOG 日志系统  
 **个人参与**: 仿真环境、提示词、真机验收
 
 工作量：
@@ -324,7 +342,7 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 
 🚀 [201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)](./201.esp32s3_rtos/README.md)
 
-**AI开发**：FreeRTOS 多任务骨架（任务/队列/信号量/互斥量/软件定时器）、ESP32-S3 Arduino Core
+**AI开发**：FreeRTOS 多任务骨架（任务/队列/信号量/互斥量/软件定时器）、ESP32-S3 Arduino Core  
 **个人参与**: 仿真环境、提示词
 
 工作量：
@@ -333,27 +351,34 @@ AI Agent for real-world MCU firmware development, simulation, debugging, and tes
 2. 4 任务 + 1 软件定时器构成设备监控器，UART 命令查看/控制
 3. 零警告构建 + CH343 串口下载 + 双核信息/任务表验收
 
-#### ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享
+#### 202.ESP32-S3 USB 远程硬件仿真器
 
-🚀 [202.ESP32-S3 USB RNDIS Wi-Fi 网卡/USB网络共享](./202.esp32s3_usb_wifi/prompter.md)
+🚀 [202.202.ESP32-S3 USB 远程硬件仿真器](./202.esp32s3_hw_detect/README.md)
 
-**AI开发**：ESP32-S3 自带 Wi-Fi + USB Device 实现 RNDIS 网卡（lwIP + USB RNDIS），CH343 串口下载
-**个人参与**: 仿真环境、提示词
+#### ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)
+
+🚀 [203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)](./203.esp32s3_wireless_debug/README.md)
+
+**AI开发**：CMSIS-DAP v1 命令处理、SWD/JTAG 位带引擎、调试引擎、Wi-Fi 传输层、OpenOCD 体检配置
+**个人参与**: 仿真环境、提示词、真机对接目标板验收
 
 工作量：
 
-1. 参考 github 已有项目复刻 USB Wi-Fi 网络适配器
-2. ESP32-S3 STA 连 Wi-Fi，经 lwIP 桥接到 USB RNDIS，Windows 枚举为 RNDIS 网卡
+1. TinyUSB HID 实现 CMSIS-DAP v1（HID 单通道，固化 ID/PID），支持 SWD 与 JTAG 双模
+2. 性能优化：CPU 240 MHz + 热点代码 IRAM_ATTR + GPIO 驱动强度拉满 + 热路径日志降级，时钟上限 8 MHz
+3. USB / Wi-Fi 传输仲裁（互斥），用 `tud_mounted()` 判定主机存在；无 USB 主机时启动 SoftAP 兜底
+4. 修复 JTAG `Invalid ACK (4)` FAULT（bool 形参提升导致 TDI 恒高）+ 校正 Shift-IR 末位时序
+5. PSRAM 静态保留池与 Wi-Fi 缓冲收紧，为 DAP-over-WiFi 预留内存
 
 ## 开发经验总结
 
-完成所有这些项目，加上调试整理，并没有花太多的时间。
+完成所有这些项目，加上调试整理，单个项目大概1-2天完成。
 
 其中让我印像最深的是人脸检测项目，大概花了3个小时就搞定了，在执行过程中，它还下载了图像库，自己编写python用自己训练了个模型，这颠覆了我对Vibe Coding的认知。
 
-AI的上限是在太高了，这种项目如果让我来做、从可行性、驱动移植编写、模型训练、嵌入式端移植、再整合输出，调试完整，整个需求至少几周时间。
+AI的上限是在太高了，这种项目如果让我来做、对于单个项目从可行性、驱动移植编写、模型训练、嵌入式端移植、再整合输出，调试完整，整个需求至少几周时间。
 
-但是于此同时，其实AI的下限也很低，调试CMOS、OLED模块，因为生成的参数配置错误，卡住一个小时也没有解决，有个cmake的文件链接遗漏，导致未链接到正常的中的入口，也是启动卡在循环，花费半小时也没解决。不过这些在提供我已经完善的驱动后，以及手动参与部分修改后，就顺利了实现了项目。
+但是于此同时，其实AI的下限也很低，调试CMOS、OLED模块，因为生成的参数配置错误，卡住一个小时也没有解决；有个cmake的文件链接遗漏，导致未链接到正常的中的入口，也是启动卡在循环，花费半小时也没解决。不过这些在提供我已经完善的驱动后，以及手动参与部分修改后，就顺利了实现了项目。
 
 在开发这些项目的时候，总结的经验如下所示。
 

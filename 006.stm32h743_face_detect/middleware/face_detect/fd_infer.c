@@ -15,7 +15,7 @@
  */
 #include "fd_infer.h"
 #include "fd_model_data.h"
-#include "logger.h"
+#include "bsp_log.h"
 
 #include "arm_nnfunctions.h"
 
@@ -207,15 +207,13 @@ void fd_init(void)
 
     if (worst > FD_SCRATCH_BYTES)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(),
-                  "fd: scratch too small, need %ld have %d",
+        PRINT_LOG("fd: scratch too small, need %ld have %d",
                   (long)worst, FD_SCRATCH_BYTES);
         s_ready = 0;
         return;
     }
 
-    PRINT_LOG(LOG_INFO, HAL_GetTick(),
-              "fd: %d+%d layers, arena %d B, scratch %ld/%d B",
+    PRINT_LOG("fd: %d+%d layers, arena %d B, scratch %ld/%d B",
               (int)FD_NUM_BACKBONE, (int)FD_NUM_HEADS,
               (int)(2 * FD_ARENA_HALF), (long)worst, FD_SCRATCH_BYTES);
     s_ready = 1;
@@ -459,7 +457,7 @@ GlobalType_t fd_run(fd_result_t *res)
         dst = s_arena[half];
         if (fd_run_layer(&fd_backbone[i], cur, dst) != ARM_MATH_SUCCESS)
         {
-            PRINT_LOG(LOG_ERROR, HAL_GetTick(), "fd: layer %s failed",
+            PRINT_LOG("fd: layer %s failed",
                       fd_backbone[i].name);
             return RT_FAIL;
         }
@@ -472,7 +470,7 @@ GlobalType_t fd_run(fd_result_t *res)
         fd_run_layer(&fd_heads[1], cur, s_wh)  != ARM_MATH_SUCCESS ||
         fd_run_layer(&fd_heads[2], cur, s_off) != ARM_MATH_SUCCESS)
     {
-        PRINT_LOG(LOG_ERROR, HAL_GetTick(), "fd: head failed");
+        PRINT_LOG("fd: head failed");
         return RT_FAIL;
     }
 

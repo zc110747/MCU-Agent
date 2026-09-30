@@ -1,0 +1,21 @@
+menu "Debug Engine"
+
+    config WIRELESS_DEBUG_RESERVE_RAM
+        bool "Reserve PSRAM pool for wireless-debug transport"
+        default y
+        depends on SPIRAM
+        help
+            Carve out a static pool from external PSRAM at boot and never free
+            it. Intended for the future DAP-over-WiFi packet transport buffers
+            (so a large inbound DAP stream never competes with internal DRAM
+            used by the IRAM bit-bang code and the USB/WiFi stacks).
+
+    config WIRELESS_DEBUG_RESERVE_RAM_SIZE_KB
+        int "Reserved pool size (KB)"
+        default 512
+        range 64 4096
+        depends on WIRELESS_DEBUG_RESERVE_RAM
+        help
+            Size of the reserved external-PSRAM pool in KB.
+
+endmenu

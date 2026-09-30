@@ -5,7 +5,7 @@
   ******************************************************************************
   */
 #include "qspi.h"
-#include "uart.h"
+#include "bsp_log.h"
 
 QSPI_HandleTypeDef hqspi;
 static uint8_t qspi_inited = 0;

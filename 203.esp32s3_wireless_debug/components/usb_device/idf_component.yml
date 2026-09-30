@@ -1,0 +1,2 @@
+dependencies:
+  espressif/tinyusb: "0.21.0~1"

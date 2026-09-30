@@ -111,14 +111,46 @@ static int UPGRADE_RAM flash_program_word(uint32_t addr, const uint32_t *src)
 /* Public API - all write paths execute from AXI SRAM (.upgrade_ram)           */
 /* -------------------------------------------------------------------------- */
 
+/* Engine anchors.
+ *
+ * GCC: the linker script exports the run bounds and the load address directly
+ *      (".upgrade_ram >SRAM1 AT> FLASH" + LOADADDR()), so the three symbols
+ *      below exist as plain linker symbols.
+ *
+ * ARMCLANG (Keil): a scatter file cannot export arbitrary symbol aliases, so
+ *      the equivalent values come from the linker-generated region symbols of
+ *      the UPGRADE_RAM execution region:
+ *         Image$$UPGRADE_RAM$$Base   -> run start (AXI SRAM 0x24000000)
+ *         Image$$UPGRADE_RAM$$Limit  -> run end
+ *         Load$$UPGRADE_RAM$$Base    -> load start (internal FLASH)
+ *      The scatter file declares UPGRADE_RAM inside its own load region
+ *      (LR_UPGRADE) so the load copy lives in FLASH while the code runs from
+ *      AXI SRAM - the same split the GCC script expresses with AT>.
+ */
+#if defined(__ARMCC_VERSION)
+extern uint8_t Image$$UPGRADE_RAM$$Base[];
+extern uint8_t Image$$UPGRADE_RAM$$Limit[];
+extern uint8_t Load$$UPGRADE_RAM$$Base[];
+
+#define UPGRADE_RAM_RUN_START   ((uint32_t)(uintptr_t)Image$$UPGRADE_RAM$$Base)
+#define UPGRADE_RAM_RUN_END     ((uint32_t)(uintptr_t)Image$$UPGRADE_RAM$$Limit)
+#define UPGRADE_RAM_LOAD_START  ((uint32_t)(uintptr_t)Load$$UPGRADE_RAM$$Base)
+#else
+extern uint8_t _supgrade_ram, _eupgrade_ram, _supgrade_ram_load;
+
+#define UPGRADE_RAM_RUN_START   ((uint32_t)(uintptr_t)&_supgrade_ram)
+#define UPGRADE_RAM_RUN_END     ((uint32_t)(uintptr_t)&_eupgrade_ram)
+#define UPGRADE_RAM_LOAD_START  ((uint32_t)(uintptr_t)&_supgrade_ram_load)
+#endif
+
 void BFLASH_Relocate(void)
 {
-    extern uint8_t _supgrade_ram, _eupgrade_ram, _supgrade_ram_load;
-    uint32_t size = (uint32_t)&_eupgrade_ram - (uint32_t)&_supgrade_ram;
+    uint32_t dst  = UPGRADE_RAM_RUN_START;
+    uint32_t size = UPGRADE_RAM_RUN_END - dst;
 
     if (size == 0U) return;
 
-    memcpy(&_supgrade_ram, &_supgrade_ram_load, size);
+    memcpy((void *)dst, (const void *)UPGRADE_RAM_LOAD_START, size);
     __DSB();
     __ISB();   /* make the copied code visible before any call into it */
 }

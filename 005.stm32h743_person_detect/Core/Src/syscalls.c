@@ -1,16 +1,16 @@
 /**
  * @file    syscalls.c
- * @brief   Minimal newlib syscall stubs.
+ * @brief   Minimal newlib syscall stubs (heap + process only).
  *
- * printf() output is retargeted to the Cortex-M7 ITM stimulus port 0 so that
- * it shows up in the cortex-debug "SWO" console without needing a UART.
+ * NOTE: _write() is deliberately NOT implemented here any more. printf() is
+ * retargeted to the non-blocking USART1 console in bsp/bsp_log.c, which owns
+ * the single definition of _write(). The previous ITM/SWO stub was removed so
+ * that printf() and PRINT_LOG() share one physical console.
  */
 #include <errno.h>
 #include <stddef.h>
 #include <sys/stat.h>
 #include <sys/times.h>
-
-#include "stm32h7xx_hal.h"
 
 /* Provided by the linker script. */
 extern char end asm("end");     /* first address after .bss */
@@ -19,17 +19,28 @@ extern unsigned int _Min_Stack_Size;
 
 static char *heap_ptr;
 
-/* --------------------------------------------------------------- I/O */
-int _write(int file, char *ptr, int len)
+/* --------------------------------------------------------------- heap */
+void *_sbrk(ptrdiff_t incr)
 {
-    (void)file;
-    for (int i = 0; i < len; i++)
+    char *prev;
+    const char *stack_limit = &_estack - (uintptr_t)&_Min_Stack_Size;
+
+    if (heap_ptr == NULL)
     {
-        ITM_SendChar((uint32_t)(uint8_t)ptr[i]);
+        heap_ptr = &end;
     }
-    return len;
+
+    prev = heap_ptr;
+    if (heap_ptr + incr > stack_limit)
+    {
+        errno = ENOMEM;
+        return (void *)-1;
+    }
+    heap_ptr += incr;
+    return prev;
 }
 
+/* --------------------------------------------------------------- I/O */
 int _read(int file, char *ptr, int len)
 {
     (void)file;
@@ -63,27 +74,6 @@ int _lseek(int file, int ptr, int dir)
     (void)ptr;
     (void)dir;
     return 0;
-}
-
-/* --------------------------------------------------------------- heap */
-void *_sbrk(ptrdiff_t incr)
-{
-    char *prev;
-    const char *stack_limit = &_estack - (uintptr_t)&_Min_Stack_Size;
-
-    if (heap_ptr == NULL)
-    {
-        heap_ptr = &end;
-    }
-
-    prev = heap_ptr;
-    if (heap_ptr + incr > stack_limit)
-    {
-        errno = ENOMEM;
-        return (void *)-1;
-    }
-    heap_ptr += incr;
-    return prev;
 }
 
 /* --------------------------------------------------------------- process */

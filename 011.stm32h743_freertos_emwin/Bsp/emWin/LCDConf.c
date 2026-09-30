@@ -8,8 +8,10 @@
   *  "Lin" (linear framebuffer) driver with a local VRAM that emWin paints
   *  into; the application flushes that VRAM to the panel by streaming it
   *  through OLED_CopyBuffer() (which talks SPI6).  Color conversion is
-  *  GUICC_565, whose 16-bit pixel (R in the high byte) matches exactly what
-  *  the ST7789 expects.
+  *  GUICC_M565: it stores a GUI_COLOR as 0x00BBGGRR and emits it as R5G6B5,
+  *  which is exactly what this ST7789 (MADCTL=0x00, R in the first data
+  *  byte) wants.  GUICC_565 in this STemWin build yields the mirrored
+  *  B5G6R5 layout instead - the rationale is spelled out in LCD_X_Config().
   ******************************************************************************
   */
 #include "GUI.h"
@@ -41,7 +43,12 @@ void emwin_flush_vram(void)
   */
 void LCD_X_Config(void)
 {
-    GUI_DEVICE_CreateAndLink(GUIDRV_LIN_16, GUICC_565, 0, 0);
+    /* GUICC_M565, not GUICC_565: the ST7789 is wired with MADCTL=0x00 (RGB
+     * order, R in the first data byte), so the 16 bit framebuffer word must be
+     * R5G6B5.  GUICC_565 produces the mirrored B5G6R5 layout in this STemWin
+     * build (verified on hardware: GUI_RED landed as 0x001F instead of
+     * 0xF800), which swaps the red and blue channels on the panel. */
+    GUI_DEVICE_CreateAndLink(GUIDRV_LIN_16, GUICC_M565, 0, 0);
 
     if (LCD_GetSwapXY())
     {

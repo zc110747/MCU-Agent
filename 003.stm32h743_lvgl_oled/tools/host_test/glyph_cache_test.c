@@ -13,8 +13,8 @@
  * which the draw path treats as "skip this glyph" rather than deadlock.
  *
  * Build:
- *   gcc -std=c11 -O2 -Wall -Wextra -I <prj>/Bsp/font \
- *       glyph_cache_test.c <prj>/Bsp/font/glyph_cache.c -o glyph_cache_test.exe
+ *   gcc -std=c11 -O2 -Wall -Wextra -I <prj>/bsp/font \
+ *       glyph_cache_test.c <prj>/bsp/font/glyph_cache.c -o glyph_cache_test.exe
  */
 #include "glyph_cache.h"
 #include <stdio.h>

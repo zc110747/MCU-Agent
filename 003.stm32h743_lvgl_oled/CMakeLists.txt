@@ -51,17 +51,17 @@ set(CMAKE_C_EXTENSIONS ON)
 #
 #  NOTE: the cached value sticks once the build directory exists, so pass
 #  -DLV_FONT_ENGINE=<n> explicitly when switching rather than editing this line.
-set(LV_FONT_ENGINE 2 CACHE STRING "2 = CTF+TTF, 1 = HarmonyOS TTF, 0 = GBK bitmap")
-message(STATUS "Font engine: ${LV_FONT_ENGINE} (2 = CTF+TTF, 1 = HarmonyOS TTF, 0 = GBK)")
+set(LV_FONT_ENGINE 1 CACHE STRING "1 = CTF+TTF, 0 = GBK bitmap")
+message(STATUS "Font engine: ${LV_FONT_ENGINE} (1 = CTF+TTF, 0 = GBK)")
 
 # ---- Compile options --------------------------------------------------------
 #  -fdebug-prefix-map maps the absolute source root to "." so the debug info
-#    embedded in the .elf references "./Core/Src/main.c" instead of a full
+#    embedded in the .elf references "./app/main.c" instead of a full
 #    path -> portable debug files (no absolute paths).
 #  -finput-charset=UTF-8 (and NO -fexec-charset): LVGL parses label text as
 #    UTF-8, so the literals must stay UTF-8 in flash.  The UTF-8 code point is
 #    translated to the GBK index the GBKxx.FON files use inside the font
-#    driver - see Bsp/lv_gbk_map.c.
+#    driver - see bsp/lv_gbk_map.c.
 add_compile_options(
   ${MCU_FLAGS}
   -fdata-sections
@@ -99,10 +99,9 @@ set(CMAKE_EXE_LINKER_FLAGS
 #  third_party/lvgl must be on the path so that the __has_include("lv_conf.h")
 #  probe inside lv_conf_internal.h finds our third_party/lvgl/lv_conf.h.
 include_directories(
-  Core/Inc
-  Bsp
-  Bsp/font
-  Application
+  app
+  bsp
+  bsp/font
   Drivers/CMSIS/Include
   sys_startup
   Drivers/STM32H7xx_HAL_Driver/Inc
@@ -115,12 +114,36 @@ include_directories(
 )
 
 # ---- HAL driver sources (glob, then drop the HAL template files) ------------
-#  The *_template.c files redefine HAL_MspInit / HAL_InitTick and would either
-#  clash with our stm32h7xx_hal_msp.c or silently (and wrongly) replace the
-#  SysTick-based tick handler, so they are excluded from the build.
-file(GLOB HAL_DRIVER_SRCS CONFIGURE_DEPENDS
-     Drivers/STM32H7xx_HAL_Driver/Src/*.c)
-list(FILTER HAL_DRIVER_SRCS EXCLUDE REGEX ".*_template\\.c$")
+#  HAL: import ONLY the modules this project actually uses (do not glob the whole Src dir).
+#  Reverse-looked-up from the HAL_*() calls in Core/ bsp/ app/:
+#    GPIO  PWR  RCC  RTC  SD  SPI  UART   (+ the 5 mandatory core modules)
+#  The 5 mandatory core modules (hal / hal_cortex / hal_rcc / hal_rcc_ex / hal_gpio)
+#  are always required.  No DMA/timebase-TIM here: SDMMC1 and SPI6 both run in
+#  polling mode, and the HAL tick comes from SysTick.
+set(HAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src)
+set(HAL_DRIVER_SRCS
+    # --- mandatory core ---
+    ${HAL_DIR}/stm32h7xx_hal.c
+    ${HAL_DIR}/stm32h7xx_hal_cortex.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc.c
+    ${HAL_DIR}/stm32h7xx_hal_rcc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_gpio.c
+    # --- power ---
+    ${HAL_DIR}/stm32h7xx_hal_pwr.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
+    # --- dma (required by hal_spi.c: its DMA-mode code is kept as a unit by ARMCLANG) ---
+    ${HAL_DIR}/stm32h7xx_hal_dma.c
+    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
+    # --- peripherals actually used: SD (polling) / SPI / UART / RTC ---
+    ${HAL_DIR}/stm32h7xx_hal_sd.c
+    ${HAL_DIR}/stm32h7xx_ll_sdmmc.c
+    ${HAL_DIR}/stm32h7xx_hal_spi.c
+    ${HAL_DIR}/stm32h7xx_hal_spi_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_uart.c
+    ${HAL_DIR}/stm32h7xx_hal_uart_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_rtc.c
+    ${HAL_DIR}/stm32h7xx_hal_rtc_ex.c
+)
 
 # ---- LVGL sources -----------------------------------------------------------
 #  LVGL is built the way upstream intends: compile everything and let the
@@ -135,44 +158,44 @@ set(PROJECT_SRCS
   sys_startup/gcc/startup_stm32h743xx.s
   sys_startup/system_stm32h7xx.c
   # Board / application
-  Core/Src/main.c
-  Core/Src/stm32h7xx_hal_msp.c
-  Core/Src/stm32h7xx_it.c
-  Core/Src/syscalls.c
+  app/main.c
+  app/stm32h7xx_hal_msp.c
+  app/stm32h7xx_it.c
+  app/syscalls.c
   # BSP: OLED driver + SD-backed Chinese font reader + SDIO glue + RTC
-  Bsp/drv_spi_oled.c
-  Bsp/drv_oled_fonts.c
-  Bsp/drv_oled_text.c
-  Bsp/drv_sdio.c
-  Bsp/drv_rtc.c
-  Bsp/disk_interface.c
+  bsp/drv_spi_oled.c
+  bsp/drv_oled_fonts.c
+  bsp/drv_oled_text.c
+  bsp/drv_sdio.c
+  bsp/drv_rtc.c
+  bsp/disk_interface.c
   # BSP: crash-safe formatted logger (PRINT_LOG -> uart_write on USART1)
-  Bsp/bsp_log.c
+  bsp/bsp_log.c
   # BSP: LVGL glue - display flush, cached FatFs driver, font engines
-  Bsp/lv_port_disp.c
-  Bsp/lv_port_fs.c
-  Bsp/lv_font_gbk.c
-  Bsp/lv_font_harmony.c
-  Bsp/lv_font_provider.c
-  Bsp/lv_gbk_map.c
+  bsp/lv_port_disp.c
+  bsp/lv_port_fs.c
+  bsp/lv_font_gbk.c
+  bsp/lv_font_harmony.c
+  bsp/lv_font_provider.c
+  bsp/lv_gbk_map.c
   # BSP: CTF index + cached TTF reader (HarmonyOS font backend, Phase 3/4/5)
-  Bsp/font/blkcache.c
-  Bsp/font/ttf_reader.c
-  Bsp/font/ctf_reader.c
+  bsp/font/blkcache.c
+  bsp/font/ttf_reader.c
+  bsp/font/ctf_reader.c
   # BSP: LRU glyph cache (160 KB, RAM_D2) + TTF glyph preload
-  Bsp/font/glyph_cache.c
+  bsp/font/glyph_cache.c
   # BSP: CTF font engine (Phase 6 stb adapter + Phase 7 LVGL backend)
-  Bsp/font/stb_adapter.c
-  Bsp/font/lvgl_font.c
+  bsp/font/stb_adapter.c
+  bsp/font/lvgl_font.c
   # Demo application
-  Application/app_main.c
-  Application/app_ui.c
+  app/app_main.c
+  app/app_ui.c
   # UI pages (each page in its own file; shared primitives in ui_common)
-  Application/ui_common.c
-  Application/ui_page_info.c
-  Application/ui_page_font.c
-  Application/ui_page_boot.c
-  Application/ui_page_fault.c
+  app/ui_common.c
+  app/ui_page_info.c
+  app/ui_page_font.c
+  app/ui_page_boot.c
+  app/ui_page_fault.c
   # FatFs (dispatch + core + unicode + system + our disk interface)
   third_party/FatFs/diskio.c
   third_party/FatFs/ff.c

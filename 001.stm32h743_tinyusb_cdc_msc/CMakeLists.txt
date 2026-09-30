@@ -27,7 +27,7 @@ set(TINYUSB_DIR  ${THIRD_PARTY}/tinyusb)
 set(DRIVERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers)
 set(HAL_DIR      ${DRIVERS_DIR}/STM32H7xx_HAL_Driver)
 set(CMSIS_CORE   ${DRIVERS_DIR}/CMSIS/Core/Include)
-set(CMSIS_DEVICE sys_startup)
+set(CMSIS_DEVICE ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup)
 
 foreach(_d ${TINYUSB_DIR} ${CMSIS_CORE} ${CMSIS_DEVICE} ${HAL_DIR})
   if(NOT EXISTS ${_d})
@@ -41,15 +41,17 @@ set(TARGET ${PROJECT_NAME})
 # Sources
 # ---------------------------------------------------------------------------
 set(APP_SOURCES
-  src/main.c
-  src/bsp.c
-  src/usb_descriptors.c
-  src/stm32h7xx_it.c
-  src/syscalls.c
-  src/sdcard.c
-  src/msc_disk.c
-  src/sd_app.c
-  src/disk_interface.c
+  app/main.c
+  bsp/bsp.c
+  bsp/bsp_led.c
+  bsp/bsp_log.c
+  bsp/bsp_sdcard.c
+  app/usb/usb_descriptors.c
+  app/usb/msc_disk.c
+  app/usb/sd_app.c
+  app/usb/disk_interface.c
+  app/stm32h7xx_it.c
+  app/syscalls.c
   ${CMSIS_DEVICE}/system_stm32h7xx.c
   ${CMSIS_DEVICE}/gcc/startup_stm32h743xx.s
 )
@@ -65,6 +67,9 @@ set(HAL_SOURCES
   ${HAL_DIR}/Src/stm32h7xx_hal_pwr_ex.c
   ${HAL_DIR}/Src/stm32h7xx_hal_sd.c
   ${HAL_DIR}/Src/stm32h7xx_ll_sdmmc.c
+  ${HAL_DIR}/Src/stm32h7xx_hal_uart.c
+  ${HAL_DIR}/Src/stm32h7xx_hal_uart_ex.c
+  ${HAL_DIR}/Src/stm32h7xx_hal_dma.c
 )
 
 set(TINYUSB_SOURCES
@@ -82,7 +87,9 @@ file(GLOB FATFS_SOURCES CONFIGURE_DEPENDS ${THIRD_PARTY}/FatFs/*.c)
 add_executable(${TARGET} ${APP_SOURCES} ${HAL_SOURCES} ${TINYUSB_SOURCES} ${FATFS_SOURCES})
 
 target_include_directories(${TARGET} PRIVATE
-  src
+  app
+  app/usb
+  bsp
   ${CMSIS_CORE}
   ${CMSIS_DEVICE}
   ${HAL_DIR}/Inc

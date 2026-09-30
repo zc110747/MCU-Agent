@@ -11,7 +11,7 @@
 
 #include "tusb.h"
 #include "qspi.h"
-#include "uart.h"
+#include "bsp_log.h"
 
 /* Logical block size and count. */
 #define BLOCK_SIZE   512U
@@ -142,5 +142,5 @@ void tud_umount_cb(void)
 /* Host mounted the MSC volume: report so the console shows the enumerating host. */
 void tud_mount_cb(void)
 {
-    BSP_UART_Printf(" USB MSC mounted by host (Quad I/O active)\r\n");
+    PRINT_LOG(" USB MSC mounted by host (Quad I/O active)\r\n");
 }

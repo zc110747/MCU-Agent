@@ -1,0 +1,194 @@
+I (140) esp_image: segment 1: paddr=000c0478 vaddr=3fc9c300 sizeESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4004e5e3
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x16bc
+load:0x403c8700,len:0xf44
+load:0x403cb700,len:0x31f4
+entry 0x403c8928
+I (24) boot: ESP-IDF v6.1 2nd stage bootloader
+I (24) boot: compile time Sep 23 2026 09:19:53
+I (25) boot: Multicore bootloader
+I (25) boot: chip revision: v0.2
+I (25) boot: efuse block revision: v1.3
+I (25) qio_mode: Enabling default flash chip QIO
+I (25) boot.esp32s3: Boot SPI Speed : 80MHz
+I (26) boot.esp32s3: SPI Mode       : QIO
+I (26) boot.esp32s3: SPI Flash Size : 16MB
+I (26) boot: Enabling RNG early entropy source...
+I (26) boot: Partition Table:
+I (26) boot: ## Label            Usage          Type ST Offset   Length
+I (27) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (27) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (27) boot:  2 factory          factory app      00 00 00010000 00400000
+I (28) boot: End of partition table
+I (28) esp_image: segment 0: paddr=00010020 vaddr=3c100020 size=b0450h (722000) map
+I (140) esp_image: segment 1: paddr=000c0478 vaddr=3fc9c300 size=059b4h ( 22964) load
+I (145) esp_image: segment 2: paddr=000c5e34 vaddr=40374000 size=0a1e4h ( 41444) load
+I (154) esp_image: segment 3: paddr=000d0020 vaddr=42000020 size=f37dch (997340) map
+I (308) esp_image: segment 4: paddr=001c3804 vaddr=4037e1e4 size=0e010h ( 57360) load
+I (320) esp_image: segment 5: paddr=001d181c vaddr=50000000 size=00024h (    36) load
+I (331) boot: Loaded app from partition at offset 0x10000
+I (331) boot: Disabling RNG early entropy source...
+I (332) octal_psram: vendor id    : 0x0d (AP)
+I (332) octal_psram: dev id       : 0x02 (generation 3)
+I (332) octal_psram: density      : 0x03 (64 Mbit)
+I (332) octal_psram: good-die     : 0x01 (Pass)
+I (332) octal_psram: Latency      : 0x01 (Fixed)
+I (333) octal_psram: VCC          : 0x01 (3V)
+I (333) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (333) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (333) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (333) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (334) octal_psram: DriveStrength: 0x00 (1/1)
+I (334) MSPI Timing: Enter psram timing tuning
+I (335) esp_psram: Found 8MB PSRAM device
+I (335) esp_psram: Speed: 80MHz
+I (380) mmu_psram: Read only data copied and mapped to SPIRAM
+I (450) mmu_psram: Instructions copied and mapped to SPIRAM
+I (450) cpu_start: Multicore app
+I (673) esp_psram: SPI SRAM memory test OK
+I (682) cpu_start: Pro cpu start user code
+I (682) cpu_start: cpu freq: 240000000 Hz
+I (682) app_init: Application information:
+I (682) app_init: Project name:     ebook_lvgl
+I (682) app_init: App version:      0.1.0
+I (682) app_init: Compile time:     Sep 23 2026 16:45:45
+I (682) app_init: ELF file SHA256:  6ee13a8be...
+I (682) app_init: ESP-IDF:          v6.1
+I (683) efuse_init: Min chip rev:     v0.0
+I (683) efuse_init: Max chip rev:     v0.99 
+I (683) efuse_init: Chip rev:         v0.2
+I (683) heap_init: Initializing. RAM available for dynamic allocation:
+I (683) heap_init: At 3FCA6A80 len 00042C90 (267 KiB): RAM
+I (683) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (684) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (684) esp_psram: Adding pool of 6400K of PSRAM memory to heap allocator
+I (684) esp_psram: Adding pool of 62K of PSRAM memory gap generated due to end address alignment of drom to the heap allocator
+I (685) spi_flash: detected chip: generic
+I (685) spi_flash: flash io: qio
+I (685) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (685) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (686) main_task: Started on CPU0
+I (686) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (687) main_task: Calling app_main()
+I (695) sysinfo: chip            : ESP32-S3-WROOM-1-N16R8 rev v0.2, 2 core(s), CPU 240 MHz
+I (695) sysinfo: flash           : 16 MB
+I (695) sysinfo: psram           : 8 MB
+I (695) main: ================================================
+I (695) main:  Ebook LVGL
+I (695) main:  ESP32-S3-Touch-LCD-4.3B
+I (696) main:  display : 800x480 landscape, RGB565
+I (696) main: ================================================
+I (696) main: ESP32-S3   : OK
+I (696) main: Flash      : OK
+I (696) main: PSRAM      : OK
+I (696) i2c_bus: bus ready  SDA=IO8 SCL=IO9 @400kHz
+I (697) ch422g: ready  addr=0x24  out=0x10
+I (697) main: CH422G     : OK
+I (918) display: RGB panel ready 800x480  pclk=16MHz  fb=2 in PSRAM
+I (919) main: LCD        : OK
+W (1319) gpio: conflict found for GPIO[4]
+I (1419) touch: probing GT911 at 0x5D on the shared bus
+I (1419) GT911: I2C address initialization procedure skipped - using default GT9xx setup
+I (1420) GT911: TouchPad_ID:0x39,0x31,0x31
+I (1420) GT911: TouchPad_Config_Version:67
+I (1422) touch: GT911 ready at 0x5D  800x480  polling mode
+I (1422) main: Touch      : OK
+I (1422) LVGL: Starting LVGL task
+I (1426) lvgl_port: LVGL 9.3.0  800x480 RGB565  direct mode, 2 panel FBs, no extra draw buffer
+I (1427) main: LVGL       : OK
+I (1427) sysinfo: panel      : 800x480 pclk 16 MHz  htotal 820  vtotal 500  -> 39 Hz
+I (1427) sysinfo: lvgl       : refresh period 16 ms (asks 62.5 Hz, panel answers 39 Hz -> update rate is panel-bound)
+I (1457) touch: touch registered as an LVGL pointer input device
+I (1503) sdspi_transaction: cmd=5, R1 response: command not supported
+I (1549) sd: mounted at /sd  SA08G  7580 MB
+I (1549) main: SD card    : mounted at /sd
+I (1551) rtc: PCF85063 ready at 0x51  time is valid
+I (1554) main: RTC        : PCF85063A ok
+I (1556) pp: pp rom version: e7ae62f
+I (1556) net80211: net80211 rom version: e7ae62f
+I (1557) wifi:wifi driver task: 3fcc3960, prio:23, stack:6656, core=0
+I (1557) wifi:wifi firmware version: e12a754
+I (1558) wifi:wifi certification version: v7.0
+I (1558) wifi:config NVS flash: disabled
+I (1558) wifi:config nano formatting: disabled
+I (1558) wifi:Init data frame dynamic rx buffer num: 32
+I (1558) wifi:Init static rx mgmt buffer num: 5
+I (1559) wifi:Init management short buffer num: 32
+I (1559) wifi:Init static tx buffer num: 16
+I (1560) wifi:Init tx cache buffer num: 32
+I (1560) wifi:Init static tx FG buffer num: 2
+I (1560) wifi:Init static rx buffer size: 1600
+I (1560) wifi:Init static rx buffer num: 16
+I (1560) wifi:Init dynamic rx buffer num: 32
+I (1561) wifi_init: rx ba win: 16
+I (1561) wifi_init: accept mbox: 6
+I (1561) wifi_init: tcpip mbox: 32
+I (1562) wifi_init: udp mbox: 6
+I (1562) wifi_init: tcp mbox: 6
+I (1562) wifi_init: tcp tx win: 5760
+I (1562) wifi_init: tcp rx win: 5760
+I (1562) wifi_init: tcp mss: 1440
+I (1562) wifi_init: WiFi/LWIP prefer SPIRAM
+I (1562) wifi_init: WiFi IRAM OP enabled
+I (1563) wifi_init: WiFi RX IRAM OP enabled
+I (1563) wifi:Set ps type: 0, coexist: 0
+
+I (1563) phy_init: phy_version 712,87e8c20e,Apr 13 2026,18:51:10
+I (1600) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(0)
+I (1607) wifi:mode : sta (80:b5:4e:d4:2b:a0)
+I (1608) wifi:enable tsf
+I (1609) net: station up; internal heap 213159 -> 137987 B (cost 75172 B), PSRAM records allocated
+I (1609) main: Network    : service up
+I (1610) weather: service up (stage 1: sample data)
+I (1610) main: Weather    : service up (sample data)
+I (2137) sd_font: scan-order witness (16 px): U+4E00 = 2 row(s) of ink, widest 14 px
+I (2138) sd_font: installed /sd/fonts/GBK16.FON (ui face): 23940 glyphs at 16 px, 748 KB PSRAM
+I (3295) sd_font: scan-order witness (24 px): U+4E00 = 2 row(s) of ink, widest 22 px
+I (3295) sd_font: installed /sd/fonts/GBK24.FON (reading face): 23940 glyphs at 24 px, 1683 KB PSRAM
+I (3304) sd_font: scan-order witness (32 px): U+4E00 = 3 row(s) of ink, widest 28 px
+I (3304) sd_font: installed /sd/fonts/GBK32.FON (reading face (XL)): 23940 glyphs at 32 px, SD-cached (48 KB cache)
+I (3307) sd_font: codepoint index: 21791 of 24066 cp936 slots mapped, 128 KB PSRAM
+I (3308) main: CJK font   : card's GBK face
+I (3308) theme: theme ready: bg #0E1013 surface #171A21 text #E6E9EF accent #4C8DFF
+I (3355) home: home built with 9 tiles on a 3x3 grid
+I (3356) app: page 'home' entered, lvgl objects = 60
+I (3356) app: app ready: page 'home', lvgl objects = 60
+I (3357) main: heap int=119931 B  psram=2315676 B  int_largest=79872 B  psram_largest=2293760 B
+I (3859) sysinfo: task table -- name | state | prio | stack high-water | task# | core
+I (3859) sysinfo: taskLVGL       	R	6	11052	8	1
+main           	X	1	5836	4	0
+IDLE0          	R	0	788	5	0
+IDLE1          	R	0	796	6	1
+tcpip          	B	18	2420	9	-1
+app            	B	4	3400	13	0
+ipc1           	S	24	616	2	1
+Tmr Svc        	B	1	1444	7	-1
+wifi           	B	23	4500	11	0
+sys_evt        	B	20	1656	10	0
+weather        	S	4	3320	12	-1
+esp_timer      	S	22	3368	3	0
+ipc0           	S	24	608	1	0
+
+I (3862) sysinfo: cpu share -- name | abs time | %
+I (3863) sysinfo: taskLVGL       	346199		10%
+main           	873559		27%
+IDLE1          	2827336		88%
+IDLE0          	2230485		70%
+app            	109		<1%
+tcpip          	853		<1%
+Tmr Svc        	21		<1%
+wifi           	48806		1%
+sys_evt        	518		<1%
+weather        	17		<1%
+esp_timer      	17309		<1%
+ipc0           	2225		<1%
+ipc1           	2316		<1%
+
+I (3864) main_task: Returned from app_main()
+
+[probe] 9604 bytes captured -> D:\user_project\git\MCU-Agent\204.esp32s3_touch_ebook\serial_log.txt
+=== PROBE EXIT 0 ===

@@ -65,25 +65,23 @@ set(PROJECT_INCLUDES
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
-# Only the HAL modules this board actually uses are compiled.  A full glob
-# would pull in 125 files and slow every rebuild down for no benefit; the set
-# below must stay in sync with Core/Inc/stm32h7xx_hal_conf.h.
+# Only the HAL modules this project actually uses are compiled.  A full glob
+# would pull in ~125 files and slow every rebuild down for no benefit; the set
+# below must stay byte-for-byte in sync with the MDK-ARM uvprojx HAL group
+# (MDK-ARM/stm32h743.uvprojx) so both toolchains compile the same source set.
 set(HAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Src)
 set(HAL_SOURCES
+    # --- mandatory core (HAL init + SysTick + clocks) ---
     ${HAL_DIR}/stm32h7xx_hal.c
     ${HAL_DIR}/stm32h7xx_hal_cortex.c
-    ${HAL_DIR}/stm32h7xx_hal_dma.c
-    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
-    ${HAL_DIR}/stm32h7xx_hal_mdma.c
-    ${HAL_DIR}/stm32h7xx_hal_exti.c
-    ${HAL_DIR}/stm32h7xx_hal_flash.c
-    ${HAL_DIR}/stm32h7xx_hal_flash_ex.c
-    ${HAL_DIR}/stm32h7xx_hal_gpio.c
-    ${HAL_DIR}/stm32h7xx_hal_hsem.c
-    ${HAL_DIR}/stm32h7xx_hal_pwr.c
-    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
     ${HAL_DIR}/stm32h7xx_hal_rcc.c
     ${HAL_DIR}/stm32h7xx_hal_rcc_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_gpio.c
+    # --- used by this board ---
+    ${HAL_DIR}/stm32h7xx_hal_dma.c
+    ${HAL_DIR}/stm32h7xx_hal_dma_ex.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr.c
+    ${HAL_DIR}/stm32h7xx_hal_pwr_ex.c
     ${HAL_DIR}/stm32h7xx_hal_dcmi.c
     ${HAL_DIR}/stm32h7xx_hal_i2c.c
     ${HAL_DIR}/stm32h7xx_hal_i2c_ex.c
@@ -103,9 +101,11 @@ set(PROJECT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/stm32h7xx_it.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/stm32h7xx_hal_msp.c
     sys_startup/system_stm32h7xx.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/syscalls.c
 
-    ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_uart.c
+    # Console: USART1 115200-8-N-1, non-blocking PRINT_LOG (TX ring + TXE IRQ).
+    # Provides the newlib _write() retarget for GCC; ARMCLANG (MDK-ARM) routes
+    # through PRINT_LOG itself, so no syscalls.c / mdk_target.c is needed.
+    ${CMAKE_CURRENT_SOURCE_DIR}/bsp/bsp_log.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_spi_oled.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_oled_fonts.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bsp/drv_dcmi.c

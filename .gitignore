@@ -8,7 +8,6 @@
 *.obj
 *.bin
 *.elf
-*.txt
 
 # Precompiled Headers
 *.gch
@@ -84,8 +83,12 @@ Testing/
 **/sd_card/*
 
 node_modules
-
+reference
 DebugConfig
 Listings
 Objects
 *.uvguix.*
+*.scvd
+assert
+components
+managed_components

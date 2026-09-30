@@ -25,14 +25,14 @@ JTAG 模式为**纯 JTAG**，不做 SWD↔JTAG 切换。TCK/TMS 直接复用 SWD
 只需再引出 TDI/TDO/nTRST 三个引脚（默认 GPIO7/8/9，Kconfig `DEBUG_TDI_GPIO` /
 `DEBUG_TDO_GPIO` / `DEBUG_NTRST_GPIO` 可改）：
 
-| JTAG 信号 | ESP32-S3 GPIO | 复用说明 |
-|-----------|---------------|----------|
-| TCK       | **GPIO4**     | 复用 SWCLK（探针输出时钟） |
-| TMS       | **GPIO5**     | 复用 SWDIO（探针 TAP 状态机驱动） |
-| TDI       | **GPIO7**     | 新增，探针→目标，空闲高（bypass=1） |
-| TDO       | **GPIO8**     | 新增，目标→探针，只读输入 |
-| nTRST     | **GPIO9**     | 新增，开漏，拉低=复位 JTAG 链（未接可设 -1） |
-| nRESET    | **GPIO6**     | 复用 SWD 的 nRESET（系统复位，非 JTAG 链复位） |
+| JTAG 信号 | ESP32-S3 GPIO | STM32H7 GPIO | 复用说明 |
+|------------|---------------|--------------|----------|
+| TCK(SWCLK) | **GPIO4**     | **PA14** | 复用 SWCLK（探针输出时钟） |
+| TMS(SWDIO) | **GPIO5**     | **PA13** | 复用 SWDIO（探针 TAP 状态机驱动） |
+| TDI       | **GPIO7**     | **PA15** |  新增，探针→目标，空闲高（bypass=1） |
+| TDO       | **GPIO8**     | **PB3** |  新增，目标→探针，只读输入 |
+| nTRST     | **GPIO9**     | **** |  新增，开漏，拉低=复位 JTAG 链（未接可设 -1） |
+| nRESET    | **GPIO6**     | **RST** | 复用 SWD 的 nRESET（系统复位，非 JTAG 链复位） |
 
 > ⚠️ **同一时刻仅启用一种协议**：`DAP_Connect` 选 SWD(1) 或 JTAG(2)。两种模式共享 TCK/TMS 引脚，
 > 但 TDI/TDO/nTRST 仅在 JTAG 模式被驱动；SWD 模式下 nRESET 才有效（与 §2 一致）。

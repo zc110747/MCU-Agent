@@ -1,0 +1,14 @@
+﻿# Partition table for the 16 MB flash of the ESP32-S3-Touch-LCD-4.3B.
+#
+# No OTA: this is a single-image appliance, so the whole budget except NVS and
+# the PHY calibration blob goes to the application.  4 MB leaves room for the
+# LVGL build, the UI assets and - later - an embedded fallback font, without
+# ever having to fight the partition table at 23:00.
+#
+# Offset 0x8000 is the partition table itself, 0x9000 is the first free sector
+# (bootloader on ESP32-S3 starts at 0x0).
+#
+# Name,     Type, SubType, Offset,  Size, Flags
+nvs,        data, nvs,     0x9000,  0x6000,
+phy_init,   data, phy,     0xF000,  0x1000,
+factory,    app,  factory, 0x10000, 4M,

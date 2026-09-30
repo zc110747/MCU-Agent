@@ -24,7 +24,6 @@ static void dcmi_ov5640_reset(void);
 static uint16_t drv_dcmi_ov5640_read_id(void);
 static GlobalType_t dcmi_ov5640_regs_config(void);
 static GlobalType_t dcmi_ov5640_set_framsize(uint16_t width,uint16_t height);
-static GlobalType_t dcmi_ov5640_drop(uint16_t display_x, uint16_t display_y, uint16_t sensor_x,uint16_t sensor_y);
 static GlobalType_t dcmi_ov5640_download_firmware(void);
 static void dcmi_ov5640_trigger_constant(void);
 

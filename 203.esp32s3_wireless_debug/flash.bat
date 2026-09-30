@@ -5,7 +5,7 @@ REM          flash.bat COM21       (explicit port)
 REM          flash.bat COM21 921600 (port + baud)
 REM Port list is printed to console; chosen port goes to idf.py flash.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0."
 call "%~dp0env.bat"
 
 set "ARG_PORT=%~1"
@@ -18,6 +18,7 @@ for /f "usebackq delims=" %%i in (`"%PY%" "%~dp0tools\scan_port.py" "%ARG_PORT%"
 
 if not defined CHOSEN (
     echo ERR: no port selected, abort
+    PAUSE
     exit /b 1
 )
 
@@ -26,7 +27,10 @@ echo ==^> Target: esp32s3_debug_probe
 "%PY%" "%~dp0idf_runner.py" flash -p "%CHOSEN%" -b %ARG_BAUD%
 if errorlevel 1 (
     echo FLASH FAILED
+    PAUSE
     exit /b 1
 )
 echo ==^> Flash complete
 endlocal
+
+PAUSE

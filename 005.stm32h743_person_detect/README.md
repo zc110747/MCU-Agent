@@ -15,6 +15,7 @@
 | 模型 | CMSIS-NN MobileNetV1-0.25，输入 96×96 int8，sigmoid 分数 0~1 |
 | 显示 | ST7789 240×240（RGB565），复用 `LCD_CopyBuffer(x,y,w,h,uint16_t*)` 贴图 |
 | 调试 | ST-LINK (V2/V3) + SWD + OpenOCD 0.12 + arm-none-eabi-gdb 16.3 |
+| 调试串口 | USART1 PA9/PA10，115200-8-N-1（ST-Link VCP → COM6），用于 `PRINT_LOG` 控制台 |
 | 工程 | CMake + Ninja（arm-gnu-toolchain-15.3），输出 `build/stm32h7_tinyyolo.elf` |
 
 引脚与原理图（LXB743ZI-P1）已 100% 核对吻合：DCMI / I2C4(SCCB) / SPI6 + PG12=LCD_BL / PG15=LCD_DC / PG7=LED / PF13=CAMERA_PWDN。
@@ -52,6 +53,14 @@
 > “使用宏替代，检测间隔0.5s，移除延时为1s”
 
 - `APP_DETECT_INTERVAL_MS`：1000 → **500**（2Hz 检测）；`APP_PERSON_HOLD_MS`：2000 → **1000**（移除延时 1s）。全部以宏定义，不硬编码。
+
+### 需求 6 — 替换日志为 004 项目的非阻塞 UART 日志
+> “替换当前的 logger 接口中的 PRINT_LOG”
+
+- 原 `bsp/logger.h` 的 `PRINT_LOG` 宏体是被注释掉的（等于日志全空，而 `printf` 走 ITM/SWO）。
+- 按 004 工程方案替换为 `bsp/bsp_log.c|h`：**USART1 + TX 环形缓冲 + TXE 中断非阻塞**。
+- `PRINT_LOG(fmt, ...)` 签名与 004 一致；级别与 `\r\n` 由调用点自带（`[I]/[W]/[E]`），13 处调用点已同步改写。
+- `printf()` 的 `_write()` 重定向统一到 USART1；`syscalls.c` 里的 ITM/SWO 存桩已移除。
 
 ---
 
@@ -107,7 +116,26 @@ cd <project_root>
 cmake -B build -G Ninja           # 首次配置（已生成 build/ 可跳过）
 cmake --build build -j4           # 编译，产物 build/stm32h7_tinyyolo.elf
 ```
-内存占用（编译后参考）：RAM_DMA 144KB / 256KB，RAM 152320B / 256KB，FLASH 14.79%，DTCM 14%。
+### 5.1 双构与日志开关
+```bash
+cmake --preset debug   && cmake --build --preset debug     # build/debug
+cmake --preset release && cmake --build --preset release   # build/release
+# 一键关闭所有 PRINT_LOG（零开销、零 UART 流量）
+cmake -B build -DPRINT_LOG_ENABLE=OFF && cmake --build build
+```
+Debug/Release 均为 **零警告**。内存占用（当前）：RAM_DMA 144KB / 256KB (56.25%)，RAM 152320B / 256KB (58.11%)，DTCMRAM 19568B / 128KB (14.93%)，FLASH 315576B / 2MB (15.05%) — Debug 构造；Release 315952B (15.07%)。
+
+### 5.2 日志子系统（USART1 非阻塞控制台）
+| 项 | 说明 |
+|---|---|
+| 硬件 | USART1 PA9(TX)/PA10(RX)，115200-8-N-1，时钟 D2PCLK2 |
+| 写入 | `PRINT_LOG(fmt, ...)` → `printf_log()` → 1024B TX 环形缓冲（不阻塞） |
+| 排空 | `USART1_IRQHandler()` → `log_uart_tx_irq()`，每次 TXE 推一字节 |
+| 关闭 | `-DPRINT_LOG_ENABLE=OFF` → `PRINT_LOG` 展开为 `((void)0)`，无任何 UART 流量与运行时开销 |
+| 缓冲安全 | 写入时关 `UART_IT_TXE`，ISR 不会并发改索引；仅启用 TXE，RX/错误中断全关 |
+| D-Cache | 环形缓冲仅 CPU 访问（无 DMA），无需 MPU 划出，开 D-Cache 安全 |
+
+> 调用点约定（与 004 一致）：`PRINT_LOG("[I] dcmi ready: %dx%d\r\n", w, h);`，即级别标签与换行都由调用点自带。
 
 ---
 
@@ -149,6 +177,15 @@ arm-none-eabi-gdb -batch -x debug/verify_v4_debounce.gdb build/stm32h7_tinyyolo.
 - **真人判定**：镜头前有人时 score ≈ 0.617（≥0.50）→ `present=1`（绿人形 + LED）。
 - **2Hz 检测**：`last_person` 时间戳间隔 ≈ 500ms（0.5s）。
 - **去抖**：出现首帧 `present=1`（立即）；移除后保持 1 个检测周期（~500ms），距末次有人满 ~1000ms 才降为 0（1s 保持）。
+- **UART 日志（真机，115200 @ COM6）**：烧录后复位捕获完整启动序列：
+  ```
+  [I] Person detection ready: 96x96 int8-in (CMSIS-NN)
+  [I] ov5640 camera init success!
+  [I] dcmi ready: sensor 320x240, crop 192x192
+  [I] vision pipeline running (ping-pong)
+  [I] cam  7 fps | pipe 41 fps | nn 38803 us | score 0.16 | cap1
+  [I] cam 43 fps | pipe 41 fps | nn 38802 us | score 0.15 | cap0
+  ```
 
 ---
 

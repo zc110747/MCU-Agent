@@ -18,7 +18,7 @@
 /////////////////////////////////////////////////////////////////////////////
 #include "drv_dcmi_ov5640.h"
 #include "drv_dcmi.h"
-#include "logger.h"
+#include "bsp_log.h"
 
 extern DCMI_HandleTypeDef hdcmi;
 
@@ -26,7 +26,6 @@ static void dcmi_ov5640_reset(void);
 static uint16_t drv_dcmi_ov5640_read_id(void);
 static GlobalType_t dcmi_ov5640_regs_config(void);
 static GlobalType_t dcmi_ov5640_set_framsize(uint16_t width,uint16_t height);
-static GlobalType_t dcmi_ov5640_drop(uint16_t display_x, uint16_t display_y, uint16_t sensor_x,uint16_t sensor_y);
 static GlobalType_t dcmi_ov5640_download_firmware(void);
 static void dcmi_ov5640_trigger_constant(void);
 
@@ -521,7 +520,7 @@ GlobalType_t drv_dcmi_ov5640_init(void)
         return RT_FAIL;
     }
     
-    PRINT_LOG(LOG_INFO, HAL_GetTick(), "ov5640 camera init success!");    
+    PRINT_LOG("ov5640 camera init success!");    
     return RT_OK;
 }
 

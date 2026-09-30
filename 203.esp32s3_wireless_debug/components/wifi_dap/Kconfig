@@ -1,0 +1,17 @@
+menu "Wi-Fi CMSIS-DAP Transport"
+
+config WIFI_DAP_USB_WAIT_MS
+    int "USB host detection window before starting the SoftAP (ms)"
+    default 3000
+    range 0 60000
+    help
+        At boot the probe waits up to this long for a USB host to attach and
+        enumerate the HID interface. If a host shows up inside the window the
+        SoftAP is NEVER started and the probe stays in USB mode, because
+        Wi-Fi RF activity on ESP32-S3 corrupts USB OTG HID transfers.
+        Only when no host ever appears does the probe fall back to the
+        wireless transport (SoftAP + TCP 50000).
+        Raise this value if your host enumerates slowly; set 0 to skip the
+        wait and start Wi-Fi immediately.
+
+endmenu

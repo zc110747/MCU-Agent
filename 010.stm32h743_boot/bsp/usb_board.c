@@ -10,6 +10,20 @@
 #include "stm32h7xx_hal.h"
 #include "tusb.h"
 
+/* ---------------------------------------------------------------------------
+ * TinyUSB bare-metal time base.
+ *
+ * With CFG_TUSB_OS == OPT_OS_NONE the stack has no OS to ask for a tick, so it
+ * declares tusb_time_millis_api() "implemented by the application" and calls it
+ * from tusb_time_delay_ms_api() (see third_party/tinyusb/src/tusb.c). HAL_GetTick
+ * is the SysTick millisecond counter set up by HAL_Init(); USB re-init paths
+ * (dwc2 core reset / PHY settling) rely on it for their short delays.
+ * -------------------------------------------------------------------------*/
+uint32_t tusb_time_millis_api(void)
+{
+    return HAL_GetTick();
+}
+
 /* Some HAL header revisions only expose one of the OTG spellings; pin it down. */
 #ifndef GPIO_AF10_OTG_ANY
 #define GPIO_AF10_OTG_ANY  ((uint8_t)0x0A)

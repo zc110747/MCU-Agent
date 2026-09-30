@@ -19,6 +19,7 @@
   ******************************************************************************
   */
 #include "stm32h7xx_hal.h"
+#include "bsp_log.h"
 #include "uart.h"
 #include "qspi.h"
 #include "led.h"
@@ -39,33 +40,31 @@ int main(void)
        writes and QSPI/USB DMA never see stale cache lines. */
     BSP_MPU_Init();
 
-    if (BSP_UART_Init() != HAL_OK) {
-        Error_Handler();
-    }
+    BSP_UART_Init();
 
-    BSP_UART_Printf("\r\n");
-    BSP_UART_Printf("========================================================\r\n");
-    BSP_UART_Printf(" STM32H743 Bootloader  (QSPI U-Disk + secure upgrade)\r\n");
-    BSP_UART_Printf("========================================================\r\n");
-    BSP_UART_Printf(" CPU Clock : %lu MHz\r\n", (unsigned long)(SystemCoreClock / 1000000UL));
+    PRINT_LOG("\r\n");
+    PRINT_LOG("========================================================\r\n");
+    PRINT_LOG(" STM32H743 Bootloader  (QSPI U-Disk + secure upgrade)\r\n");
+    PRINT_LOG("========================================================\r\n");
+    PRINT_LOG(" CPU Clock : %lu MHz\r\n", (unsigned long)(SystemCoreClock / 1000000UL));
 
     if (BSP_QSPI_Init() != QSPI_OK) {
-        BSP_UART_Printf(" QSPI init FAILED\r\n");
+        PRINT_LOG(" QSPI init FAILED\r\n");
         Error_Handler();
     }
-    BSP_UART_Printf(" QSPI initialised (HAL indirect mode)\r\n");
+    PRINT_LOG(" QSPI initialised (HAL indirect mode)\r\n");
 
     BSP_LED_Init();
-    BSP_UART_Printf(" LED fast blink started (PG7, 200 ms)\r\n");
+    PRINT_LOG(" LED fast blink started (PG7, 200 ms)\r\n");
 
     /* Copy the flash-write engine from FLASH into AXI SRAM before any
        erase/program call (the CPU must not fetch from bank1 while bank1 is being
        written, and must not execute from DTCM which is data-only on Cortex-M7). */
-    BSP_UART_Printf("[BOOT] relocating flash engine to AXI SRAM...\r\n");
+    PRINT_LOG("[BOOT] relocating flash engine to AXI SRAM...\r\n");
     BFLASH_Relocate();
 
     /* 1. Process any upgrade package on the QSPI U-disk. */
-    BSP_UART_Printf("[BOOT] checking QSPI volume for upgrade package...\r\n");
+    PRINT_LOG("[BOOT] checking QSPI volume for upgrade package...\r\n");
     BSP_Upgrade_Check();
 
     /* 2. Validate app and either count down to a jump or stay in U-disk mode. */
@@ -137,7 +136,7 @@ static void SystemClock_Config(void)
 /* -------------------------------------------------------------------------- */
 void Error_Handler(void)
 {
-    BSP_UART_Printf("!!! Error_Handler triggered !!!\r\n");
+    PRINT_LOG("!!! Error_Handler triggered !!!\r\n");
     __disable_irq();
     while (1) {
     }
@@ -146,7 +145,7 @@ void Error_Handler(void)
 #ifdef USE_FULL_ASSERT
 void assert_failed(uint8_t *file, uint32_t line)
 {
-    BSP_UART_Printf("ASSERT failed: %s:%lu\r\n", file, line);
+    PRINT_LOG("ASSERT failed: %s:%lu\r\n", file, line);
     while (1) {}
 }
 #endif

@@ -60,3 +60,5 @@ echo.
 if %ERR%==0 ( echo [DONE] Build succeeded. ) else ( echo [DONE] Build FAILED - see errors above. )
 :END
 exit /b %ERR%
+
+PAUSE
