@@ -1,5 +1,5 @@
 //////////////////////////////////////////////////////////////////////////////
-//  (c) copyright 2023-by Persional Inc.  
+//  (c) copyright 2023-by Persional Inc.
 //  All Rights Reserved
 //
 //  Name:

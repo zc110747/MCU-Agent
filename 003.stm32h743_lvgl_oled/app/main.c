@@ -1,12 +1,12 @@
 /**
-  ******************************************************************************
-  * @file    main.c
-  * @brief   STM32H743ZIT6 - OLED Chinese text demo (bare metal, no RTOS).
-  *
-  *  Boot sequence:
-  *    MPU -> I-Cache -> HAL_Init -> 480 MHz clock -> GPIO/SPI6/SDMMC1/USART1
-  *    -> application_init() -> application_run() forever.
-  *
+ ******************************************************************************
+ * @file    main.c
+ * @brief   STM32H743ZIT6 - OLED Chinese text demo (bare metal, no RTOS).
+ *
+ *  Boot sequence:
+ *    MPU -> I-Cache -> HAL_Init -> 480 MHz clock -> GPIO/SPI6/SDMMC1/USART1
+ *    -> application_init() -> application_run() forever.
+ *
  *  Cache policy
  *  ------------
  *  Both I-Cache and D-Cache are enabled.  SDMMC1 currently uses the polling
@@ -16,8 +16,8 @@
  *  other peripheral DMA) is introduced later, the DMA buffer regions must be
  *  made non-cacheable via the MPU, NOT by disabling D-Cache globally.
  *  (See MPU_Config() for the region setup.)
-  ******************************************************************************
-  */
+ ******************************************************************************
+ */
 #include "main.h"
 #include "app_main.h"
 #include "bsp_log.h"
@@ -28,9 +28,9 @@ UART_HandleTypeDef huart1;
 SD_HandleTypeDef   hsd1;
 
 /* Which oscillator actually ended up driving PLL1 (see SystemClock_Config) */
-volatile ClockSource_t g_clock_source  = CLOCK_SRC_HSE_XTAL;
+volatile ClockSource_t g_clock_source = CLOCK_SRC_HSE_XTAL;
 /* Set to 1 by the CSS NMI if the 25 MHz crystal dies while running */
-volatile uint8_t       g_hse_css_fault = 0U;
+volatile uint8_t g_hse_css_fault = 0U;
 
 /* Private prototypes --------------------------------------------------------*/
 static void MPU_Config(void);
@@ -40,15 +40,15 @@ static void MX_SDMMC1_SD_Init(void);
 static void MX_USART1_UART_Init(void);
 
 /**
-  * @brief  Application entry point.
-  */
+ * @brief  Application entry point.
+ */
 int main(void)
 {
     /* 1. MPU + caches --------------------------------------------------------*/
     MPU_Config();
     SCB_EnableICache();
     SCB_EnableDCache();
-    
+
     /* 2. HAL / SysTick -------------------------------------------------------*/
     HAL_Init();
 
@@ -72,21 +72,21 @@ int main(void)
 }
 
 /**
-  * @brief  System Clock Configuration.
-  *
-  * Oscillator: 25 MHz PASSIVE crystal wired to OSC_IN (PH0) / OSC_OUT (PH1).
-  *   -> RCC_HSE_ON drives the on-chip Pierce oscillator against the crystal.
-  *   -> RCC_HSE_BYPASS must NOT be used: that mode expects an active
-  *      oscillator/TCXO feeding OSC_IN, and would leave HSE dead here.
-  *
-  *   HSE  = 25 MHz
-  *   PLL1 : M=5 -> 5 MHz ref ; N=192 -> 960 MHz VCO ; P=2 -> SYSCLK 480 MHz
-  *   HCLK = 240 MHz, APBx = 120 MHz
-  *
-  * A crystal can fail to start (bad load caps, cold joint, damaged part).
-  * Instead of dying in Error_Handler(), we fall back to the internal HSI so
-  * the UART still comes up and can report the fault.
-  */
+ * @brief  System Clock Configuration.
+ *
+ * Oscillator: 25 MHz PASSIVE crystal wired to OSC_IN (PH0) / OSC_OUT (PH1).
+ *   -> RCC_HSE_ON drives the on-chip Pierce oscillator against the crystal.
+ *   -> RCC_HSE_BYPASS must NOT be used: that mode expects an active
+ *      oscillator/TCXO feeding OSC_IN, and would leave HSE dead here.
+ *
+ *   HSE  = 25 MHz
+ *   PLL1 : M=5 -> 5 MHz ref ; N=192 -> 960 MHz VCO ; P=2 -> SYSCLK 480 MHz
+ *   HCLK = 240 MHz, APBx = 120 MHz
+ *
+ * A crystal can fail to start (bad load caps, cold joint, damaged part).
+ * Instead of dying in Error_Handler(), we fall back to the internal HSI so
+ * the UART still comes up and can report the fault.
+ */
 void SystemClock_Config(void)
 {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -102,18 +102,18 @@ void SystemClock_Config(void)
     }
 
     /* ---- Attempt 1: 25 MHz passive crystal --------------------------------*/
-    RCC_OscInitStruct.OscillatorType   = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState         = RCC_HSE_ON;   /* crystal, not bypass */
-    RCC_OscInitStruct.PLL.PLLState     = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource    = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM         = 5;            /* 25 MHz / 5  = 5 MHz */
-    RCC_OscInitStruct.PLL.PLLN         = 192;          /* 5 MHz * 192 = 960 MHz */
-    RCC_OscInitStruct.PLL.PLLP         = 2;            /* 960 / 2     = 480 MHz */
-    RCC_OscInitStruct.PLL.PLLQ         = 4;
-    RCC_OscInitStruct.PLL.PLLR         = 2;
-    RCC_OscInitStruct.PLL.PLLRGE       = RCC_PLL1VCIRANGE_2;  /* ref 4-8 MHz */
-    RCC_OscInitStruct.PLL.PLLVCOSEL    = RCC_PLL1VCOWIDE;
-    RCC_OscInitStruct.PLL.PLLFRACN     = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState       = RCC_HSE_ON; /* crystal, not bypass */
+    RCC_OscInitStruct.PLL.PLLState   = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource  = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM       = 5;   /* 25 MHz / 5  = 5 MHz */
+    RCC_OscInitStruct.PLL.PLLN       = 192; /* 5 MHz * 192 = 960 MHz */
+    RCC_OscInitStruct.PLL.PLLP       = 2;   /* 960 / 2     = 480 MHz */
+    RCC_OscInitStruct.PLL.PLLQ       = 4;
+    RCC_OscInitStruct.PLL.PLLR       = 2;
+    RCC_OscInitStruct.PLL.PLLRGE     = RCC_PLL1VCIRANGE_2; /* ref 4-8 MHz */
+    RCC_OscInitStruct.PLL.PLLVCOSEL  = RCC_PLL1VCOWIDE;
+    RCC_OscInitStruct.PLL.PLLFRACN   = 0;
 
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) == HAL_OK)
     {
@@ -129,11 +129,11 @@ void SystemClock_Config(void)
         RCC_OscInitStruct.OscillatorType      = RCC_OSCILLATORTYPE_HSI |
                                                 RCC_OSCILLATORTYPE_HSE;
         RCC_OscInitStruct.HSEState            = RCC_HSE_OFF;
-        RCC_OscInitStruct.HSIState            = RCC_HSI_DIV1;   /* 64 MHz */
+        RCC_OscInitStruct.HSIState            = RCC_HSI_DIV1; /* 64 MHz */
         RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
         RCC_OscInitStruct.PLL.PLLSource       = RCC_PLLSOURCE_HSI;
-        RCC_OscInitStruct.PLL.PLLM            = 16;   /* 64 MHz / 16 = 4 MHz  */
-        RCC_OscInitStruct.PLL.PLLN            = 240;  /* 4 * 240   = 960 MHz  */
+        RCC_OscInitStruct.PLL.PLLM            = 16;  /* 64 MHz / 16 = 4 MHz  */
+        RCC_OscInitStruct.PLL.PLLN            = 240; /* 4 * 240   = 960 MHz  */
         /* P/Q/R/RGE/VCOSEL unchanged -> still 480 MHz SYSCLK */
 
         if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -169,26 +169,26 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief  HSE clock-failure callback, reached from NMI via
-  *         HAL_RCC_NMI_IRQHandler().
-  *
-  * Keep this tiny: SysTick cannot preempt NMI, so any HAL call that polls
-  * HAL_GetTick() (HAL_RCC_OscConfig, HAL_Delay, ...) would hang forever here.
-  * We only latch the event; recovery is reported from the main loop.
-  */
+ * @brief  HSE clock-failure callback, reached from NMI via
+ *         HAL_RCC_NMI_IRQHandler().
+ *
+ * Keep this tiny: SysTick cannot preempt NMI, so any HAL call that polls
+ * HAL_GetTick() (HAL_RCC_OscConfig, HAL_Delay, ...) would hang forever here.
+ * We only latch the event; recovery is reported from the main loop.
+ */
 void HAL_RCC_CSSCallback(void)
 {
     g_clock_source  = CLOCK_SRC_HSI_CSS_RESCUE;
     g_hse_css_fault = 1U;
-    SystemCoreClockUpdate();   /* SYSCLK has been forced to HSI by hardware */
+    SystemCoreClockUpdate(); /* SYSCLK has been forced to HSI by hardware */
 }
 
 /**
-  * @brief  MPU configuration.
-  *
-  * Region 0 : AXI-SRAM (0x24000000, 512 KB) marked normal / non-shareable.
-  *            This is where .data/.bss/heap/stack and every SD buffer live.
-  */
+ * @brief  MPU configuration.
+ *
+ * Region 0 : AXI-SRAM (0x24000000, 512 KB) marked normal / non-shareable.
+ *            This is where .data/.bss/heap/stack and every SD buffer live.
+ */
 static void MPU_Config(void)
 {
     MPU_Region_InitTypeDef MPU_InitStruct = {0};
@@ -212,8 +212,8 @@ static void MPU_Config(void)
 }
 
 /**
-  * @brief  GPIO init: LED (PG7), LCD_BL (PG12), LCD_DC (PG15).
-  */
+ * @brief  GPIO init: LED (PG7), LCD_BL (PG12), LCD_DC (PG15).
+ */
 static void MX_GPIO_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -235,11 +235,11 @@ static void MX_GPIO_Init(void)
 }
 
 /**
-  * @brief  SPI6 init - display link.
-  *
-  * Half duplex TX only (1 line): the panel has no MISO.
-  * NSS is driven by hardware (PG8) with a pulse between frames.
-  */
+ * @brief  SPI6 init - display link.
+ *
+ * Half duplex TX only (1 line): the panel has no MISO.
+ * NSS is driven by hardware (PG8) with a pulse between frames.
+ */
 static void MX_SPI6_Init(void)
 {
     hspi6.Instance                        = SPI6;
@@ -272,10 +272,10 @@ static void MX_SPI6_Init(void)
 }
 
 /**
-  * @brief  SDMMC1 init - 4 bit bus, holds the Chinese font files.
-  * @note   A missing card must not brick the boot, so a failure here is
-  *         reported by the application instead of trapping in Error_Handler().
-  */
+ * @brief  SDMMC1 init - 4 bit bus, holds the Chinese font files.
+ * @note   A missing card must not brick the boot, so a failure here is
+ *         reported by the application instead of trapping in Error_Handler().
+ */
 static void MX_SDMMC1_SD_Init(void)
 {
     hsd1.Instance                 = SDMMC1;
@@ -289,8 +289,8 @@ static void MX_SDMMC1_SD_Init(void)
 }
 
 /**
-  * @brief  USART1 init - debug console on PA9 / PA10, 115200-8-N-1.
-  */
+ * @brief  USART1 init - debug console on PA9 / PA10, 115200-8-N-1.
+ */
 static void MX_USART1_UART_Init(void)
 {
     huart1.Instance                    = USART1;
@@ -324,8 +324,8 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
-  * @brief  Unrecoverable error: blink the LED fast so the board shows it.
-  */
+ * @brief  Unrecoverable error: blink the LED fast so the board shows it.
+ */
 void Error_Handler(void)
 {
     __disable_irq();

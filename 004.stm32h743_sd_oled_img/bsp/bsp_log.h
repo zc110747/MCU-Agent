@@ -1,10 +1,10 @@
 /**
-  ******************************************************************************
-  * @file    bsp_log.h
-  * @brief   Crash-safe USART1 console: non-blocking PRINT_LOG (TX ring buffer
-  *         + TXE interrupt drain).
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_log.h
+ * @brief   Crash-safe USART1 console: non-blocking PRINT_LOG (TX ring buffer
+ *         + TXE interrupt drain).
+ ******************************************************************************
+ */
 
 #ifndef __BSP_LOG_H
 #define __BSP_LOG_H
@@ -69,9 +69,9 @@ void log_uart_init(void);
  *  output globally.
  * ------------------------------------------------------------------------- */
 #if PRINT_LOG_ENABLE
-  #define PRINT_LOG(fmt, ...)    printf_log(fmt, ##__VA_ARGS__)
+#define PRINT_LOG(fmt, ...) printf_log(fmt, ##__VA_ARGS__)
 #else
-  #define PRINT_LOG(fmt, ...)    ((void)0)
+#define PRINT_LOG(fmt, ...) ((void)0)
 #endif
 
 #ifdef __cplusplus

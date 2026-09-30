@@ -3,11 +3,11 @@
   * @file    bsp/syscalls.c
   * @brief   Minimal newlib syscalls for a bare-metal STM32H7 application.
   *
-  * We do NOT use newlib's stdio for output (BSP_UART_Printf talks to the UART
-  * directly via HAL), but vsnprintf() still pulls in the C library, which needs
-  * a few system calls to link. Providing them here lets us drop the toolchain's
-  * "nosys" stubs (which spam "not implemented" link warnings) for a clean,
-  * zero-warning build.
+  * We do NOT use newlib's stdio for output (printf_log in bsp/bsp_log.c talks
+  * to the UART directly via HAL), but vsnprintf() still pulls in the C library,
+  * which needs a few system calls to link. Providing them here lets us drop the
+  * toolchain's "nosys" stubs (which spam "not implemented" link warnings) for a
+  * clean, zero-warning build.
   *
   * Heap is carved out of AXI SRAM (SRAM1 @ 0x24000000, 512 KB), which is where
   * .bss/.data live in this project's linker script.

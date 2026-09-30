@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    app_slideshow.c
-  * @brief   Cycles through the JPEGs found in 0:/image, one every 5 seconds.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    app_slideshow.c
+ * @brief   Cycles through the JPEGs found in 0:/image, one every 5 seconds.
+ ******************************************************************************
+ */
 
 #include "app_slideshow.h"
 #include "app_image.h"
@@ -19,27 +19,37 @@
 
 /* ---------------------------------------------------------------- statics */
 
-static char     s_files[SLIDESHOW_MAX_FILES][SLIDESHOW_MAX_NAME];
-static uint32_t s_file_count;
-static uint32_t s_index;
+/* 幻灯片播放列表：文件表、当前索引与扫描暂存（FILINFO 约 300 B，静态持有） */
+typedef struct
+{
+    char     files[SLIDESHOW_MAX_FILES][SLIDESHOW_MAX_NAME];
+    uint32_t count;
+    uint32_t index;
+    DIR      dir;
+    FILINFO  fno;
+} slideshow_list_t;
 
-static uint32_t s_last_tick;        /* when the current frame went on screen */
-static uint32_t s_retry_tick;       /* back-off timer while the card is down */
-static int      s_ready;            /* a valid file list is loaded           */
+static slideshow_list_t g_list = {0};
 
-/* Kept static: FILINFO is ~300 bytes with LFN enabled. */
-static DIR      s_dir;
-static FILINFO  s_fno;
+/* 播放节拍：就绪标志、当前帧计时与卡片掉线退避计时 */
+typedef struct
+{
+    int      ready;
+    uint32_t last_tick;
+    uint32_t retry_tick;
+} slideshow_play_t;
+
+static slideshow_play_t g_play = {0};
 
 /* --------------------------------------------------------------- helpers  */
 
 /** Case-insensitive check for a .jpg / .jpeg suffix. */
 static int is_jpeg_name(const char *name)
 {
-    size_t len = strlen(name);
+    size_t      len = strlen(name);
     const char *ext;
 
-    if (len < 5U)               /* shortest possible is "a.jpg" */
+    if (len < 5U) /* shortest possible is "a.jpg" */
     {
         return 0;
     }
@@ -74,10 +84,10 @@ static GlobalType_t slideshow_scan(void)
 {
     FRESULT fr;
 
-    s_file_count = 0U;
-    s_index      = 0U;
+    g_list.count = 0U;
+    g_list.index      = 0U;
 
-    fr = f_opendir(&s_dir, SLIDESHOW_DIR);
+    fr = f_opendir(&g_list.dir, SLIDESHOW_DIR);
     if (fr != FR_OK)
     {
         PRINT_LOG("[E] opendir %s failed (fr=%d)\r\n", SLIDESHOW_DIR, (int)fr);
@@ -86,44 +96,44 @@ static GlobalType_t slideshow_scan(void)
 
     for (;;)
     {
-        fr = f_readdir(&s_dir, &s_fno);
-        if ((fr != FR_OK) || (s_fno.fname[0] == '\0'))
+        fr = f_readdir(&g_list.dir, &g_list.fno);
+        if ((fr != FR_OK) || (g_list.fno.fname[0] == '\0'))
         {
-            break;                              /* error or end of directory */
+            break; /* error or end of directory */
         }
-        if ((s_fno.fattrib & AM_DIR) != 0U)
+        if ((g_list.fno.fattrib & AM_DIR) != 0U)
         {
-            continue;                           /* sub-directories ignored   */
+            continue; /* sub-directories ignored   */
         }
-        if (!is_jpeg_name(s_fno.fname))
+        if (!is_jpeg_name(g_list.fno.fname))
         {
             continue;
         }
-        if (strlen(s_fno.fname) >= SLIDESHOW_MAX_NAME)
+        if (strlen(g_list.fno.fname) >= SLIDESHOW_MAX_NAME)
         {
-            PRINT_LOG("[W] name too long, skipped: %s\r\n", s_fno.fname);
+            PRINT_LOG("[W] name too long, skipped: %s\r\n", g_list.fno.fname);
             continue;
         }
 
-        strcpy(s_files[s_file_count], s_fno.fname);
+        strcpy(g_list.files[g_list.count], g_list.fno.fname);
         PRINT_LOG("[I]   [%2lu] %-32s %lu bytes\r\n",
-              (unsigned long)s_file_count,
-              s_files[s_file_count],
-              (unsigned long)s_fno.fsize);
+                  (unsigned long)g_list.count,
+                  g_list.files[g_list.count],
+                  (unsigned long)g_list.fno.fsize);
 
-        s_file_count++;
-        if (s_file_count >= SLIDESHOW_MAX_FILES)
+        g_list.count++;
+        if (g_list.count >= SLIDESHOW_MAX_FILES)
         {
             PRINT_LOG("[W] file list full (%d), remaining files ignored\r\n",
-                  SLIDESHOW_MAX_FILES);
+                      SLIDESHOW_MAX_FILES);
             break;
         }
     }
 
-    f_closedir(&s_dir);
+    f_closedir(&g_list.dir);
 
-    PRINT_LOG("[I] %lu jpeg file(s) in %s\r\n", (unsigned long)s_file_count, SLIDESHOW_DIR);
-    return (s_file_count > 0U) ? RT_OK : RT_FAIL;
+    PRINT_LOG("[I] %lu jpeg file(s) in %s\r\n", (unsigned long)g_list.count, SLIDESHOW_DIR);
+    return (g_list.count > 0U) ? RT_OK : RT_FAIL;
 }
 
 /** Decode + display the picture at @p idx. */
@@ -132,28 +142,28 @@ static GlobalType_t slideshow_show(uint32_t idx)
     char             path[sizeof(SLIDESHOW_DIR) + 1 + SLIDESHOW_MAX_NAME];
     app_image_info_t info;
 
-    if (idx >= s_file_count)
+    if (idx >= g_list.count)
     {
         return RT_FAIL;
     }
 
-    (void)snprintf(path, sizeof(path), "%s/%s", SLIDESHOW_DIR, s_files[idx]);
+    (void)snprintf(path, sizeof(path), "%s/%s", SLIDESHOW_DIR, g_list.files[idx]);
 
     if (app_image_decode_file(path, &info) != RT_OK)
     {
-        bsp_oled_show_banner("DECODE FAILED", s_files[idx]);
+        bsp_oled_show_banner("DECODE FAILED", g_list.files[idx]);
         return RT_FAIL;
     }
 
     bsp_oled_blit_frame(app_image_framebuffer());
 
     PRINT_LOG("[I] [%lu/%lu] %s  %ux%u -> 1/%u -> crop %u -> 240x240  %lums\r\n",
-          (unsigned long)(idx + 1U), (unsigned long)s_file_count,
-          s_files[idx],
-          info.src_width, info.src_height,
-          (unsigned)(1U << info.scale),
-          info.crop_side,
-          (unsigned long)info.elapsed_ms);
+              (unsigned long)(idx + 1U), (unsigned long)g_list.count,
+              g_list.files[idx],
+              info.src_width, info.src_height,
+              (unsigned)(1U << info.scale),
+              info.crop_side,
+              (unsigned long)info.elapsed_ms);
 
     return RT_OK;
 }
@@ -162,16 +172,16 @@ static GlobalType_t slideshow_show(uint32_t idx)
 
 uint32_t app_slideshow_count(void)
 {
-    return s_file_count;
+    return g_list.count;
 }
 
 void app_slideshow_init(void)
 {
-    s_ready      = 0;
-    s_file_count = 0U;
-    s_index      = 0U;
-    s_last_tick  = HAL_GetTick();
-    s_retry_tick = HAL_GetTick();
+    g_play.ready      = 0;
+    g_list.count = 0U;
+    g_list.index      = 0U;
+    g_play.last_tick  = HAL_GetTick();
+    g_play.retry_tick = HAL_GetTick();
 
     if (!bsp_sdcard_is_mounted())
     {
@@ -187,11 +197,11 @@ void app_slideshow_init(void)
         return;
     }
 
-    s_ready = 1;
+    g_play.ready = 1;
 
     /* First frame immediately, then one every SLIDESHOW_PERIOD_MS. */
-    (void)slideshow_show(s_index);
-    s_last_tick = HAL_GetTick();
+    (void)slideshow_show(g_list.index);
+    g_play.last_tick = HAL_GetTick();
 }
 
 void app_slideshow_poll(void)
@@ -199,42 +209,42 @@ void app_slideshow_poll(void)
     uint32_t now = HAL_GetTick();
 
     /* --- card missing or directory empty: retry once per period --------- */
-    if (!s_ready)
+    if (!g_play.ready)
     {
-        if ((now - s_retry_tick) < SLIDESHOW_PERIOD_MS)
+        if ((now - g_play.retry_tick) < SLIDESHOW_PERIOD_MS)
         {
             return;
         }
-        s_retry_tick = now;
+        g_play.retry_tick = now;
 
         if (!bsp_sdcard_is_mounted())
         {
             if (bsp_sdcard_mount() != RT_OK)
             {
-                return;                         /* still nothing, try later */
+                return; /* still nothing, try later */
             }
         }
         if (slideshow_scan() == RT_OK)
         {
             PRINT_LOG("[I] card back online, slideshow resumed\r\n");
-            s_ready = 1;
-            (void)slideshow_show(s_index);
-            s_last_tick = HAL_GetTick();
+            g_play.ready = 1;
+            (void)slideshow_show(g_list.index);
+            g_play.last_tick = HAL_GetTick();
         }
         return;
     }
 
     /* --- normal operation ----------------------------------------------- */
-    if ((now - s_last_tick) < SLIDESHOW_PERIOD_MS)
+    if ((now - g_play.last_tick) < SLIDESHOW_PERIOD_MS)
     {
         return;
     }
 
     LED_TOGGLE();
 
-    s_index = (s_index + 1U) % s_file_count;
+    g_list.index = (g_list.index + 1U) % g_list.count;
 
-    if (slideshow_show(s_index) != RT_OK)
+    if (slideshow_show(g_list.index) != RT_OK)
     {
         /*
          * A single bad file must not stall the show. If the card itself
@@ -244,10 +254,10 @@ void app_slideshow_poll(void)
         {
             PRINT_LOG("[E] card lost, going back to retry mode\r\n");
             bsp_oled_show_banner("SD CARD LOST", "reinsert the card");
-            s_ready      = 0;
-            s_retry_tick = HAL_GetTick();
+            g_play.ready      = 0;
+            g_play.retry_tick = HAL_GetTick();
         }
     }
 
-    s_last_tick = HAL_GetTick();
+    g_play.last_tick = HAL_GetTick();
 }

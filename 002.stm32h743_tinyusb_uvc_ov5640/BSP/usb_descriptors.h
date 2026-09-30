@@ -14,12 +14,12 @@ extern "C" {
 #include "main.h" /* FRAME_WIDTH / FRAME_HEIGHT / FRAME_RATE */
 
 enum {
-  ITF_NUM_VIDEO_CONTROL = 0,
-  ITF_NUM_VIDEO_STREAMING,
-  ITF_NUM_TOTAL
+    ITF_NUM_VIDEO_CONTROL = 0,
+    ITF_NUM_VIDEO_STREAMING,
+    ITF_NUM_TOTAL
 };
 
-#define EPNUM_VIDEO_IN  0x81
+#define EPNUM_VIDEO_IN 0x81
 
 #ifdef __cplusplus
 }

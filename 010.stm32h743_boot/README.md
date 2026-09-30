@@ -39,6 +39,22 @@
 
 ---
 
+## 2.1 日志接口（bsp/bsp_log.c）
+
+应用代码统一用 `PRINT_LOG(fmt, ...)` 输出，**不要**直接调 `BSP_UART_*`。
+
+| 特性 | 说明 |
+|------|------|
+| 非阻塞 | 格式化进 256 B 栈缓冲 → 压入 1 KB TX 环形缓冲 → 立即返回；TXE 中断在后台逐字节排空 |
+| 编译期开关 | `bsp_log.h` 的 `PRINT_LOG_ENABLE` 置 0 时 `PRINT_LOG(...)` 展开为 `((void)0)`，日志全部消失、零运行时开销 |
+| ISR 归属 | `bsp_log.c` 独占 USART1 句柄；**不得**在别处再声明 USART1 的 `UART_HandleTypeDef` |
+| 中断接线 | `USART1_IRQHandler()` → `log_uart_tx_irq()` 必须存在于两个 `stm32h7xx_it.c`。缺了它环形缓冲填满后日志**静默停止**（不报错） |
+| RAM 镜像 | `printf_log()` 顺带把每个字节追加到 `bsp/uart.c` 的 `g_uart_log`（16 KB），供 `capture.py` 走 SWD dump 取回完整启动日志 |
+
+`bsp/uart.c/h` 已退化为兼容层：保留 `BSP_UART_Init()`（转调 `bsp_log_init()`）、`BSP_UART_SendStr/SendBuf` 和 `g_uart_log` 镜像。
+
+---
+
 ## 3. Flash 内存布局（2 MB 内部 Flash，双 Bank）
 
 | 区域 | 地址 | 说明 |
@@ -63,17 +79,60 @@ cmake --build build                 # Debug，产物 build/stm32h7_boot.{elf,bin
 cmake --build build --config Release
 ```
 
-- 零警告目标。体积：Debug `text 109,808 B / data 2,268 B / bss 38,824 B`（≈110 KB / 128 KB，84%）；Release `text ≈70,800 B`（bin ≈73 KB）。
+- 零警告目标。体积：Debug `text 110,768 B / data 2,268 B / bss 39,856 B`（≈110 KB / 128 KB，84%）；Release `text 72,264 B / data 2,244 B / bss 39,848 B`（bin ≈74 KB）。
 - 升级擦写引擎（Flash 编程/校验）放在 **AXI SRAM（0x24000000）** 执行，规避 H7 Bank 内擦写取指停顿。⚠️ **绝不可放 DTCM（0x20000000）**——Cortex-M7 的 I-Code 总线无法从 DTCM 取指，引擎放 DTCM 会立即 BusFault→`Default_Handler`（已踩坑修复）。
 
-### 4.2 Test App（升级目标 / 跳转目标）
+### 4.2 Keil MDK-ARM 构建（第二工具链）
+
+同一份源码同时支持 GCC/CMake 与 Keil/ARMCLANG 两条链路，工程在 `MDK-ARM/`：
+
+- **工程文件**：`MDK-ARM/stm32h743.uvprojx`（单 Target `stm32h743`，ARMCLANG V6.14，`Keil.STM32H7xx_DFP.4.1.3`）
+- **分散加载**：`MDK-ARM/stm32h743.sct`（逐段对齐 `sys_startup/stm32h743xix_flash.ld`）
+- **命令行为**（无需打开 IDE）：
+
+```bash
+"/c/Keil_v5/UV4/UV4.exe" -b -j0 -t stm32h743 \
+  -x "MDK-ARM/stm32h743.uvprojx" -o "MDK-ARM/build_log.htm"
+# 期望：build_log.htm 末尾 "0 Error(s), 0 Warning(s)"
+# 产物：MDK-ARM/Objects/stm32h7_boot.{axf,hex,bin}
+```
+
+体积（Release 等价，`Optim=6`）：`Code 49,844 / RO-data 4,460 / RW-data 64 / ZI-data 39,152`，bin ≈120 KB。
+
+**四条移植约束**（与 CMake 侧的差异，改工程前务必先读）：
+
+| # | 约束 | 原因 |
+|---|---|---|
+| 1 | **不编译 `bsp/syscalls.c`**；必须保留 `MDK-ARM/mdk_target.c` | 前者是 GCC 的 newlib stub（含 POSIX `<sys/stat.h>`），与 ARMCLANG 的 retarget 层冲突；后者提供 `__use_no_semihosting`。删掉后者能编译能链接，但运行时会撞 semihosting `BKPT` |
+| 2 | HAL **按外设逐个列出**（当前 15 个 `.c`），不要整目录 glob | Keil 会整份链接列出的 `.c`（没有 `--gc-sections` 兜底），glob 会拖进 ~110 个无关注册器 |
+| 3 | `IncludePath` 需含 `..\Drivers\CMSIS\Include` 与四个 `..\third_party\*` 目录，且**去掉** `Core\Inc` / `middleware` / CMSIS DSP+NN | 那份路径来自别的工程 |
+| 4 | `Define` = `STM32H743xx,USE_HAL_DRIVER,CORE_CM7,CFG_TUSB_MCU=OPT_MCU_STM32H7,CFG_TUSB_OS=OPT_OS_NONE,BOARD_TUD_RHPORT=0` | TinyUSB 的 MCU/OS 选择必须与 CMake 侧一致 |
+
+**`.upgrade_ram` 的 load/run 分离（两工具链写法不同，是本工程最容易踩的地方）**：
+
+- GCC：`.upgrade_ram : { ... } >SRAM1 AT> FLASH` + `_supgrade_ram_load = LOADADDR(.upgrade_ram)`。
+- Keil：分散加载**不能导出任意符号别名**，且 armlink **不接受** `UPGRADE_RAM_LOAD LR_IROM1 { ... }` 这种嵌套 load region（实测报 `L6630E`/`L6226E`）。因此改为**独立顶层 load region**，并以**固定 Flash 地址**定位：
+
+```
+LR_IROM1   0x08000000 0x0001E000   ; 代码/RO/数据初值 + DTCM 的 STACK/HEAP
+LR_UPGRADE 0x0801E000 0x00002000   ; 引擎：load 在 Flash，run 在 AXI SRAM
+  UPGRADE_RAM 0x24000000 0x00002000
+```
+
+`bsp/flash_upgrade.c` 里用 `#if defined(__ARMCC_VERSION)` 取 `Image$$UPGRADE_RAM$$Base/$$Limit` 与 `Load$$UPGRADE_RAM$$Base`。⚠️ **执行区名必须叫 `UPGRADE_RAM`**——armlink 生成的符号名取自执行区名，写成 `ER_UPGRADE` 就会链接报 `L6218E: Undefined symbol Image$$UPGRADE_RAM$$Base`。
+
+> 因为存在两个非连续 load region，`fromelf` 必须用 **`--bincombined`** 才能得到单个可烧写镜像；用 `--bin` 会输出一个**目录**（每个 region 一个文件）。
+
+**其他已对齐项**：`sys_startup/arm/startup_stm32h743xx.s` 的 `Stack_Size=0x400` / `Heap_Size=0x200`（与 `.ld` 的 `_Min_Stack_Size`/`_Min_Heap_Size` 一致，原来误写成 8 KB / 0）；`v6Lang=5` / `v6LangP=5`（C99/C11）；`uThumb=1` + `<thumb>1</thumb>`；`<Misc>` 里的告警选项**用单横线**（ARMCLANG 不支持 `--Wno-xxx`）。
+
+### 4.3 Test App（升级目标 / 跳转目标）
 
 ```bash
 cd test_app && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
 # 产物 test_app/build/stm32h7_app.{elf,bin}（版本槽由 app_version.c 决定）
 ```
 
-### 4.3 直烧 App + 配置（用于跳转验证 Test B）
+### 4.4 直烧 App + 配置（用于跳转验证 Test B）
 
 ```bash
 python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
@@ -165,7 +224,8 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 - 升级流程：`app/upgrade.c :: BSP_Upgrade_Check()`（HMAC/版本/擦写/配置更新）
 - Flash 引擎：`bsp/flash_upgrade.c/.h`（`BFLASH_EraseApp` / `BFLASH_EraseAppLastSector` / `ProgramBlock` / `VerifyBlock` / `ConfigRead`/`ConfigWrite` / `ConfigCrc` / `AppVersionRead`），底层走 HAL `HAL_FLASHEx_Erase` / `HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD)`
 - QSPI 驱动：`bsp/qspi.c/.h`（W25Q64 兼容，HAL 间接 + 映射 + QE）
+- 日志：`bsp/bsp_log.c/.h`（`PRINT_LOG` / `printf_log` / `vprintf_log` / `log_uart_tx_irq` / `bsp_log_init`，非阻塞 TX 环形缓冲 + TXE 中断）；`bsp/uart.c/.h` 为兼容层与 RAM 镜像 `g_uart_log`；中断接线在两个 `app/stm32h7xx_it.c`
 - 安全：`bsp/flash_secure.h`（`BOOT_HMAC_KEY`）、`third_party/hmac_sha256/`（RFC2104）
 - USB U 盘：`bsp/usb_board.c` / `bsp/msc_qspi.c` / `bsp/tusb_config.h`
-- Test App：`test_app/app/main.c`（1 Hz 心跳 + 动态版本 banner）、`test_app/app/app_version.c`
+- Test App：`test_app/app/main.c`（1 Hz 心跳 + 动态版本 banner）、`test_app/app/app_version.c`、`test_app/CMakeLists.txt`（Release，复用 Bootloader 的 `bsp_log.c`/`uart.c`/`syscalls.c`/`led.c`）
 - 链接脚本：`stm32h743xix_flash.ld`（Bootloader）、`test_app/stm32h7_app.ld`（App @0x08020000，版本槽 @0x08021000）

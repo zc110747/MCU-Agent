@@ -66,7 +66,8 @@ int RAM_disk_ioctl(BYTE cmd, void *buff)
 //MMC disk
 int MMC_disk_status(void)
 {
-    if(is_fdisk_error == 1) {
+    if(is_fdisk_error == 1)
+    {
         return RES_ERROR;
     }
     
@@ -83,14 +84,16 @@ int MMC_disk_read(BYTE *buff, LBA_t sector, UINT count)
     uint8_t res = 0;
     uint8_t index = 0;
     
-    if (is_fdisk_error == 1) {
+    if (is_fdisk_error == 1)
+    {
         return RES_ERROR;
     }
     
     do
     {
         res = sdcard_read_disk(buff, sector, count);
-        if (res != HAL_OK) {
+        if (res != HAL_OK)
+        {
             index++;
             sdcard_init();
         }
@@ -99,9 +102,11 @@ int MMC_disk_read(BYTE *buff, LBA_t sector, UINT count)
         {
             is_fdisk_error = 1;
         }
-    }while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
+    }
+     while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
     
-    if (res != HAL_OK) {
+    if (res != HAL_OK)
+    {
         return RES_ERROR;
     }
     return RES_OK;
@@ -112,7 +117,8 @@ int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
     uint8_t res = 0;
     uint8_t index = 0;
     
-    if (is_fdisk_error == 1) {
+    if (is_fdisk_error == 1)
+    {
         return RES_ERROR;
     }
     
@@ -129,9 +135,11 @@ int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
         {
             is_fdisk_error = 1;
         }
-    }while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
+    }
+     while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
 
-    if (res != HAL_OK) {
+    if (res != HAL_OK)
+    {
         return RES_ERROR;
     }
     return RES_OK;

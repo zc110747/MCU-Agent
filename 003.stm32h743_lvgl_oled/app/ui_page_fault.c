@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    ui_page_fault.c
-  * @brief   ASCII-only fault page - see ui_page_fault.h.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ui_page_fault.c
+ * @brief   ASCII-only fault page - see ui_page_fault.h.
+ ******************************************************************************
+ */
 #include "ui_page_fault.h"
 #include "ui_common.h"
 #include "lvgl.h"
@@ -30,11 +30,11 @@ void ui_page_fault_show(const char *line1, const char *line2, const char *line3)
      * just failed to come up. */
     (void)ui_mk_label_center(hdr, 6, UI_FONT(16), 0xFFFFFF, "SD / FONT ERROR");
 
-    (void)ui_mk_label(scr, UI_PAD, 50,  UI_FONT(16), 0xFFD966,
+    (void)ui_mk_label(scr, UI_PAD, 50, UI_FONT(16), 0xFFD966,
                       (line1 != NULL) ? line1 : "");
-    (void)ui_mk_label(scr, UI_PAD, 74,  UI_FONT(16), 0xFFFFFF,
+    (void)ui_mk_label(scr, UI_PAD, 74, UI_FONT(16), 0xFFFFFF,
                       (line2 != NULL) ? line2 : "");
-    (void)ui_mk_label(scr, UI_PAD, 98,  UI_FONT(16), 0xFFFFFF,
+    (void)ui_mk_label(scr, UI_PAD, 98, UI_FONT(16), 0xFFFFFF,
                       (line3 != NULL) ? line3 : "");
 
     (void)ui_mk_label(scr, UI_PAD, 140, UI_FONT(12), 0x80D0FF,

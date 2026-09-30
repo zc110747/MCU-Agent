@@ -426,7 +426,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Bsp</GroupName>
+          <GroupName>bsp</GroupName>
           <Files>
             <File>
               <FileName>bsp_log.c</FileName>
@@ -466,7 +466,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>App</GroupName>
+          <GroupName>app</GroupName>
           <Files>
             <File>
               <FileName>app_image.c</FileName>

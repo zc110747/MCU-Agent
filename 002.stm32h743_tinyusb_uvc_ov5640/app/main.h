@@ -28,40 +28,40 @@ extern "C" {
  * Retuning the sensor to output 240x240 directly would change the pre-scaler
  * ratio and re-open the sub-sampling problems this configuration solved.
  * ========================================================================== */
-#define CAM_SENSOR_WIDTH    400U
-#define CAM_SENSOR_HEIGHT   300U
+#define CAM_SENSOR_WIDTH 400U
+#define CAM_SENSOR_HEIGHT 300U
 
-#define FRAME_WIDTH         240U
-#define FRAME_HEIGHT        240U
-#define FRAME_BYTES_PER_PX  2U /* YUY2 */
-#define FRAME_SIZE          (FRAME_WIDTH * FRAME_HEIGHT * FRAME_BYTES_PER_PX) /* 115200 */
+#define FRAME_WIDTH 240U
+#define FRAME_HEIGHT 240U
+#define FRAME_BYTES_PER_PX 2U                                        /* YUY2 */
+#define FRAME_SIZE (FRAME_WIDTH * FRAME_HEIGHT * FRAME_BYTES_PER_PX) /* 115200 */
 
 /* Announced frame rate. USB FS isochronous gives ~1023 B/ms => ~8 fps max. */
-#define FRAME_RATE          8U
+#define FRAME_RATE 8U
 
 /* ==========================================================================
  * Pin map (Luxiaoban STM32H743ZIT6 board)
  * ========================================================================== */
 
 /* Run/heartbeat LED */
-#define LED_RUN_PIN         GPIO_PIN_7
-#define LED_RUN_PORT        GPIOG
+#define LED_RUN_PIN GPIO_PIN_7
+#define LED_RUN_PORT GPIOG
 #define LED_RUN_CLK_ENABLE() __HAL_RCC_GPIOG_CLK_ENABLE()
 
 /* OV5640 control */
-#define CAM_PWDN_PIN        GPIO_PIN_13
-#define CAM_PWDN_PORT       GPIOF
+#define CAM_PWDN_PIN GPIO_PIN_13
+#define CAM_PWDN_PORT GPIOF
 #define CAM_PWDN_CLK_ENABLE() __HAL_RCC_GPIOF_CLK_ENABLE()
 
 /* SCCB / I2C4 : PF14 = SCL, PF15 = SDA */
-#define CAM_I2C_INSTANCE    I2C4
-#define CAM_I2C_SCL_PIN     GPIO_PIN_14
-#define CAM_I2C_SDA_PIN     GPIO_PIN_15
-#define CAM_I2C_PORT        GPIOF
-#define CAM_I2C_AF          GPIO_AF4_I2C4
+#define CAM_I2C_INSTANCE I2C4
+#define CAM_I2C_SCL_PIN GPIO_PIN_14
+#define CAM_I2C_SDA_PIN GPIO_PIN_15
+#define CAM_I2C_PORT GPIOF
+#define CAM_I2C_AF GPIO_AF4_I2C4
 
 /* OV5640 SCCB address (8-bit form, as expected by the ST component driver) */
-#define CAM_I2C_ADDRESS     0x78U
+#define CAM_I2C_ADDRESS 0x78U
 
 /* ==========================================================================
  * DCMI pin map
@@ -71,7 +71,7 @@ extern "C" {
  * ========================================================================== */
 
 /* Frame buffers live in AXI SRAM (D1) and are marked non-cacheable by the MPU */
-#define FRAMEBUF_BASE_ADDR  0x24000000UL
+#define FRAMEBUF_BASE_ADDR 0x24000000UL
 
 void Error_Handler(void);
 

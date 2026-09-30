@@ -1,10 +1,10 @@
 /**
-  ******************************************************************************
-  * @file    app_main.c
-  * @brief   LVGL demo: clock + SD capacity + board info, all in Chinese.
-  *
-  *  Boot order matters here:
-  *
+ ******************************************************************************
+ * @file    app_main.c
+ * @brief   LVGL demo: clock + SD capacity + board info, all in Chinese.
+ *
+ *  Boot order matters here:
+ *
  *    1. panel        - so anything that follows has somewhere to complain to
  *    2. RTC          - LSE/LSI probing takes up to a second, get it out of
  *                      the way before the UI wants a time to show
@@ -33,30 +33,36 @@
 #include "lv_font_cfg.h"
 #include "lvgl_font.h"
 
-#define LED_BLINK_MS        500U
+#define LED_BLINK_MS 500U
 
 /* LVGL asks to be serviced roughly every 5 ms; the SPI flush is blocking, so
  * there is no point spinning faster than that. */
 #define LVGL_TASK_PERIOD_MS 5U
 
-static uint32_t s_last_led_tick  = 0U;
-static uint32_t s_last_lvgl_tick = 0U;
+/* 主循环节拍：LED 心跳与 LVGL 调度各自的上次触发 tick */
+typedef struct
+{
+    uint32_t last_led;
+    uint32_t last_lvgl;
+} app_tick_t;
+
+static app_tick_t g_app_tick = {0};
 
 /**
-  * @brief  Report the SD / font state over the debug UART.
-  */
+ * @brief  Report the SD / font state over the debug UART.
+ */
 static void log_font_status(uint32_t mask)
 {
     PRINT_LOG("[FONT] UNIGBK.BIN : %s\r\n", (mask & FONT_MASK_UNIGBK) ? "OK" : "--");
-    PRINT_LOG("[FONT] GBK12.FON  : %s\r\n", (mask & FONT_MASK_GBK12)  ? "OK" : "--");
-    PRINT_LOG("[FONT] GBK16.FON  : %s\r\n", (mask & FONT_MASK_GBK16)  ? "OK" : "--");
-    PRINT_LOG("[FONT] GBK24.FON  : %s\r\n", (mask & FONT_MASK_GBK24)  ? "OK" : "--");
-    PRINT_LOG("[FONT] GBK32.FON  : %s\r\n", (mask & FONT_MASK_GBK32)  ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK12.FON  : %s\r\n", (mask & FONT_MASK_GBK12) ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK16.FON  : %s\r\n", (mask & FONT_MASK_GBK16) ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK24.FON  : %s\r\n", (mask & FONT_MASK_GBK24) ? "OK" : "--");
+    PRINT_LOG("[FONT] GBK32.FON  : %s\r\n", (mask & FONT_MASK_GBK32) ? "OK" : "--");
 }
 
 /**
-  * @brief  Bring up the RTC and log what happened.
-  */
+ * @brief  Bring up the RTC and log what happened.
+ */
 static void init_rtc(void)
 {
     rtc_datetime_t dt;
@@ -68,9 +74,9 @@ static void init_rtc(void)
     }
 
     PRINT_LOG("[RTC ] clocked by %s%s\r\n",
-           (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE 32.768 kHz crystal"
-                                                   : "LSI internal RC",
-           (drv_rtc_clock_source() == RTC_CLK_LSI) ? " (+/-5%, will drift)" : "");
+              (drv_rtc_clock_source() == RTC_CLK_LSE) ? "LSE 32.768 kHz crystal"
+                                                      : "LSI internal RC",
+              (drv_rtc_clock_source() == RTC_CLK_LSI) ? " (+/-5%, will drift)" : "");
 
     if (drv_rtc_was_reset())
     {
@@ -80,15 +86,15 @@ static void init_rtc(void)
     if (drv_rtc_get(&dt) == RT_OK)
     {
         PRINT_LOG("[RTC ] %04u-%02u-%02u %s %02u:%02u:%02u\r\n",
-               (unsigned)dt.year, (unsigned)dt.month, (unsigned)dt.day,
-               drv_rtc_weekday_en(dt.weekday),
-               (unsigned)dt.hour, (unsigned)dt.minute, (unsigned)dt.second);
+                  (unsigned)dt.year, (unsigned)dt.month, (unsigned)dt.day,
+                  drv_rtc_weekday_en(dt.weekday),
+                  (unsigned)dt.hour, (unsigned)dt.minute, (unsigned)dt.second);
     }
 }
 
 /**
-  * @brief  Log the card geometry once at boot.
-  */
+ * @brief  Log the card geometry once at boot.
+ */
 static void log_sd_info(void)
 {
     sd_info_t info;
@@ -103,20 +109,20 @@ static void log_sd_info(void)
         return;
     }
 
-    drv_sd_format_size(info.card_bytes,     card,   sizeof(card));
-    drv_sd_format_size(info.fs_total_bytes, total,  sizeof(total));
-    drv_sd_format_size(info.fs_free_bytes,  freesz, sizeof(freesz));
+    drv_sd_format_size(info.card_bytes, card, sizeof(card));
+    drv_sd_format_size(info.fs_total_bytes, total, sizeof(total));
+    drv_sd_format_size(info.fs_free_bytes, freesz, sizeof(freesz));
 
     PRINT_LOG("[SD  ] %s %s, card %s, fs %s, free %s (%lu ms)\r\n",
-           drv_sd_card_name(info.card_type),
-           drv_sd_fs_name(info.fs_type),
-           card, total, freesz,
-           (unsigned long)(HAL_GetTick() - t0));
+              drv_sd_card_name(info.card_type),
+              drv_sd_fs_name(info.fs_type),
+              card, total, freesz,
+              (unsigned long)(HAL_GetTick() - t0));
 }
 
 /**
-  * @brief  Dump the CTF/TTF block-cache counters.
-  */
+ * @brief  Dump the CTF/TTF block-cache counters.
+ */
 static void log_ctf_stats(const char *tag)
 {
     lvgl_font_stats_t st;
@@ -124,44 +130,44 @@ static void log_ctf_stats(const char *tag)
     lvgl_font_get_stats(&st);
 
     PRINT_LOG("[CTF ] %s: lookup %lu, not-found %lu, io-err %lu\r\n",
-           tag, (unsigned long)st.ctf_lookups,
-           (unsigned long)st.ctf_not_found,
-           (unsigned long)st.ctf_io_errors);
+              tag, (unsigned long)st.ctf_lookups,
+              (unsigned long)st.ctf_not_found,
+              (unsigned long)st.ctf_io_errors);
     /* With the page table resident, "page sd" must stay at 0 forever. */
     PRINT_LOG("[CTF ] %s: page from RAM %lu, from card %lu (index %lu B in RAM)\r\n",
-           tag, (unsigned long)st.ctf_page_ram, (unsigned long)st.ctf_page_sd,
-           (unsigned long)lvgl_font_resident_bytes());
+              tag, (unsigned long)st.ctf_page_ram, (unsigned long)st.ctf_page_sd,
+              (unsigned long)lvgl_font_resident_bytes());
     PRINT_LOG("[CTF ] %s: ttf hit %lu, miss %lu, f_read %lu, %lu B\r\n",
-           tag, (unsigned long)st.ttf_hits, (unsigned long)st.ttf_misses,
-           (unsigned long)st.ttf_fills, (unsigned long)st.ttf_bytes);
+              tag, (unsigned long)st.ttf_hits, (unsigned long)st.ttf_misses,
+              (unsigned long)st.ttf_fills, (unsigned long)st.ttf_bytes);
     PRINT_LOG("[CTF ] %s: sd wait %lu us (lseek %lu + read %lu)\r\n",
-           tag, (unsigned long)(st.ttf_seek_us + st.ttf_read_us),
-           (unsigned long)st.ttf_seek_us, (unsigned long)st.ttf_read_us);
+              tag, (unsigned long)(st.ttf_seek_us + st.ttf_read_us),
+              (unsigned long)st.ttf_seek_us, (unsigned long)st.ttf_read_us);
     PRINT_LOG("[CTF ] %s: bitmap hit %lu, miss %lu, flush %lu, %lu B held\r\n",
-           tag, (unsigned long)st.bmp_hits, (unsigned long)st.bmp_misses,
-           (unsigned long)st.bmp_flushes, (unsigned long)st.bmp_bytes);
+              tag, (unsigned long)st.bmp_hits, (unsigned long)st.bmp_misses,
+              (unsigned long)st.bmp_flushes, (unsigned long)st.bmp_bytes);
     PRINT_LOG("[CTF ] %s: stb arena peak %lu B, overflow %lu\r\n",
-           tag, (unsigned long)st.arena_peak, (unsigned long)st.arena_fails);
+              tag, (unsigned long)st.arena_peak, (unsigned long)st.arena_fails);
 }
 
 /**
-  * @brief  Rasterise a fixed vector on the real board and print what it cost.
-  *
-  *  The acceptance invariant is the last line: a code point the index does not
-  *  carry must not cost a single SD read, because it never reaches the TTF.
-  */
+ * @brief  Rasterise a fixed vector on the real board and print what it cost.
+ *
+ *  The acceptance invariant is the last line: a code point the index does not
+ *  carry must not cost a single SD read, because it never reaches the TTF.
+ */
 static void log_ctf_probe(void)
 {
     lvgl_font_probe_t p[16];
     uint32_t          n;
     uint32_t          i;
-    uint32_t          nf        = 0u;
-    uint32_t          nf_reads  = 0u;
-    uint32_t          nf_latin  = 0u;
-    uint32_t          cold_max  = 0u;
-    uint32_t          cold_tot  = 0u;
-    uint32_t          cold_n    = 0u;
-    uint32_t          sd_tot    = 0u;
+    uint32_t          nf       = 0u;
+    uint32_t          nf_reads = 0u;
+    uint32_t          nf_latin = 0u;
+    uint32_t          cold_max = 0u;
+    uint32_t          cold_tot = 0u;
+    uint32_t          cold_n   = 0u;
+    uint32_t          sd_tot   = 0u;
 
     n = lvgl_font_selftest(p, (uint32_t)(sizeof(p) / sizeof(p[0])));
 
@@ -170,20 +176,21 @@ static void log_ctf_probe(void)
 
     for (i = 0u; i < n; i++)
     {
-        const lvgl_font_probe_t *e = &p[i];
+        const lvgl_font_probe_t *e      = &p[i];
         uint32_t                 raster = (e->cold_us > e->sd_us)
-                                        ? (e->cold_us - e->sd_us) : 0u;
+                                              ? (e->cold_us - e->sd_us)
+                                              : 0u;
 
         PRINT_LOG("[CTF ]  U+%05lX %4lu  %s %4lu %3lux%-3lu %+4d,%-4d %7lu %6lu %6lu %6lu %4lu\r\n",
-               (unsigned long)e->cp, (unsigned long)e->px,
-               (e->found != 0u) ? ((e->empty != 0u) ? "EMP" : "CTF")
-                                : ((e->fb_adv_w != 0u) ? "FAL" : " -- "),
-               (unsigned long)((e->found != 0u) ? e->adv_w : e->fb_adv_w),
-               (unsigned long)e->box_w, (unsigned long)e->box_h,
-               (int)e->ofs_x, (int)e->ofs_y,
-               (unsigned long)e->cold_us, (unsigned long)e->sd_us,
-               (unsigned long)raster,
-               (unsigned long)e->ink, (unsigned long)e->sd_reads);
+                  (unsigned long)e->cp, (unsigned long)e->px,
+                  (e->found != 0u) ? ((e->empty != 0u) ? "EMP" : "CTF")
+                                   : ((e->fb_adv_w != 0u) ? "FAL" : " -- "),
+                  (unsigned long)((e->found != 0u) ? e->adv_w : e->fb_adv_w),
+                  (unsigned long)e->box_w, (unsigned long)e->box_h,
+                  (int)e->ofs_x, (int)e->ofs_y,
+                  (unsigned long)e->cold_us, (unsigned long)e->sd_us,
+                  (unsigned long)raster,
+                  (unsigned long)e->ink, (unsigned long)e->sd_reads);
 
         if (e->found == 0u)
         {
@@ -201,35 +208,35 @@ static void log_ctf_probe(void)
                 cold_max = e->cold_us;
             }
             cold_tot += e->cold_us;
-            sd_tot   += e->sd_us;
+            sd_tot += e->sd_us;
             cold_n++;
         }
     }
 
     PRINT_LOG("[CTF ] found %lu, NOT_FOUND %lu (of which Latin fallback %lu)\r\n",
-           (unsigned long)(n - nf), (unsigned long)nf, (unsigned long)nf_latin);
+              (unsigned long)(n - nf), (unsigned long)nf, (unsigned long)nf_latin);
     PRINT_LOG("[CTF ] cold raster: avg %lu us, worst %lu us (sd %lu us, cpu %lu us)\r\n",
-           (unsigned long)((cold_n != 0u) ? (cold_tot / cold_n) : 0u),
-           (unsigned long)cold_max, (unsigned long)sd_tot,
-           (unsigned long)((cold_tot > sd_tot) ? (cold_tot - sd_tot) : 0u));
+              (unsigned long)((cold_n != 0u) ? (cold_tot / cold_n) : 0u),
+              (unsigned long)cold_max, (unsigned long)sd_tot,
+              (unsigned long)((cold_tot > sd_tot) ? (cold_tot - sd_tot) : 0u));
     PRINT_LOG("[CTF ] NOT_FOUND cost %lu SD reads (must be 0): %s\r\n",
-           (unsigned long)nf_reads, (nf_reads == 0u) ? "PASS" : "FAIL");
+              (unsigned long)nf_reads, (nf_reads == 0u) ? "PASS" : "FAIL");
 }
 
 /**
-  * @brief  Log the LVGL heap: how much is left and how fragmented it got.
-  */
+ * @brief  Log the LVGL heap: how much is left and how fragmented it got.
+ */
 static void log_lvgl_heap(void)
 {
     lv_mem_monitor_t mon;
 
     lv_mem_monitor(&mon);
     PRINT_LOG("[LVGL] heap: %u B free of %u B, max block %u B, used %u%%, frag %u%%\r\n",
-           (unsigned)mon.free_size,
-           (unsigned)mon.total_size,
-           (unsigned)mon.free_biggest_size,
-           (unsigned)mon.used_pct,
-           (unsigned)mon.frag_pct);
+              (unsigned)mon.free_size,
+              (unsigned)mon.total_size,
+              (unsigned)mon.free_biggest_size,
+              (unsigned)mon.used_pct,
+              (unsigned)mon.frag_pct);
 }
 
 void application_init(void)
@@ -268,7 +275,7 @@ void application_init(void)
     if (lcd_driver_font_init() == RT_OK)
     {
         font_ready = 1U;
-        mask = lcd_driver_font_status();
+        mask       = lcd_driver_font_status();
         PRINT_LOG("[SD  ] mounted, fonts loaded\r\n");
         log_font_status(mask);
         log_sd_info();
@@ -276,7 +283,7 @@ void application_init(void)
     else
     {
         font_ready = 0U;
-        mask = 0U;
+        mask       = 0U;
         PRINT_LOG("[SD  ] mount or font open FAILED\r\n");
         PRINT_LOG("[SD  ] expected 1:/SYSTEM/FONT/GBKxx.FON\r\n");
     }
@@ -285,8 +292,8 @@ void application_init(void)
     lv_init();
     lv_port_disp_init();
     PRINT_LOG("[LVGL] v%d.%d.%d, %u KB heap\r\n",
-           LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
-           (unsigned)(LV_MEM_SIZE / 1024U));
+              LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
+              (unsigned)(LV_MEM_SIZE / 1024U));
 
     /* The font engines read through LVGL's file system, so the cached FatFs
      * driver has to be up before they are initialised. */
@@ -314,7 +321,7 @@ void application_init(void)
         t0 = HAL_GetTick();
         app_ui_create();
         PRINT_LOG("[UI  ] built in %lu ms\r\n",
-               (unsigned long)(HAL_GetTick() - t0));
+                  (unsigned long)(HAL_GetTick() - t0));
     }
     else
     {
@@ -330,7 +337,7 @@ void application_init(void)
     t0 = HAL_GetTick();
     (void)lv_timer_handler();
     PRINT_LOG("[UI  ] first frame in %lu ms\r\n",
-           (unsigned long)(HAL_GetTick() - t0));
+              (unsigned long)(HAL_GetTick() - t0));
 
     log_lvgl_heap();
 
@@ -345,8 +352,8 @@ void application_init(void)
     }
 #endif
 
-    s_last_lvgl_tick = HAL_GetTick();
-    s_last_led_tick  = s_last_lvgl_tick;
+    g_app_tick.last_lvgl = HAL_GetTick();
+    g_app_tick.last_led  = g_app_tick.last_lvgl;
 }
 
 void application_run(void)
@@ -359,32 +366,36 @@ void application_run(void)
         g_hse_css_fault = 0U;
         PRINT_LOG("\r\n[CLK ] *** HSE CSS FAULT: 25 MHz crystal stopped ***\r\n");
         PRINT_LOG("[CLK ] hardware fell back to HSI, SYSCLK now %lu Hz\r\n",
-               (unsigned long)HAL_RCC_GetSysClockFreq());
+                  (unsigned long)HAL_RCC_GetSysClockFreq());
     }
 
     /* Heartbeat */
-    if ((now - s_last_led_tick) >= LED_BLINK_MS)
+    if ((now - g_app_tick.last_led) >= LED_BLINK_MS)
     {
-        s_last_led_tick = now;
+        g_app_tick.last_led = now;
         LED_TOGGLE();
     }
 
     /* LVGL housekeeping: timers, redraw, flush.
      * A pending page switch is serviced here so we can time the redraw
      * that actually rasterises the new page's Chinese glyphs. */
-    if ((now - s_last_lvgl_tick) >= LVGL_TASK_PERIOD_MS)
+    if ((now - g_app_tick.last_lvgl) >= LVGL_TASK_PERIOD_MS)
     {
-        s_last_lvgl_tick = now;
+        g_app_tick.last_lvgl = now;
 
-        lv_obj_t *sw = NULL;
+        lv_obj_t *sw     = NULL;
         int       sw_idx = -1;
         if (app_ui_take_switch(&sw, &sw_idx))
         {
             lvgl_font_stats_t st0;
             lvgl_font_stats_t st1;
             uint32_t          mhz = (SystemCoreClock != 0U)
-                                    ? (SystemCoreClock / 1000000U) : 1U;
-            if (mhz == 0U) { mhz = 1U; }
+                                        ? (SystemCoreClock / 1000000U)
+                                        : 1U;
+            if (mhz == 0U)
+            {
+                mhz = 1U;
+            }
 
             lvgl_font_get_stats(&st0);
             uint32_t c0 = DWT->CYCCNT;
@@ -401,12 +412,11 @@ void application_run(void)
                       (unsigned long)((c1 - c0) / mhz),
                       (unsigned long)((c2 - c1) / mhz),
                       (unsigned long)(st1.bmp_misses - st0.bmp_misses),
-                      (unsigned long)(st1.bmp_hits   - st0.bmp_hits),
+                      (unsigned long)(st1.bmp_hits - st0.bmp_hits),
                       (unsigned long)(st1.bmp_flushes - st0.bmp_flushes),
-                      (unsigned long)(st1.ctf_page_sd   - st0.ctf_page_sd),
-                      (unsigned long)(st1.ttf_fills     - st0.ttf_fills),
-                      (unsigned long)((st1.ttf_seek_us + st1.ttf_read_us)
-                                  - (st0.ttf_seek_us + st0.ttf_read_us)));
+                      (unsigned long)(st1.ctf_page_sd - st0.ctf_page_sd),
+                      (unsigned long)(st1.ttf_fills - st0.ttf_fills),
+                      (unsigned long)((st1.ttf_seek_us + st1.ttf_read_us) - (st0.ttf_seek_us + st0.ttf_read_us)));
         }
         else
         {

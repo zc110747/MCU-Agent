@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    app_image.c
-  * @brief   JPEG -> 240x240 RGB565 pipeline (crop first, then scale).
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    app_image.c
+ * @brief   JPEG -> 240x240 RGB565 pipeline (crop first, then scale).
+ ******************************************************************************
+ */
 
 #include "app_image.h"
 #include "bsp_log.h"
@@ -15,14 +15,14 @@
 
 /* ---------------------------------------------------------------- defines */
 
-#define FB_W                OLED_WIDTH      /* 240 */
-#define FB_H                OLED_HEIGHT     /* 240 */
+#define FB_W OLED_WIDTH  /* 240 */
+#define FB_H OLED_HEIGHT /* 240 */
 
 /*
  * TJPGD_WORKSPACE_SIZE (from tjpgdcnf.h) assumes the stock JD_SZBUF of 512.
  * We enlarged the stream buffer, so add the difference back plus some slack.
  */
-#define JPEG_WORK_SIZE      (TJPGD_WORKSPACE_SIZE + JD_SZBUF + 512)
+#define JPEG_WORK_SIZE (TJPGD_WORKSPACE_SIZE + JD_SZBUF + 512)
 
 /* ---------------------------------------------------------------- statics */
 
@@ -30,28 +30,28 @@
 static uint16_t s_framebuffer[FB_W * FB_H] __attribute__((aligned(4)));
 
 /* Decoder scratch pool: input buffer + huffman LUTs + MCU work area. */
-static uint8_t  s_jpeg_work[JPEG_WORK_SIZE] __attribute__((aligned(8)));
+static uint8_t s_jpeg_work[JPEG_WORK_SIZE] __attribute__((aligned(8)));
 
 /* Per-decode context handed to TJpgDec through JDEC::device. */
 typedef struct
 {
     FIL      *fp;
     uint16_t *fb;
-    uint16_t  crop_x;       /* origin of the centred square, descaled coords */
+    uint16_t  crop_x; /* origin of the centred square, descaled coords */
     uint16_t  crop_y;
-    uint16_t  crop_side;    /* side of that square                           */
+    uint16_t  crop_side; /* side of that square                           */
 } img_ctx_t;
 
 /* ------------------------------------------------------------- callbacks  */
 
 /**
-  * @brief  TJpgDec input callback.
-  * @note   buff == NULL means "seek forward nbyte bytes".
-  */
+ * @brief  TJpgDec input callback.
+ * @note   buff == NULL means "seek forward nbyte bytes".
+ */
 static size_t jpeg_in_func(JDEC *jd, uint8_t *buff, size_t nbyte)
 {
     img_ctx_t *ctx = (img_ctx_t *)jd->device;
-    UINT br = 0U;
+    UINT       br  = 0U;
 
     if (buff != NULL)
     {
@@ -75,14 +75,14 @@ static size_t jpeg_in_func(JDEC *jd, uint8_t *buff, size_t nbyte)
 }
 
 /**
-  * @brief  TJpgDec output callback: resample one decoded block into the frame.
-  *
-  * @p rect is expressed in the *descaled* image coordinate system, which is
-  * exactly the space the crop rectangle lives in. For every destination pixel
-  * we compute its source pixel (gather). Only the destination pixels whose
-  * source falls inside @p rect are touched, so each block is visited once and
-  * the whole frame ends up fully covered - no seams, no holes.
-  */
+ * @brief  TJpgDec output callback: resample one decoded block into the frame.
+ *
+ * @p rect is expressed in the *descaled* image coordinate system, which is
+ * exactly the space the crop rectangle lives in. For every destination pixel
+ * we compute its source pixel (gather). Only the destination pixels whose
+ * source falls inside @p rect are touched, so each block is visited once and
+ * the whole frame ends up fully covered - no seams, no holes.
+ */
 static int jpeg_out_func(JDEC *jd, void *bitmap, JRECT *rect)
 {
     img_ctx_t      *ctx  = (img_ctx_t *)jd->device;
@@ -91,9 +91,9 @@ static int jpeg_out_func(JDEC *jd, void *bitmap, JRECT *rect)
     const uint32_t  rw   = (uint32_t)(rect->right - rect->left) + 1U;
 
     /* Block position relative to the crop origin. */
-    const int32_t l = (int32_t)rect->left   - (int32_t)ctx->crop_x;
-    const int32_t r = (int32_t)rect->right  - (int32_t)ctx->crop_x;
-    const int32_t t = (int32_t)rect->top    - (int32_t)ctx->crop_y;
+    const int32_t l = (int32_t)rect->left - (int32_t)ctx->crop_x;
+    const int32_t r = (int32_t)rect->right - (int32_t)ctx->crop_x;
+    const int32_t t = (int32_t)rect->top - (int32_t)ctx->crop_y;
     const int32_t b = (int32_t)rect->bottom - (int32_t)ctx->crop_y;
 
     int32_t dx0, dx1, dy0, dy1, dx, dy;
@@ -114,18 +114,24 @@ static int jpeg_out_func(JDEC *jd, void *bitmap, JRECT *rect)
     dy0 = (t <= 0) ? 0 : (int32_t)(((uint32_t)t * FB_H + side - 1U) / side);
     dy1 = (int32_t)(((uint32_t)(b + 1) * FB_H + side - 1U) / side) - 1;
 
-    if (dx1 > (FB_W - 1)) { dx1 = FB_W - 1; }
-    if (dy1 > (FB_H - 1)) { dy1 = FB_H - 1; }
+    if (dx1 > (FB_W - 1))
+    {
+        dx1 = FB_W - 1;
+    }
+    if (dy1 > (FB_H - 1))
+    {
+        dy1 = FB_H - 1;
+    }
 
     for (dy = dy0; dy <= dy1; dy++)
     {
-        uint32_t        sy   = ctx->crop_y + (((uint32_t)dy * side) / FB_H);
+        uint32_t        sy = ctx->crop_y + (((uint32_t)dy * side) / FB_H);
         const uint16_t *srow;
         uint16_t       *drow;
 
         if ((sy < rect->top) || (sy > rect->bottom))
         {
-            continue;   /* defensive, should not happen */
+            continue; /* defensive, should not happen */
         }
 
         srow = src + (uint32_t)(sy - rect->top) * rw;
@@ -137,13 +143,13 @@ static int jpeg_out_func(JDEC *jd, void *bitmap, JRECT *rect)
 
             if ((sx < rect->left) || (sx > rect->right))
             {
-                continue;   /* defensive */
+                continue; /* defensive */
             }
             drow[dx] = srow[sx - rect->left];
         }
     }
 
-    return 1;   /* continue decompression */
+    return 1; /* continue decompression */
 }
 
 /* ---------------------------------------------------------------- public  */
@@ -157,23 +163,33 @@ const char *app_image_jres_str(int jres)
 {
     switch (jres)
     {
-        case JDR_OK:     return "OK";
-        case JDR_INTR:   return "interrupted";
-        case JDR_INP:    return "input error";
-        case JDR_MEM1:   return "out of memory";
-        case JDR_MEM2:   return "work area too small";
-        case JDR_PAR:    return "bad parameter";
-        case JDR_FMT1:   return "broken data";
-        case JDR_FMT2:   return "unsupported format";
-        case JDR_FMT3:   return "unsupported jpeg";
-        default:         return "unknown";
+    case JDR_OK:
+        return "OK";
+    case JDR_INTR:
+        return "interrupted";
+    case JDR_INP:
+        return "input error";
+    case JDR_MEM1:
+        return "out of memory";
+    case JDR_MEM2:
+        return "work area too small";
+    case JDR_PAR:
+        return "bad parameter";
+    case JDR_FMT1:
+        return "broken data";
+    case JDR_FMT2:
+        return "unsupported format";
+    case JDR_FMT3:
+        return "unsupported jpeg";
+    default:
+        return "unknown";
     }
 }
 
 GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
 {
-    static FIL  s_file;     /* ~600 bytes with LFN, keep it off the stack */
-    static JDEC s_jdec;     /* ~150 bytes                                 */
+    static FIL  s_file; /* ~600 bytes with LFN, keep it off the stack */
+    static JDEC s_jdec; /* ~150 bytes                                 */
 
     img_ctx_t ctx;
     JRESULT   res;
@@ -187,7 +203,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
     }
 
     memset(&ctx, 0, sizeof(ctx));
-    memset(&s_jdec, 0, sizeof(s_jdec));   /* clears jd.swap -> native RGB565 */
+    memset(&s_jdec, 0, sizeof(s_jdec)); /* clears jd.swap -> native RGB565 */
 
     if (f_open(&s_file, path, FA_READ) != FR_OK)
     {
@@ -203,7 +219,10 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
     {
         PRINT_LOG("[E] jd_prepare %s: %s\r\n", path, app_image_jres_str((int)res));
         f_close(&s_file);
-        if (info != NULL) { info->jres = (int)res; }
+        if (info != NULL)
+        {
+            info->jres = (int)res;
+        }
         return RT_FAIL;
     }
 
@@ -213,7 +232,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
      */
     while (scale < 3U)
     {
-        uint16_t nw = (uint16_t)(s_jdec.width  >> (scale + 1U));
+        uint16_t nw = (uint16_t)(s_jdec.width >> (scale + 1U));
         uint16_t nh = (uint16_t)(s_jdec.height >> (scale + 1U));
         uint16_t ns = (nw < nh) ? nw : nh;
 
@@ -224,7 +243,7 @@ GlobalType_t app_image_decode_file(const char *path, app_image_info_t *info)
         scale++;
     }
 
-    out_w = (uint16_t)(s_jdec.width  >> scale);
+    out_w = (uint16_t)(s_jdec.width >> scale);
     out_h = (uint16_t)(s_jdec.height >> scale);
     if ((out_w == 0U) || (out_h == 0U))
     {

@@ -21,7 +21,7 @@
   */
 #include "upgrade.h"
 #include "fs_init.h"
-#include "uart.h"
+#include "bsp_log.h"
 #include "led.h"
 #include "flash_upgrade.h"
 #include "flash_secure.h"
@@ -94,7 +94,7 @@ static int parse_version(const char *str, uint8_t v[4])
 
 static void log_version(const char *tag, const uint8_t v[4])
 {
-    BSP_UART_Printf(" %s v%u.%u.%u.%u\r\n", tag, v[0], v[1], v[2], v[3]);
+    PRINT_LOG(" %s v%u.%u.%u.%u\r\n", tag, v[0], v[1], v[2], v[3]);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -115,16 +115,16 @@ int BSP_Upgrade_Check(void)
     uint32_t total;
 
     if (FS_Mount() != 0) {
-        BSP_UART_Printf("[UPG] FAT mount failed - skip upgrade check\r\n");
+        PRINT_LOG("[UPG] FAT mount failed - skip upgrade check\r\n");
         return -1;
     }
 
-    BSP_UART_Printf("[UPG] scanning QSPI volume for upgrade package...\r\n");
+    PRINT_LOG("[UPG] scanning QSPI volume for upgrade package...\r\n");
 
     /* ---- 1. verify.json ---- */
     fr = f_open(&fjson, UPGRADE_JSON_NAME, FA_READ);
     if (fr != FR_OK) {
-        BSP_UART_Printf("[UPG] no %s (0x%02X) - nothing to upgrade\r\n",
+        PRINT_LOG("[UPG] no %s (0x%02X) - nothing to upgrade\r\n",
                         UPGRADE_JSON_NAME, (unsigned)fr);
         FS_Unmount();
         return 0;
@@ -132,7 +132,7 @@ int BSP_Upgrade_Check(void)
 
     jlen = f_size(&fjson);
     if (jlen == 0 || jlen >= JSON_BUF_SIZE) {
-        BSP_UART_Printf("[UPG] %s size %lu invalid\r\n", UPGRADE_JSON_NAME, (unsigned long)jlen);
+        PRINT_LOG("[UPG] %s size %lu invalid\r\n", UPGRADE_JSON_NAME, (unsigned long)jlen);
         f_close(&fjson);
         FS_Unmount();
         return -1;
@@ -140,7 +140,7 @@ int BSP_Upgrade_Check(void)
     fr = f_read(&fjson, g_json_buf, jlen, &br);
     f_close(&fjson);
     if (fr != FR_OK || br != jlen) {
-        BSP_UART_Printf("[UPG] %s read FAIL (0x%02X)\r\n", UPGRADE_JSON_NAME, (unsigned)fr);
+        PRINT_LOG("[UPG] %s read FAIL (0x%02X)\r\n", UPGRADE_JSON_NAME, (unsigned)fr);
         FS_Unmount();
         return -1;
     }
@@ -150,39 +150,39 @@ int BSP_Upgrade_Check(void)
         mjson_get_int((const char *)g_json_buf, "len", &json_len) != 0 ||
         mjson_get_string((const char *)g_json_buf, "HMAC-SHA256", hmac_hex, sizeof(hmac_hex)) != 0 ||
         mjson_get_string((const char *)g_json_buf, "version", ver_str, sizeof(ver_str)) != 0) {
-        BSP_UART_Printf("[UPG] verify.json fields missing/invalid\r\n");
+        PRINT_LOG("[UPG] verify.json fields missing/invalid\r\n");
         FS_Unmount();
         return -1;
     }
     if (parse_version(ver_str, new_ver) != 0) {
-        BSP_UART_Printf("[UPG] bad version string '%s'\r\n", ver_str);
+        PRINT_LOG("[UPG] bad version string '%s'\r\n", ver_str);
         FS_Unmount();
         return -1;
     }
     if (hex_to_bytes(hmac_hex, expect, 32) != 0) {
-        BSP_UART_Printf("[UPG] bad HMAC-SHA256 string\r\n");
+        PRINT_LOG("[UPG] bad HMAC-SHA256 string\r\n");
         FS_Unmount();
         return -1;
     }
     if (json_len < (long)MIN_APP_LEN || json_len > (long)APP_SIZE) {
-        BSP_UART_Printf("[UPG] len %ld out of range [%u, %lu]\r\n",
+        PRINT_LOG("[UPG] len %ld out of range [%u, %lu]\r\n",
                         json_len, MIN_APP_LEN, (unsigned long)APP_SIZE);
         FS_Unmount();
         return -1;
     }
 
-    BSP_UART_Printf("[UPG] package: %s, %ld bytes, ", name, json_len);
+    PRINT_LOG("[UPG] package: %s, %ld bytes, ", name, json_len);
     log_version("new", new_ver);
 
     /* ---- 2. package file ---- */
     fr = f_open(&fbin, name, FA_READ);
     if (fr != FR_OK) {
-        BSP_UART_Printf("[UPG] package '%s' missing (0x%02X)\r\n", name, (unsigned)fr);
+        PRINT_LOG("[UPG] package '%s' missing (0x%02X)\r\n", name, (unsigned)fr);
         FS_Unmount();
         return -1;
     }
     if ((long)f_size(&fbin) != json_len) {
-        BSP_UART_Printf("[UPG] package size mismatch (%lu != %ld)\r\n",
+        PRINT_LOG("[UPG] package size mismatch (%lu != %ld)\r\n",
                         (unsigned long)f_size(&fbin), json_len);
         f_close(&fbin);
         FS_Unmount();
@@ -196,7 +196,7 @@ int BSP_Upgrade_Check(void)
         UINT want = (remain > IO_BUF_SIZE) ? IO_BUF_SIZE : remain;
         fr = f_read(&fbin, g_io_buf, want, &br);
         if (fr != FR_OK || br != want) {
-            BSP_UART_Printf("[UPG] read FAIL (0x%02X) @ %lu\r\n", (unsigned)fr,
+            PRINT_LOG("[UPG] read FAIL (0x%02X) @ %lu\r\n", (unsigned)fr,
                             (unsigned long)(json_len - remain));
             f_close(&fbin);
             FS_Unmount();
@@ -208,18 +208,18 @@ int BSP_Upgrade_Check(void)
     hmac_sha256_final(&hctx, digest);
 
     if (memcmp(digest, expect, 32) != 0) {
-        BSP_UART_Printf("[UPG] HMAC-SHA256 MISMATCH - package rejected\r\n");
+        PRINT_LOG("[UPG] HMAC-SHA256 MISMATCH - package rejected\r\n");
         f_close(&fbin);
         FS_Unmount();
         return -1;
     }
-    BSP_UART_Printf("[UPG] HMAC-SHA256 verified OK\r\n");
+    PRINT_LOG("[UPG] HMAC-SHA256 verified OK\r\n");
 
     /* ---- 4. version check (upgrade allowed on ANY difference, incl. downgrade) ---- */
     BFLASH_AppVersionRead(cur_ver);
     log_version("cur ", cur_ver);
     if (memcmp(cur_ver, new_ver, 4) == 0) {
-        BSP_UART_Printf("[UPG] version identical - skip upgrade (package kept)\r\n");
+        PRINT_LOG("[UPG] version identical - skip upgrade (package kept)\r\n");
         f_close(&fbin);
         FS_Unmount();
         return 0;
@@ -229,24 +229,24 @@ int BSP_Upgrade_Check(void)
     {
         uint32_t first_sec = (APP_BASE_ADDR - FLASH_BASE) / FLASH_SECTOR_SIZE;
         uint32_t last_sec  = (APP_BASE_ADDR + (uint32_t)json_len - 1U - FLASH_BASE) / FLASH_SECTOR_SIZE;
-        BSP_UART_Printf("[UPG] erasing %lu sector(s) by app length (%ld B) ...\r\n",
+        PRINT_LOG("[UPG] erasing %lu sector(s) by app length (%ld B) ...\r\n",
                         (unsigned long)(last_sec - first_sec + 1U), json_len);
     }
     /* front blocks derived from app_len */
     if (BFLASH_EraseApp((uint32_t)json_len) != 0) {
-        BSP_UART_Printf("[UPG] erase FAILED\r\n");
+        PRINT_LOG("[UPG] erase FAILED\r\n");
         f_close(&fbin);
         FS_Unmount();
         return -1;
     }
     /* last block wiped just-in-time, right before the upgrade stream writes */
     if (BFLASH_EraseAppLastSector((uint32_t)json_len) != 0) {
-        BSP_UART_Printf("[UPG] last-sector erase FAILED\r\n");
+        PRINT_LOG("[UPG] last-sector erase FAILED\r\n");
         f_close(&fbin);
         FS_Unmount();
         return -1;
     }
-    BSP_UART_Printf("[UPG] erase done\r\n");
+    PRINT_LOG("[UPG] erase done\r\n");
 
     /* ---- 6. stream program + read-back verify ---- */
     if (f_lseek(&fbin, 0) != FR_OK) {
@@ -260,7 +260,7 @@ int BSP_Upgrade_Check(void)
                                                                : ((uint32_t)json_len - total);
         fr = f_read(&fbin, g_io_buf, want, &br);
         if (fr != FR_OK || br != want) {
-            BSP_UART_Printf("[UPG] read FAIL (0x%02X) @ %lu\r\n", (unsigned)fr,
+            PRINT_LOG("[UPG] read FAIL (0x%02X) @ %lu\r\n", (unsigned)fr,
                             (unsigned long)total);
             f_close(&fbin);
             FS_Unmount();
@@ -275,14 +275,14 @@ int BSP_Upgrade_Check(void)
         }
 
         if (BFLASH_ProgramBlock(APP_BASE_ADDR + total, g_io_buf, chunk) != 0) {
-            BSP_UART_Printf("[UPG] program FAIL @ 0x%08lX\r\n",
+            PRINT_LOG("[UPG] program FAIL @ 0x%08lX\r\n",
                             (unsigned long)(APP_BASE_ADDR + total));
             f_close(&fbin);
             FS_Unmount();
             return -1;
         }
         if (BFLASH_VerifyBlock(APP_BASE_ADDR + total, g_io_buf, chunk) != 0) {
-            BSP_UART_Printf("[UPG] read-back verify FAIL @ 0x%08lX\r\n",
+            PRINT_LOG("[UPG] read-back verify FAIL @ 0x%08lX\r\n",
                             (unsigned long)(APP_BASE_ADDR + total));
             f_close(&fbin);
             FS_Unmount();
@@ -291,12 +291,12 @@ int BSP_Upgrade_Check(void)
 
         total += br;
         if ((total & 0x3FFFFUL) == 0UL || total >= (uint32_t)json_len) {
-            BSP_UART_Printf("[UPG]   ... programmed %lu / %lu bytes\r\n",
+            PRINT_LOG("[UPG]   ... programmed %lu / %lu bytes\r\n",
                             (unsigned long)total, (unsigned long)json_len);
             BSP_LED_Toggle();
         }
     }
-    BSP_UART_Printf("[UPG] program + verify done\r\n");
+    PRINT_LOG("[UPG] program + verify done\r\n");
 
     /* ---- 7. update system config sector ---- */
     {
@@ -310,16 +310,16 @@ int BSP_Upgrade_Check(void)
         cfg.crc32   = BFLASH_ConfigCrc(&cfg);
 
         if (BFLASH_ConfigWrite(&cfg) != 0) {
-            BSP_UART_Printf("[UPG] system config write FAILED\r\n");
+            PRINT_LOG("[UPG] system config write FAILED\r\n");
             f_close(&fbin);
             FS_Unmount();
             return -1;
         }
-        BSP_UART_Printf("[UPG] system config updated\r\n");
+        PRINT_LOG("[UPG] system config updated\r\n");
     }
 
     f_close(&fbin);
     FS_Unmount();
-    BSP_UART_Printf("[UPG] upgrade SUCCESS (package files kept on disk)\r\n");
+    PRINT_LOG("[UPG] upgrade SUCCESS (package files kept on disk)\r\n");
     return 1;
 }

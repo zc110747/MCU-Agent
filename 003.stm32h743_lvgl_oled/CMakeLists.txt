@@ -51,8 +51,8 @@ set(CMAKE_C_EXTENSIONS ON)
 #
 #  NOTE: the cached value sticks once the build directory exists, so pass
 #  -DLV_FONT_ENGINE=<n> explicitly when switching rather than editing this line.
-set(LV_FONT_ENGINE 2 CACHE STRING "2 = CTF+TTF, 1 = HarmonyOS TTF, 0 = GBK bitmap")
-message(STATUS "Font engine: ${LV_FONT_ENGINE} (2 = CTF+TTF, 1 = HarmonyOS TTF, 0 = GBK)")
+set(LV_FONT_ENGINE 1 CACHE STRING "1 = CTF+TTF, 0 = GBK bitmap")
+message(STATUS "Font engine: ${LV_FONT_ENGINE} (1 = CTF+TTF, 0 = GBK)")
 
 # ---- Compile options --------------------------------------------------------
 #  -fdebug-prefix-map maps the absolute source root to "." so the debug info

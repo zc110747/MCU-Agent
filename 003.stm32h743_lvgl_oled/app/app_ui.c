@@ -1,22 +1,22 @@
 /**
-  ******************************************************************************
-  * @file    app_ui.c
-  * @brief   UI orchestrator: page array, boot/loading gate, page rotation.
-  *
-  *  Pages themselves live in their own files (ui_page_*.c).  This module only
-  *  owns the page array, the 5 s auto-rotation between the two content pages,
-  *  and the boot sequence:
-  *
-  *    1. Build the info + font pages off-screen so their labels enqueue the
-  *       TTF glyph preload.
-  *    2. Build and show the boot/loading page.
-  *    3. A 50 ms timer fills the progress bar.  It is gated on BOTH a minimum
-  *       2 s dwell and (for the TTF engine) the preload queue draining, then it
-  *       loads page 0, pins its glyphs (epoch bump) and starts the rotation.
-  *       For the GBK engine nothing is preloaded, so the bar simply animates
-  *       across the mandatory 2 s.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    app_ui.c
+ * @brief   UI orchestrator: page array, boot/loading gate, page rotation.
+ *
+ *  Pages themselves live in their own files (ui_page_*.c).  This module only
+ *  owns the page array, the 5 s auto-rotation between the two content pages,
+ *  and the boot sequence:
+ *
+ *    1. Build the info + font pages off-screen so their labels enqueue the
+ *       TTF glyph preload.
+ *    2. Build and show the boot/loading page.
+ *    3. A 50 ms timer fills the progress bar.  It is gated on BOTH a minimum
+ *       2 s dwell and (for the TTF engine) the preload queue draining, then it
+ *       loads page 0, pins its glyphs (epoch bump) and starts the rotation.
+ *       For the GBK engine nothing is preloaded, so the bar simply animates
+ *       across the mandatory 2 s.
+ ******************************************************************************
+ */
 #include "app_ui.h"
 #include "bsp_log.h"
 #include "ui_common.h"
@@ -29,17 +29,17 @@
 #include "main.h"
 
 /* Page auto-rotation (5 s) + boot gate. */
-#define PAGE_SWITCH_MS    5000U
-#define PAGE_COUNT        2U
-#define BOOT_MIN_MS       2000U
+#define PAGE_SWITCH_MS 5000U
+#define PAGE_COUNT 2U
+#define BOOT_MIN_MS 2000U
 
-static lv_obj_t   *s_pages[PAGE_COUNT];
-static uint8_t     s_cur_page       = 0U;
-static uint8_t     s_switch_pending = 0U;
+static lv_obj_t *s_pages[PAGE_COUNT];
+static uint8_t   s_cur_page       = 0U;
+static uint8_t   s_switch_pending = 0U;
 
 /* Boot / preload gating. */
-static uint32_t    s_boot_t0;        /* HAL_GetTick() at boot-page show   */
-static uint32_t    s_boot_pending0;  /* preload queue depth captured at build */
+static uint32_t s_boot_t0;       /* HAL_GetTick() at boot-page show   */
+static uint32_t s_boot_pending0; /* preload queue depth captured at build */
 
 /*----------------------------------------------------------------------------*/
 /* Small helpers                                                              */
@@ -51,7 +51,7 @@ static void dwt_ensure_enabled(void)
     {
         CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
         DWT->CYCCNT = 0u;
-        DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+        DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     }
 }
 
@@ -72,7 +72,7 @@ static void page_switch_cb(lv_timer_t *timer)
  * the user reported.  Rendering every content page once at boot - with the
  * display flush suppressed so nothing reaches the panel - moves that cost to
  * the boot screen and leaves each real first switch warm. */
-static void dummy_flush_cb(lv_disp_drv_t *drv,
+static void dummy_flush_cb(lv_disp_drv_t   *drv,
                            const lv_area_t *area, lv_color_t *color_p)
 {
     LV_UNUSED(area);
@@ -82,23 +82,23 @@ static void dummy_flush_cb(lv_disp_drv_t *drv,
 
 static void ui_warmup_pages(void)
 {
-    lv_disp_t        *disp = lv_disp_get_default();
-    lv_disp_drv_t    *drv  = (disp != NULL) ? disp->driver : NULL;
+    lv_disp_t     *disp                                            = lv_disp_get_default();
+    lv_disp_drv_t *drv                                             = (disp != NULL) ? disp->driver : NULL;
     void (*orig)(lv_disp_drv_t *, const lv_area_t *, lv_color_t *) = NULL;
-    uint8_t           i;
+    uint8_t i;
 
     if (drv == NULL)
     {
         return;
     }
 
-    orig       = drv->flush_cb;
-    drv->flush_cb = dummy_flush_cb;     /* swallow the framebuffer push */
+    orig          = drv->flush_cb;
+    drv->flush_cb = dummy_flush_cb; /* swallow the framebuffer push */
 
     for (i = 0u; i < PAGE_COUNT; i++)
     {
         lv_scr_load(s_pages[i]);
-        (void)lv_timer_handler();        /* first paint, hidden */
+        (void)lv_timer_handler(); /* first paint, hidden */
     }
 
     drv->flush_cb = orig;
@@ -128,9 +128,9 @@ uint8_t app_ui_take_switch(lv_obj_t **out_screen, int *out_index)
 
 static void boot_timer_cb(lv_timer_t *timer)
 {
-    uint32_t elapsed   = HAL_GetTick() - s_boot_t0;
-    uint32_t time_pct  = (elapsed * 100u) / BOOT_MIN_MS;
-    uint32_t pending   = lv_font_provider_preload_pending();
+    uint32_t elapsed  = HAL_GetTick() - s_boot_t0;
+    uint32_t time_pct = (elapsed * 100u) / BOOT_MIN_MS;
+    uint32_t pending  = lv_font_provider_preload_pending();
     uint32_t drain_pct;
     uint32_t bar;
 
@@ -149,7 +149,7 @@ static void boot_timer_cb(lv_timer_t *timer)
     {
         uint32_t done = (s_boot_pending0 > pending) ? (s_boot_pending0 - pending)
                                                     : 0u;
-        drain_pct = (uint32_t)((done * 100u) / s_boot_pending0);
+        drain_pct     = (uint32_t)((done * 100u) / s_boot_pending0);
         if (drain_pct > 100u)
         {
             drain_pct = 100u;
@@ -204,7 +204,8 @@ void app_ui_create(void)
     lv_obj_t *boot = ui_page_boot_build();
     lv_scr_load(boot);
     ui_page_boot_set_status((lv_font_provider_engine() == FONT_ENGINE_CTF)
-                                ? "字库预加载中..." : "系统启动中...");
+                                ? "字库预加载中..."
+                                : "系统启动中...");
 
     s_boot_t0 = HAL_GetTick();
     (void)lv_timer_create(boot_timer_cb, 50, NULL);

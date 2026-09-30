@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    drv_sdio.h
-  * @brief   SDMMC1 block device + FatFs volume management.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    drv_sdio.h
+ * @brief   SDMMC1 block device + FatFs volume management.
+ ******************************************************************************
+ */
 
 #ifndef __BSP_SDCARD_H
 #define __BSP_SDCARD_H
@@ -16,7 +16,7 @@ extern "C" {
 #include "ff.h"
 
 /** Logical drive used for the SD card. FF_VOLUMES == 1, so this is "0:". */
-#define SD_DRIVE_PATH        "1:"
+#define SD_DRIVE_PATH "1:"
 
 /** Re-initialise the SDMMC peripheral / card. Called on recovery paths too. */
 GlobalType_t drv_sdcard_init(void);

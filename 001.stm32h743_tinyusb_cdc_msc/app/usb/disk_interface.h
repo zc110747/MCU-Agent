@@ -2,6 +2,10 @@
 #ifndef _DISK_INTERFACE_H
 #define _DISK_INTERFACE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "ff.h"
 
 #define RAM_START_ADDRESS   0x24000000
@@ -29,4 +33,9 @@ int USB_disk_read(BYTE *buff, LBA_t sector, UINT count);
 int USB_disk_write(const BYTE *buff, LBA_t sector, UINT count);
 
 DWORD get_fattime(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

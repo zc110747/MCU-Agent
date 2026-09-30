@@ -22,6 +22,16 @@ endif()
 set(TARGET_NAME ${PROJECT_NAME})
 
 # --------------------------------------------------------------------------
+# Optional camera diagnostic probes (SWD-triggered, gated behind CAM_DIAGNOSTICS)
+# --------------------------------------------------------------------------
+# When OFF (default) the entire probe subsystem in bsp/sys_prob.c and the 16 KB
+# bus-trace buffer are compiled out and never linked - zero flash / RAM / runtime
+# cost in production builds. Pass -DENABLE_CAM_DIAGNOSTICS=ON to include them.
+option(ENABLE_CAM_DIAGNOSTICS
+    "Build the SWD-triggered camera/DVP diagnostic probes (pin/bus/pull/regdump/poke). Off = zero probe code/data in the binary."
+    OFF)
+
+# --------------------------------------------------------------------------
 # Paths
 # --------------------------------------------------------------------------
 set(HAL_DIR      ${CMAKE_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver)
@@ -49,6 +59,11 @@ set(BSP_SOURCES
     bsp/bsp_ov5640_ref.c
     bsp/usb_descriptors.c
 )
+
+# Diagnostic probes are a separate translation unit, only compiled when enabled.
+if(ENABLE_CAM_DIAGNOSTICS)
+    list(APPEND BSP_SOURCES bsp/sys_prob.c)
+endif()
 
 set(HAL_SOURCES
     ${HAL_DIR}/Src/stm32h7xx_hal.c
@@ -125,6 +140,11 @@ target_compile_definitions(${TARGET_NAME} PRIVATE
     BOARD_TUD_RHPORT=0
     BOARD_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
 )
+
+# Probe subsystem gate - defined only when the optional probes are built.
+if(ENABLE_CAM_DIAGNOSTICS)
+    target_compile_definitions(${TARGET_NAME} PRIVATE CAM_DIAGNOSTICS)
+endif()
 
 # --------------------------------------------------------------------------
 # Compile options

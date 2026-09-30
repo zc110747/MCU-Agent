@@ -1,9 +1,9 @@
 /**
-  ******************************************************************************
-  * @file    ui_page_info.h
-  * @brief   Main info panel: clock, SD capacity and board info, in Chinese.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    ui_page_info.h
+ * @brief   Main info panel: clock, SD capacity and board info, in Chinese.
+ ******************************************************************************
+ */
 #ifndef __UI_PAGE_INFO_H
 #define __UI_PAGE_INFO_H
 

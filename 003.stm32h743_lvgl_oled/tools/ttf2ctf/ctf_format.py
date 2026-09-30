@@ -1,7 +1,7 @@
 """CTF (Character Table Font) binary format - constants and (de)serialisation.
 
 This module is the single source of truth for the on-disk layout.  The
-firmware side (Bsp/font/ctf_format.h) mirrors it field by field; both sides
+firmware side (bsp/font/ctf_format.h) mirrors it field by field; both sides
 use explicit little-endian serialisation and never rely on struct padding.
 
 Design rules (from the architecture spec):
