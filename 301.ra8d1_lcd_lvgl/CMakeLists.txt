@@ -27,6 +27,12 @@ file(GLOB FSP_BSP_SOURCES
 file(GLOB FSP_MODULE_SOURCES
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_ioport/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_sci_b_uart/*.c"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_glcdc/*.c"
+)
+
+# Renesas EK board support (SDRAM controller init sequence), upstream as-is.
+file(GLOB FSP_BOARD_SOURCES
+    "${PROJ_ROOT}/Drivers/renesas/fsp/board/ra8d1_ek/*.c"
 )
 
 # ------------------------------------------------- upstream RT-Thread Nano
@@ -62,6 +68,7 @@ set(COMMON_INCLUDES
     "${PROJ_ROOT}/Drivers/renesas/fsp/inc"
     "${PROJ_ROOT}/Drivers/renesas/fsp/inc/api"
     "${PROJ_ROOT}/Drivers/renesas/fsp/inc/instances"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/board/ra8d1_ek"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/bsp"
     "${PROJ_ROOT}/Drivers/renesas"
     "${PROJ_ROOT}/Drivers/renesas/arm/CMSIS_5/CMSIS/Core/Include"
@@ -77,8 +84,11 @@ set(RTTHREAD_INCLUDES
 # Upstream FSP peripheral modules: static lib, warnings off.
 # The zero-warning rule applies to code we own; "fixing" upstream would mean
 # forking it.
-add_library(fsp_modules STATIC ${FSP_MODULE_SOURCES})
-target_include_directories(fsp_modules PRIVATE ${COMMON_INCLUDES})
+add_library(fsp_modules STATIC ${FSP_MODULE_SOURCES} ${FSP_BOARD_SOURCES})
+target_include_directories(fsp_modules PRIVATE
+    ${COMMON_INCLUDES}
+    "${PROJ_ROOT}/Drivers/renesas/fsp/board/ra8d1_ek"
+)
 target_compile_options(fsp_modules PRIVATE $<$<COMPILE_LANGUAGE:C>:-w>)
 
 add_executable(firmware

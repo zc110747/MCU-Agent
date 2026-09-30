@@ -10,6 +10,7 @@
 #include <rtthread.h>
 
 #include "bsp_api.h"
+#include "bsp_pin.h"
 #include "bsp_uart.h"
 
 /* RT-Thread heap: a static array in .bss, so its cost shows up in size.txt
@@ -46,6 +47,10 @@ void rt_hw_board_init (void)
     rt_hw_systick_init();
 
     rt_system_heap_init((void *) &g_rt_heap[0], (void *) &g_rt_heap[RT_HEAP_SIZE]);
+
+    /* Pin mux first: every FSP driver (SCI9, GLCDC, SDRAM bus) assumes its
+       pins are already selected when Open() runs. */
+    (void) bsp_pin_init();
 
     bsp_uart_init();
     g_console_ready = true;

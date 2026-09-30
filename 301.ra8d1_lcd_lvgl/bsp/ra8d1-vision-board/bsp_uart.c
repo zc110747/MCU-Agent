@@ -15,7 +15,6 @@
 #include <rtthread.h>
 
 #include "bsp_api.h"
-#include "r_ioport.h"
 #include "r_sci_b_uart.h"
 #include "vector_data.h"
 
@@ -39,34 +38,14 @@ typedef struct
     uint8_t           buf[BSP_UART_RX_RING_SIZE];
 } bsp_uart_ring_t;
 
-static ioport_instance_ctrl_t     g_ioport_ctrl;
+/* P208/P209 are muxed by bsp_pin_init(). This driver only opens the SCI9
+   peripheral: IOPORT is opened exactly once, from bsp_pin_init(). */
 static sci_b_uart_instance_ctrl_t g_uart9_ctrl;
 static sci_b_baud_setting_t       g_uart9_baud_setting;
 static bsp_uart_ring_t            g_uart_rx_ring;
 static struct rt_semaphore        g_uart_rx_sem;
 
 static void bsp_uart_callback(uart_callback_args_t * p_args);
-
-static const ioport_pin_cfg_t g_uart_pins[] =
-{
-    {
-        .pin_cfg = ((uint32_t) IOPORT_CFG_PERIPHERAL_PIN |
-                    (uint32_t) IOPORT_PERIPHERAL_SCI1_3_5_7_9),
-        .pin     = BSP_UART_PIN_TX,
-    },
-    {
-        .pin_cfg = ((uint32_t) IOPORT_CFG_PERIPHERAL_PIN |
-                    (uint32_t) IOPORT_PERIPHERAL_SCI1_3_5_7_9),
-        .pin     = BSP_UART_PIN_RX,
-    },
-};
-
-static const ioport_cfg_t g_ioport_cfg =
-{
-    .number_of_pins = (uint16_t) (sizeof(g_uart_pins) / sizeof(g_uart_pins[0])),
-    .p_pin_cfg_data = g_uart_pins,
-    .p_extend       = NULL,
-};
 
 static const sci_b_uart_extended_cfg_t g_uart9_cfg_extend =
 {
@@ -126,12 +105,6 @@ static void bsp_uart_callback (uart_callback_args_t * p_args)
 void bsp_uart_init (void)
 {
     fsp_err_t err;
-
-    err = R_IOPORT_Open(&g_ioport_ctrl, &g_ioport_cfg);
-    if (FSP_SUCCESS != err)
-    {
-        return;
-    }
 
     err = R_SCI_B_UART_BaudCalculate(BSP_UART_BAUDRATE,
                                      false,

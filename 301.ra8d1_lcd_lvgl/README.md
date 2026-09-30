@@ -39,7 +39,7 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 0.5 | GCC 裸机最小工程 + OpenOCD 调试链 | ✅ |
 | Phase 0.6 | VSCode 在线仿真（pyOCD + cortex-debug） | ✅ |
 | Phase 1 | RT-Thread Nano + LED + UART | ✅ |
-| Phase 2 | LCD（GLCDC，无 LVGL） | ⏳ |
+| Phase 2 | LCD（GLCDC，无 LVGL） | ✅ |
 | Phase 3 | Camera（CEU） | ⏳ |
 | Phase 4 | LVGL v9.1.0 | ⏳ |
 
@@ -131,6 +131,35 @@ led on
 
 - 双构零警告：Debug FLASH 39128B(1.87%) / RAM 92024B(8.77%)；Release FLASH 34236B(1.63%) / RAM 91936B(8.76%)
 - 心跳 tick 间隔 2003（1kHz 准确），heap total 65440 / used 7280 / max 7280
+
+## Phase 2：GLCDC + RGB 面板（800×480，无 LVGL）
+
+GLCDC 层 1（RGB565）直取 SDRAM framebuffer，TCON 驱动 RGB 面板，应用层提供
+`lcd init|info|stat|pattern N|fill HEX|bl on|off` 串口命令。帧缓冲 `g_lcd_fb`
+放 `.sdram`（0x68000000，NOLOAD，768000B）；`BSP_CFG_DCACHE_ENABLED=0` 使 SDRAM
+窗口天然一致，无需 Cache 维护。
+
+| 项 | 值 |
+|---|---|
+| PCLK | LCDCLK 240MHz / 8 = **30MHz** → 刷新率 30e6/(1024×525) = **55.8Hz** |
+| 时序 | 1024×525，back porch 46/23，sync width 1，同步低有效，DE 高有效（与官方 BSP 逐值一致） |
+| 输出 | RGB666 大端，TCON hsync=PIN_0 / vsync=PIN_1 / de=PIN_3 |
+| 引脚 | 全部集中在 `bsp_pin.c` 一张表一次 IOPORT Open；P1011 背光、P1104 面板复位 |
+| 图案 | 5 种：黑 / 白 / 8 色条 / RGB 渐变 / 棋盘格 |
+
+验收：`python tools/verify/verify_phase2.py` → **14 passed, 0 failed**
+（含 SWD 读回 framebuffer 色条样本、`fill` 全屏落 SDRAM、P1011 背光电平、
+`GR[0]` RENB/BASE/欠载锁存）。
+
+> ⚠️ `STMON.L2UNDF=1` 为 FSP 驱动固有良性伪影：驱动无条件武装 GR[1] line-detect
+> （`CLUTINT_b.LINE`），而 layer 2 透明且 `RENB=0` 从不取数，粘滞位清除后 1-2 帧
+> 内复现。硬判据取 `L1UNDF==0`（层 1 从未欠载）。完整取证链见
+> `documents/phase2-report.md` 第 5 节。
+
+### 实测数据（Phase 2）
+
+- 双构零警告：Debug FLASH 47328B(2.26%) / 内部 RAM 92128B(8.79%)；Release FLASH 41016B(1.96%) / RAM 91992B(8.77%)
+- 另：`.sdram` NOLOAD 768000B（framebuffer，32MB 的 2.29%，不占 Flash/内部 RAM）
 
 ## 参考
 
