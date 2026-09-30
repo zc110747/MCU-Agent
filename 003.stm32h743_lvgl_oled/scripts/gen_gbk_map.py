@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Generate Bsp/lv_gbk_map.c - a Unicode(BMP) -> GBK lookup table.
+"""Generate bsp/lv_gbk_map.c - a Unicode(BMP) -> GBK lookup table.
 
 Why a generated table instead of FatFs' ff_uni2oem()?
     ffunicode.c does contain a CP936 table, but enabling FF_CODE_PAGE 936 pulls
@@ -22,7 +22,7 @@ import io
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, '..', 'Bsp', 'lv_gbk_map.c')
+OUT = os.path.join(HERE, '..', 'bsp', 'lv_gbk_map.c')
 
 CJK_LO, CJK_HI = 0x4E00, 0x9FA5
 

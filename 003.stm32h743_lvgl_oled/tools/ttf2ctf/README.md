@@ -57,7 +57,7 @@ $PY tools/ttf2ctf/ttf2ctf.py \
 ## 2. CTF v1 文件格式
 
 全部 **小端**、**定宽**、**显式偏移序列化**（不依赖任何语言的 struct 对齐）。
-固件侧镜像在 `Bsp/font/ctf_format.h`。
+固件侧镜像在 `bsp/font/ctf_format.h`。
 
 ### 2.1 整体布局
 
@@ -245,7 +245,7 @@ Composite 依赖的其他字形仍由 TTF Reader + 块缓存提供，不走 CTF�
    直接丢弃（位图位为 0），这样固件连一次 SD 读都不用就得到 NOT_FOUND。
 3. **整个 TTF 不进 RAM，整个 CTF 也不进 RAM**。CTF 是磁盘索引，固件按需读 8/40/24 字节的小记录。
 4. 改任何字段偏移/宽度 = 格式变更，必须同步 `CTF_VERSION`、本文件、
-   `Bsp/font/ctf_format.h` 与固件 reader。
+   `bsp/font/ctf_format.h` 与固件 reader。
 
 ---
 

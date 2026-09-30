@@ -1,5 +1,5 @@
 /**
- * Minimal FatFs stand-in so the sources under Bsp/font can be compiled and
+ * Minimal FatFs stand-in so the sources under bsp/font can be compiled and
  * exercised on a PC.
  *
  * It implements only what ttf_reader.c and ctf_reader.c call, on top of stdio.

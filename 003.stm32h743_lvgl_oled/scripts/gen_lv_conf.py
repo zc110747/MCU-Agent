@@ -98,7 +98,7 @@ HEADER = u'''/**
  *     the HAL already owns and lv_tick_inc() never has to be called.
  *   - No built-in font is compiled in.  Every glyph, ASCII and Chinese alike,
  *     is served at run time by lv_font_gbk_xx which reads the GBKxx.FON files
- *     from the SD card (see Bsp/lv_font_gbk.c).
+ *     from the SD card (see bsp/lv_font_gbk.c).
  *   - Only label / bar / arc / btn / img / line / led are enabled; the rest of
  *     the widget set is switched off to keep the image small.
  */

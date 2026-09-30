@@ -27,7 +27,7 @@
 003.stm32h743_lvgl_oled/
 ├── Core/          startup_stm32h743xx.s / system_stm32h7xx.c / main.c
 │                 stm32h7xx_hal_msp.c / stm32h7xx_it.c / syscalls.c
-├── Bsp/          drv_spi_oled.c / drv_oled_fonts.c / drv_oled_text.c
+├── bsp/          drv_spi_oled.c / drv_oled_fonts.c / drv_oled_text.c
 │                 drv_sdio.c / drv_rtc.c / disk_interface.c
 │                 lv_port_disp.c（LVGL 显示对接）/ lv_font_gbk.c / lv_gbk_map.c（GBK 字体）
 │                 lv_font_cfg.h / lv_font_provider.c（引擎切换）
@@ -52,7 +52,7 @@
 └── build_oneclick.bat      # 单工程一键编译
 ```
 
-> 模块化约定：应用逻辑 `Application/`、用户驱动 `Bsp/`、HAL `Drivers/`、第三方 `third_party/`。
+> 模块化约定：应用逻辑 `Application/`、用户驱动 `bsp/`、HAL `Drivers/`、第三方 `third_party/`。
 
 ---
 
@@ -247,7 +247,7 @@ AXI-SRAM 仍余 ~200 KB。已启用 `LV_FONT_MONTSERRAT_12/16/24/32` 作为缺�
 
 ### 8.7 Phase 3：MCU 端 `ctf_reader`（已完成）
 
-`Bsp/font/ctf_reader.c/.h`。查找路径严格三级直接寻址，**无遍历、无二分**：
+`bsp/font/ctf_reader.c/.h`。查找路径严格三级直接寻址，**无遍历、无二分**：
 
 ```c
 plane = (u >> 16) & 0xFF;     /* 一级索引 8 B：page_offset / page_count   */
@@ -274,7 +274,7 @@ if (CTF_ENTRY_SIZE > (c->size - entry_at))  { return CTF_ERR_RANGE; }
 
 ### 8.8 Phase 4/5：`ttf_reader` + 块缓存（已完成）
 
-`Bsp/font/blkcache.c/.h` + `Bsp/font/ttf_reader.c/.h`。
+`bsp/font/blkcache.c/.h` + `bsp/font/ttf_reader.c/.h`。
 
 `blkcache` 是通用 LRU 块缓存（`BLKCACHE_MAX_BLOCKS 8`），能力：
 
@@ -296,7 +296,7 @@ f_lseek(&r->f, offset); f_read(&r->f, dst, len, &br);   /* 全工程仅此一处
 
 ### 8.9 Phase 6：`stb_adapter`（已完成）
 
-`Bsp/font/stb_adapter.c` 单独编译 `stb_truetype_htcw.h`（LVGL fork，v1.26htcw），
+`bsp/font/stb_adapter.c` 单独编译 `stb_truetype_htcw.h`（LVGL fork，v1.26htcw），
 **stb 源码零修改**，只用宏把 `STBTT_STREAM` 接到 `ttf_reader`：
 
 ```c
@@ -326,7 +326,7 @@ active-edges 三块临时内存，返回前全部释放。用 bump 分配器 + `
 
 ### 8.10 Phase 7：LVGL 字体后端（已完成）
 
-`Bsp/font/lvgl_font.c/.h`，实现 `lv_font_t` 的两个回调。
+`bsp/font/lvgl_font.c/.h`，实现 `lv_font_t` 的两个回调。
 
 **`ctf_get_glyph_dsc()` —— 纯索引运算，零 TTF 访问：**
 
@@ -359,7 +359,7 @@ dsc->ofs_x = ix0; dsc->ofs_y = -iy1; dsc->bpp = 8;
 
 编译期断言保证 4 档 Montserrat 真的开着，否则 `#error`。
 
-**引擎切换**（`Bsp/lv_font_cfg.h`，CMake 变量 `LV_FONT_ENGINE`）：
+**引擎切换**（`bsp/lv_font_cfg.h`，CMake 变量 `LV_FONT_ENGINE`）：
 
 | 值 | 引擎 |
 |:--:|------|
@@ -380,10 +380,10 @@ dsc->ofs_x = ix0; dsc->ofs_y = -iy1; dsc->bpp = 8;
 **全 Unicode 0..0xFFFF 遍历** / `ttf_reader` 边界与跨块 / 栅格化（ASCII art 目视）+ 计数器。
 
 ```bash
-gcc -std=c11 -O2 -I Bsp/font -I tools/host_test/host_shim \
+gcc -std=c11 -O2 -I bsp/font -I tools/host_test/host_shim \
     -I third_party/lvgl/src/extra/libs/tiny_ttf \
     -o tools/host_test/build/ctf_host_test.exe \
-    tools/host_test/ctf_host_test.c Bsp/font/{blkcache,ttf_reader,ctf_reader,stb_adapter}.c -lm
+    tools/host_test/ctf_host_test.c bsp/font/{blkcache,ttf_reader,ctf_reader,stb_adapter}.c -lm
 # 用法：<font.ctf> <font.ttf>
 tools/host_test/build/ctf_host_test.exe \
     ../support_tools/sd_card/SYSTEM/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ctf \
@@ -540,7 +540,7 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 创建页面时若用 TTF 字库则扫描文本去重 Unicode、建立预栅格化队列（GBK 字库跳过）；预取尽量后台异步，避免阻塞页面创建。
 页面切换优先预取当前页，旧页由 LRU 自动淘汰；实际绘制优先访问 Glyph Cache，Cache Miss 再走正常 TTF 冷栅格化。
 
-**落点**：全新模块 `Bsp/font/glyph_cache.c` + `glyph_cache.h`，替换原 `lvgl_font.c` 的 32 KB 定长"满即整体回绕"
+**落点**：全新模块 `bsp/font/glyph_cache.c` + `glyph_cache.h`，替换原 `lvgl_font.c` 的 32 KB 定长"满即整体回绕"
 位图池（`bmp_*` 整段删除）。逻辑侧收口于 CTF 后端（`LV_FONT_ENGINE=2`），GBK 引擎天然跳过预取。
 
 **存储与放置**：单一 **200 KB 池 `s_pool` 放 `.ram_d2` 段（0x30000000，288 KB 空闲）**，栅格化后 8-bpp 字形位图按
@@ -564,8 +564,8 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 **绘制路径（lookup 优先）**：`ctf_get_glyph_bitmap()` 先 `glyph_cache_lookup()`，命中即返回；Miss 走
 `ctf_find_unicode → glyph_cache_insert → stb_adapter_render` 冷栅格化后返回池指针（返回的正是刚插入的 entry，不会被 LRU 误回收）。
 
-**文件清单**：`Bsp/font/glyph_cache.{c,h}`（新增）、`Bsp/font/lvgl_font.c`（改写：删 `bmp_*` 池、加 lookup/insert/prefetch/epoch）、
-`Bsp/font/lvgl_font.h`（加 `lvgl_font_px_of/preload_*/on_page_shown` 声明）、`Bsp/lv_font_provider.{c,h}`（引擎感知透传）、
+**文件清单**：`bsp/font/glyph_cache.{c,h}`（新增）、`bsp/font/lvgl_font.c`（改写：删 `bmp_*` 池、加 lookup/insert/prefetch/epoch）、
+`bsp/font/lvgl_font.h`（加 `lvgl_font_px_of/preload_*/on_page_shown` 声明）、`bsp/lv_font_provider.{c,h}`（引擎感知透传）、
 `Application/app_ui.c`（`mk_label` 预取 + `take_switch` 抬升 epoch）、`CMakeLists.txt`（加 `glyph_cache.c`）。
 统计复用 `lvgl_font_get_stats()` 的 `bmp_hits/bmp_misses/bmp_flushes(=evicts)/bmp_bytes`。
 
@@ -589,7 +589,7 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 1. 对 LVGL 页面代码进行分离，每个页面独立一个文件。
 2. 增加启动加载页面，内容是 `Waiting...` 和动态进度条；当字库预加载完成（不足 2 s 则至少等 2 s）后进入下一页；**GBK 不需要预加载，直接等待 2 s**，中间执行完整进度条即可。
 3. 缓存增至 200 KB 仍放 RAM_D2（见 [§8.15](#815-ttf-glyph-cache独立-200-kb-栅格化字形缓存lru--页钉扎--异步预取本轮新增容量-160-kb--200-kb)）。
-4. `third_party/` 与 `Drivers/` 目录禁止修改（共享第三方库，本次所有改动均在 `Application/`、`Bsp/` 自有代码与 `CMakeLists.txt`）。
+4. `third_party/` 与 `Drivers/` 目录禁止修改（共享第三方库，本次所有改动均在 `Application/`、`bsp/` 自有代码与 `CMakeLists.txt`）。
 
 **页面分离（指令 #1）**：原单文件 `app_ui.c`（533 行，含信息页 + 字体页 + 故障页 + 启动逻辑）拆分为：
 | 文件 | 职责 |
@@ -616,8 +616,8 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
   进度条纯按 2 s 走完，满足"GBK 不预加载、直接等 2 s、跑完整进度条"。
 
 **预加载计数 API（支撑门控）**：新增
-- `Bsp/font/lvgl_font.c`：`uint32_t lvgl_font_preload_pending(void)`（返回 `s_pl_count`，预取队列剩余长度）；
-- `Bsp/lv_font_provider.c`：`uint32_t lv_font_provider_preload_pending(void)`（非 CTF 引擎返回 0，GBK 透传关键）。
+- `bsp/font/lvgl_font.c`：`uint32_t lvgl_font_preload_pending(void)`（返回 `s_pl_count`，预取队列剩余长度）；
+- `bsp/lv_font_provider.c`：`uint32_t lv_font_provider_preload_pending(void)`（非 CTF 引擎返回 0，GBK 透传关键）。
 
 **约束遵守**：全程未触碰 `third_party/`、`Drivers/`；未改 TTF/CTF 文件、LVGL 核心、FatFs/SD 驱动、stb_truetype。
 
@@ -646,12 +646,12 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
    该 early-return 导致每页拉丁文本首帧冷栅格化（虽只贡献 ~22 ms，但属错误假设）。
 
 **修复**：
-- `Bsp/font/lvgl_font.c` `preload_enqueue()`：删除 `cp < 0x80` 跳过，Latin 一并预取入池（注释说明索引已含拉丁）。
+- `bsp/font/lvgl_font.c` `preload_enqueue()`：删除 `cp < 0x80` 跳过，Latin 一并预取入池（注释说明索引已含拉丁）。
 - `Application/app_ui.c` 新增 `ui_warmup_pages()`：在 `app_ui_create()` 构建完两页后，**抑制显示 flush**（`dummy_flush_cb`
   吞掉帧缓冲推送、`lv_disp_flush_ready` 收尾）逐页 `lv_scr_load + lv_timer_handler` 各渲染一次，
   把"首绘一次性开销 + 字形冷栅格化"全部移到启动加载页背后（用户不可见），首个真实翻页即 warm。
 
-**约束遵守**：仅改 `Bsp/font/lvgl_font.c`、`Application/app_ui.c`；未碰 `third_party/`、`Drivers/`、TTF/CTF/LVGL 核心/FatFs/stb。
+**约束遵守**：仅改 `bsp/font/lvgl_font.c`、`Application/app_ui.c`；未碰 `third_party/`、`Drivers/`、TTF/CTF/LVGL 核心/FatFs/stb。
 
 **构建与实机验收（Release 生产态，OpenOCD Verified OK + ST-Link VCP 抓串口）**：
 - Debug / Release 双构 **0 warning**；FLASH / RAM 占用不变（RAM_D2 = 200 KB / 288 KB = 69.44%，RAM_D1 = 61.73%）。
@@ -678,7 +678,7 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 
 ### 9.1 目标与范围
 - 全工程裸 `printf(` 调用替换为 `PRINT_LOG(...)`，参数 / 格式与原 `printf` 完全一致。
-- 参考 101 工程的 logger 风格，实现**裸机版**（无 RTOS）日志接管：`Bsp/bsp_log.h` + `Bsp/bsp_log.c`。
+- 参考 101 工程的 logger 风格，实现**裸机版**（无 RTOS）日志接管：`bsp/bsp_log.h` + `bsp/bsp_log.c`。
 - **FreeRTOS 移除结论**：经核查本工程**自有源码完全裸机**，无任何 `FreeRTOS`/`vTask`/`semphr`
   调用（命中均在 `third_party/`），`CMakeLists.txt` 也未编译内核 —— 无对应代码可删。
 
@@ -700,14 +700,14 @@ ISR（`log_uart_tx_irq`）在 TXE 事件里逐字节取缓冲发送、发完自�
 - `Core/Src/stm32h7xx_it.c`：原 `USART1_IRQHandler` 走 `Default_Handler`，新增
   `USART1_IRQHandler() ─► log_uart_tx_irq()`，并 `#include "bsp_log.h"`。
 - `Core/Src/main.c`：`MX_USART1_UART_Init()` 之后调用 `log_uart_init()`（幂等使能 USART1 NVIC）。
-- `CMakeLists.txt`：注册 `Bsp/bsp_log.c`。
+- `CMakeLists.txt`：注册 `bsp/bsp_log.c`。
 
 ### 9.5 替换位置清单（58 处 `printf`→`PRINT_LOG`）
 | 文件 | 替换数 | 说明 |
 |------|------:|------|
 | `Application/app_main.c` | 41 | 首行加 `#include "bsp_log.h"` |
-| `Bsp/lv_font_harmony.c` | 10 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
-| `Bsp/lv_font_provider.c` | 7 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
+| `bsp/lv_font_harmony.c` | 10 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
+| `bsp/lv_font_provider.c` | 7 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
 
 残余 `printf(` 全为注释 / `snprintf` 子串 / 新 `printf_log` 函数名，无真实调用。
 

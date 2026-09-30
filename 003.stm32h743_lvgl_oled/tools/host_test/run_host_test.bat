@@ -33,13 +33,13 @@ if errorlevel 1 (
 
 echo [1/2] compiling host test ...
 gcc -std=c11 -O2 -Wall -Wextra ^
-    -I "%PRJ%\Bsp\font" -I "%SHIM%" -I "%STB%" ^
+    -I "%PRJ%\bsp\font" -I "%SHIM%" -I "%STB%" ^
     -o "%EXE%" ^
     "%ROOT%\ctf_host_test.c" ^
-    "%PRJ%\Bsp\font\blkcache.c" ^
-    "%PRJ%\Bsp\font\ttf_reader.c" ^
-    "%PRJ%\Bsp\font\ctf_reader.c" ^
-    "%PRJ%\Bsp\font\stb_adapter.c" ^
+    "%PRJ%\bsp\font\blkcache.c" ^
+    "%PRJ%\bsp\font\ttf_reader.c" ^
+    "%PRJ%\bsp\font\ctf_reader.c" ^
+    "%PRJ%\bsp\font\stb_adapter.c" ^
     -lm
 if errorlevel 1 (
     echo [ERR ] compile failed.

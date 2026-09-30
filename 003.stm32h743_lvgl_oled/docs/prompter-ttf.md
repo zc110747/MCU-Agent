@@ -18,7 +18,7 @@
 * 调试串口：USART1 PA9/PA10（115200 8N1，ST-Link 虚拟串口，端口号运行时枚举）
 * 工具链：arm-none-eabi-gcc（≥13）+ cmake + ninja + openocd + ST-Link；VSCode Cortex-Debug
 * 字体：TTF 可能达数 MB（如 HarmonyOS Sans SC 8 MB），需支持中文 + 拉丁 + 缺字回退
-* **禁止修改 `third_party/`（lvgl / FatFs）与 `Drivers/`**（共享库）。改动只在 `Application/`、`Bsp/` 自有代码与 `CMakeLists.txt`
+* **禁止修改 `third_party/`（lvgl / FatFs）与 `Drivers/`**（共享库）。改动只在 `Application/`、`bsp/` 自有代码与 `CMakeLists.txt`
 
 ---
 
@@ -199,7 +199,7 @@ bit   =  u        & 0xFF;   /* 位图位 → popcount rank → entry 下标 */
 ## 五、模块与文件布局（按当前工程实际结构调整，勿机械复制）
 
 ```
-Bsp/font/
+bsp/font/
 ├── ctf_format.h      CTF v1 格式定义（与 PC 端唯一真源对齐）
 ├── ctf_reader.c/.h   三级直接寻址 + NOT_FOUND 语义 + resident RAM index
 ├── blkcache.c/.h     通用 LRU 块缓存（跨块合并 / 短块有效长度 / 统计）
@@ -208,7 +208,7 @@ Bsp/font/
 ├── glyph_cache.c/.h  200 KB 栅格化字形池（LRU + epoch 钉扎 + 异步预取），放 .ram_d2
 ├── lvgl_font.c/.h    lv_font_t 后端 + 内置 Montserrat 回退 + 预取队列
 └── font_common.h
-Bsp/lv_font_provider.c/.h   引擎切换（LV_FONT_ENGINE: 2=CTF+TTF / 1=TTF直读 / 0=GBK 点阵）
+bsp/lv_font_provider.c/.h   引擎切换（LV_FONT_ENGINE: 2=CTF+TTF / 1=TTF直读 / 0=GBK 点阵）
 Application/
 ├── ui_common.{c,h}       共享原语 + ui_mk_label（内部透明预取）
 ├── ui_page_info.{c,h}    信息页
@@ -291,7 +291,7 @@ tools/
 
 ## 九、移植提示（到 Zephyr 009 / 其它 STM32 LVGL）
 
-- `Bsp/font/*` 与 LVGL 版本弱耦合，主要依赖 `lv_font_t` 两个回调，可整体搬。
+- `bsp/font/*` 与 LVGL 版本弱耦合，主要依赖 `lv_font_t` 两个回调，可整体搬。
 - Zephyr 下 SD/FatFs 路径、SPI6/ST7789 显示需对齐本裸机参考实现（本工程即 009 的参考）。
 - RAM 预算按目标芯片重算：200 KB 字形缓存放 RAM_D2（或等价非主力 RAM 区），避免挤占主 AXI-SRAM。
 - 首帧预热依赖 `lv_disp_t::driver::flush_cb` 可临时替换；不同 LVGL 版本 API 名可能微调。
