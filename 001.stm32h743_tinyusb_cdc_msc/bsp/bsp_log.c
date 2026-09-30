@@ -57,7 +57,7 @@ static void uart_tx_enable_irq(void)
 
 /* Push bytes into the ring buffer. Called from thread mode only.
  * The UART TX interrupt is disabled while we touch the shared indices. */
-static int uart_write(const uint8_t *data, int len)
+static int32_t uart_write(const uint8_t *data, int32_t len)
 {
     if ((data == NULL) || (len <= 0))
     {
@@ -70,7 +70,7 @@ static int uart_write(const uint8_t *data, int len)
      * modify g_uart_log.tx_r / g_uart_log.tx_n while we are appending. */
     __HAL_UART_DISABLE_IT(&g_uart_log.huart, UART_IT_TXE);
 
-    int written = 0;
+    int32_t written = 0;
     while ((written < len) && (g_uart_log.tx_n < UART_TX_BUF_SIZE))
     {
         g_uart_log.tx_buf[g_uart_log.tx_w] = data[written++];
@@ -129,9 +129,9 @@ void vprintf_log(const char *fmt, va_list ap)
     return;
 #else
     char buf[LOG_BUF_SIZE];
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    int32_t n = vsnprintf(buf, sizeof(buf), fmt, ap);
     if (n < 0) return;
-    if (n > (int)sizeof(buf) - 1) n = (int)sizeof(buf) - 1;
+    if (n > (int32_t)sizeof(buf) - 1) n = (int32_t)sizeof(buf) - 1;
     uart_write((const uint8_t *)buf, n);
 #endif
 }

@@ -102,7 +102,8 @@ int MMC_disk_read(BYTE *buff, LBA_t sector, UINT count)
         {
             is_fdisk_error = 1;
         }
-    }while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
+    }
+     while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
     
     if (res != HAL_OK)
     {
@@ -134,7 +135,8 @@ int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
         {
             is_fdisk_error = 1;
         }
-    }while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
+    }
+     while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
 
     if (res != HAL_OK)
     {
