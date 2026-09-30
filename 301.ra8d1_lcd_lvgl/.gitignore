@@ -1,0 +1,25 @@
+# build output (anchored: tools/build/ must stay tracked)
+/build/
+
+# toolchain artifacts
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.o
+*.d
+size.txt
+
+# flash pack (91MB, fetched by tools/flash/get_pack.sh)
+tools/flash/*.pack
+
+# NOTE: repo-root .gitignore blacklists **/Drivers and **/third_party (STM32 legacy).
+# This project needs its upstream sources tracked, so re-include them here.
+# A deeper .gitignore overrides a shallower one, so these negations win.
+!Drivers/
+!Drivers/**
+!third_party/
+!third_party/**
+!tools/build/
+!tools/build/**
