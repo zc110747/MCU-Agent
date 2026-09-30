@@ -25,36 +25,11 @@ void uvc_app_task(void);
 /* True while the host has selected alternate setting 1 and is receiving data. */
 bool uvc_app_is_streaming(void);
 
-/* Debug counters, handy to watch in the cortex-debug variables pane. */
-extern volatile uint32_t uvc_frames_sent;
-extern volatile uint32_t uvc_frames_dropped;
-
-/* Rolling frame-rate telemetry (see uvc_app.c). uvc_fps_x10 is the live
- * throughput in fps*10 (e.g. 80 == 8.0 fps); read it once over SWD instead of
- * polling the sent counter from the host. */
-extern volatile uint32_t uvc_fps_x10;
-extern volatile uint32_t uvc_fps_window_ms;
-extern volatile uint32_t uvc_fps_frames;
-extern volatile uint32_t uvc_fps_ms;
-
-/* USB lifecycle telemetry (see uvc_app.c) */
-extern volatile uint32_t usb_mounted;
-extern volatile uint32_t usb_mount_count;
-extern volatile uint32_t usb_suspend_count;
-extern volatile uint32_t usb_commit_count;
-
-/* Pipeline telemetry */
-extern volatile uint32_t uvc_xfer_started;
-extern volatile uint32_t uvc_xfer_rejected;
-extern volatile uint32_t uvc_tx_timeouts;
-extern volatile uint32_t uvc_cap_timeouts;
-extern volatile uint32_t uvc_stream_poll_true;
-extern volatile uint32_t uvc_stream_poll_false;
-
-/* Packed pipeline state, sampled at the top of every uvc_app_task():
- *   bit0 streaming  bit1 tx_busy  bit2 capture_busy  bit3 frame_ready
- *   bit4 camera_ok  bits[11:8] cap_idx  bits[15:12] tx_idx                  */
-extern volatile uint32_t uvc_state;
+/* Telemetry and pipeline state that used to be loose globals (uvc_ and usb_) now
+ * live in the file-static s_uvc structure in uvc_app.c. They are SWD-readable,
+ * e.g.  s_uvc.frames_sent, s_uvc.fps_x10, s_uvc.usb_mounted, s_uvc.state.
+ * s_uvc.state packs: bit0 streaming, bit1 tx_busy, bit2 capture_busy, bit3
+ * frame_ready, bit4 camera_ok, bits[11:8] cap_idx, bits[15:12] tx_idx. */
 
 #ifdef __cplusplus
 }

@@ -43,3 +43,8 @@
 - 撕裂(tearing)根因 = 在 DMA CIRCULAR 覆写缓冲的任意相位做 memcpy，CPU 中途越过 DMA 写指针；静止场景不可见，运动场景暴露
 - 垂直消隐期量化法：采样 DMA NDTR 序列，消隐期占比 ≈ 窗口时长/帧周期（本项目 19.5% ≈ 16ms / 83ms）
 - A/B 对照最有效的帧间调制：关 AEC(0x3503=0x03) + 手动曝光 0x3501=0x04↔0x60，产生 17 倍亮度差（SDE 负片 0x5580 对 YUV 输出无效，不可用）
+
+## 代码规范（2026-09-30 对齐）
+- 自研代码统一遵循 `mcu-code-style` skill；**缩进 = 4 空格 + Allman 开/闭括号独立成行**，由仓库根 `.clang-format` 锁定（此前 2 空格 + K&R 开括号的提交未真正落地，本次彻底对齐）。
+- 全局变量：文件内同性质 `static` 合并为结构体（uvc_app → `uvc_pipeline_t s_uvc`；bsp_camera → `cam_state_t s_cam`）。导出调试遥测（cam_*/uvc_*/usb_*）保持独立 `extern`，仅调试器 SWD 读 .elf 符号，未合并。
+- 格式化工具：本机 clang-format 装在托管 Python venv（`~/.workbuddy/binaries/python/versions/3.13.12/Scripts/clang-format.exe`）。
