@@ -28,6 +28,8 @@ file(GLOB FSP_MODULE_SOURCES
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_ioport/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_sci_b_uart/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_glcdc/*.c"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_ceu/*.c"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_gpt/*.c"
 )
 
 # Renesas EK board support (SDRAM controller init sequence), upstream as-is.

@@ -133,9 +133,46 @@ static const ioport_pin_cfg_t g_bsp_pin_cfg_data[] =
 
     /* ---- Phase 2: panel control lines ----------------------------------
        The generator routes P1011 to GPT1 (PWM backlight). Phase 2 drives it
-       as a plain GPIO so no r_gpt instance is needed; full brightness. */
+       as a plain GPIO so no r_gpt instance is needed; full brightness.
+       Phase 3 flips it to GPT mode at runtime when the camera starts. */
     PIN_GPIO_OUT(BSP_IO_PORT_10_PIN_11, 1),                             /* backlight */
     PIN_GPIO_OUT(BSP_IO_PORT_11_PIN_04, 1),                             /* panel RESET (idle high) */
+
+    /* ---- Phase 3: CEU camera bus (official camera-project pin configs) -- */
+    PIN_PERIPH(BSP_IO_PORT_04_PIN_00, IOPORT_PERIPHERAL_CEU),           /* D0 */
+    PIN_PERIPH(BSP_IO_PORT_04_PIN_01, IOPORT_PERIPHERAL_CEU),           /* D1 */
+    PIN_PERIPH(BSP_IO_PORT_04_PIN_05, IOPORT_PERIPHERAL_CEU),           /* D2 */
+    {                                                                   /* D3 (+pullup) */
+        .pin     = BSP_IO_PORT_04_PIN_06,
+        .pin_cfg = ((uint32_t) IOPORT_CFG_PERIPHERAL_PIN |
+                    (uint32_t) IOPORT_CFG_PULLUP_ENABLE |
+                    (uint32_t) IOPORT_PERIPHERAL_CEU),
+    },
+    PIN_PERIPH(BSP_IO_PORT_07_PIN_00, IOPORT_PERIPHERAL_CEU),           /* D4 */
+    PIN_PERIPH(BSP_IO_PORT_07_PIN_01, IOPORT_PERIPHERAL_CEU),           /* D5 */
+    PIN_PERIPH(BSP_IO_PORT_07_PIN_02, IOPORT_PERIPHERAL_CEU),           /* D6 */
+    PIN_PERIPH(BSP_IO_PORT_07_PIN_03, IOPORT_PERIPHERAL_CEU),           /* D7 */
+    {                                                                   /* PCLK (+pullup) */
+        .pin     = BSP_IO_PORT_07_PIN_08,
+        .pin_cfg = ((uint32_t) IOPORT_CFG_DRIVE_HIGH |
+                    (uint32_t) IOPORT_CFG_PERIPHERAL_PIN |
+                    (uint32_t) IOPORT_CFG_PULLUP_ENABLE |
+                    (uint32_t) IOPORT_PERIPHERAL_CEU),
+    },
+    {                                                                   /* VSYNC (+pullup) */
+        .pin     = BSP_IO_PORT_07_PIN_09,
+        .pin_cfg = ((uint32_t) IOPORT_CFG_DRIVE_HIGH |
+                    (uint32_t) IOPORT_CFG_PERIPHERAL_PIN |
+                    (uint32_t) IOPORT_CFG_PULLUP_ENABLE |
+                    (uint32_t) IOPORT_PERIPHERAL_CEU),
+    },
+    {                                                                   /* HSYNC (+pullup) */
+        .pin     = BSP_IO_PORT_07_PIN_10,
+        .pin_cfg = ((uint32_t) IOPORT_CFG_DRIVE_HIGH |
+                    (uint32_t) IOPORT_CFG_PERIPHERAL_PIN |
+                    (uint32_t) IOPORT_CFG_PULLUP_ENABLE |
+                    (uint32_t) IOPORT_PERIPHERAL_CEU),
+    },
 };
 
 static const ioport_cfg_t g_ioport_cfg =
@@ -148,4 +185,19 @@ static const ioport_cfg_t g_ioport_cfg =
 fsp_err_t bsp_pin_init (void)
 {
     return R_IOPORT_Open(&g_ioport_ctrl, &g_ioport_cfg);
+}
+
+fsp_err_t bsp_pin_cfg (uint16_t pin, uint32_t pin_cfg)
+{
+    return R_IOPORT_PinCfg(&g_ioport_ctrl, pin, pin_cfg);
+}
+
+fsp_err_t bsp_pin_write (uint16_t pin, bsp_io_level_t level)
+{
+    return R_IOPORT_PinWrite(&g_ioport_ctrl, pin, level);
+}
+
+fsp_err_t bsp_pin_read (uint16_t pin, bsp_io_level_t * p_level)
+{
+    return R_IOPORT_PinRead(&g_ioport_ctrl, pin, p_level);
 }

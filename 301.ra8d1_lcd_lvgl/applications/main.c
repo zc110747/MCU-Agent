@@ -11,6 +11,8 @@
 #include "bsp_api.h"
 #include "bsp_led.h"
 #include "bsp_lcd.h"
+#include "bsp_cam.h"
+#include "bsp_sccb.h"
 
 #define LED_THREAD_STACK_SIZE    (512U)
 #define LED_THREAD_PRIORITY      (20U)
@@ -40,6 +42,19 @@ static uint32_t cmd_parse_u32 (const char * s)
     {
         base = 16;
         s   += 2;
+    }
+    else
+    {
+        /* bare-hex convenience for the debug CLI: any a-f letter implies hex
+           (e.g. "cam rd 3c 300a" must read 0x3c/0x300a, not decimal). */
+        for (const char * p = s; '\0' != *p; p++)
+        {
+            if ((('a' <= *p) && (*p <= 'f')) || (('A' <= *p) && (*p <= 'F')))
+            {
+                base = 16;
+                break;
+            }
+        }
     }
 
     while (('\0' != *s) && ('\0' != s[0]))
@@ -194,9 +209,107 @@ static void lcd_cmd (uint8_t argc, char ** argv)
 }
 MSH_CMD_EXPORT_ALIAS(lcd_cmd, lcd, RGB panel: lcd init / info / pattern N / fill HEX);
 
+static void cam_cmd (uint8_t argc, char ** argv)
+{
+    if ((argc < 2U) || (RT_NULL == argv[1]))
+    {
+        rt_kprintf("usage: cam <init|scan|snap|stat|rd A R|bar on|off>\n");
+        return;
+    }
+
+    if (0 == rt_strcmp(argv[1], "init"))
+    {
+        fsp_err_t err = bsp_cam_init();
+
+        rt_kprintf("cam init: %s (0x%x)\n", (FSP_SUCCESS == err) ? "OK" : "FAILED",
+                   (unsigned int) err);
+    }
+    else if (0 == rt_strcmp(argv[1], "scan"))
+    {
+        bsp_cam_scan_t scan = {0};
+        fsp_err_t      err  = bsp_cam_scan(&scan);
+
+        if (FSP_SUCCESS == err)
+        {
+            rt_kprintf("cam scan: ACK addr7=0x%02x id=0x%04x (%s)\n",
+                       scan.addr7, scan.id, scan.name);
+        }
+        else
+        {
+            rt_kprintf("cam scan: no device ACKed (0x%x)\n", (unsigned int) err);
+        }
+    }
+    else if (0 == rt_strcmp(argv[1], "snap"))
+    {
+        fsp_err_t err = bsp_cam_snap();
+
+        if (FSP_SUCCESS == err)
+        {
+            uint8_t *  fb  = bsp_cam_framebuffer();
+            uint32_t   sum = 0U;
+
+            for (uint32_t i = 0U; i < BSP_CAM_FRAME_BYTES / 2U; i++)
+            {
+                sum += ((uint16_t) fb[2 * i] << 8) | fb[2 * i + 1U];
+            }
+
+            rt_kprintf("cam snap: OK fb=0x%08x first=%02x %02x %02x %02x %02x %02x %02x %02x sum=0x%08x\n",
+                       (unsigned int) (uint32_t) fb,
+                       fb[0], fb[1], fb[2], fb[3], fb[4], fb[5], fb[6], fb[7],
+                       (unsigned int) sum);
+        }
+        else
+        {
+            rt_kprintf("cam snap: FAILED (0x%x)\n", (unsigned int) err);
+        }
+    }
+    else if (0 == rt_strcmp(argv[1], "rd"))
+    {
+        /* cam rd <addr7hex> <reg16hex>: raw 16-bit-reg debug read. */
+        if (argc >= 4U)
+        {
+            uint8_t  addr = (uint8_t) cmd_parse_u32(argv[2]);
+            uint16_t reg  = (uint16_t) cmd_parse_u32(argv[3]);
+            uint8_t  val  = 0U;
+            fsp_err_t err = bsp_sccb_read16(addr, reg, &val);
+
+            rt_kprintf("cam rd 0x%02x[0x%04x]: %s val=0x%02x (0x%x)\n",
+                       addr, reg, (FSP_SUCCESS == err) ? "OK" : "FAIL",
+                       val, (unsigned int) err);
+        }
+        else
+        {
+            rt_kprintf("usage: cam rd <addr7hex> <reg16hex>  (e.g. cam rd 0x3c 0x300a)\n");
+        }
+    }
+    else if (0 == rt_strcmp(argv[1], "stat"))
+    {
+        rt_kprintf("cam %s, %ux%u bpp%u fb=0x%08x (%u bytes, .nocache_sdram)\n",
+                   bsp_cam_ready() ? "ready" : "down",
+                   (unsigned int) BSP_CAM_WIDTH,
+                   (unsigned int) BSP_CAM_HEIGHT,
+                   (unsigned int) BSP_CAM_BPP,
+                   (unsigned int) (uint32_t) bsp_cam_framebuffer(),
+                   (unsigned int) BSP_CAM_FRAME_BYTES);
+    }
+    else if (0 == rt_strcmp(argv[1], "bar"))
+    {
+        bool on  = (argc >= 3U) && (0 == rt_strcmp(argv[2], "on"));
+        fsp_err_t err = bsp_cam_colorbar(on);
+
+        rt_kprintf("cam colorbar %s: %s (0x%x)\n", on ? "on" : "off",
+                   (FSP_SUCCESS == err) ? "OK" : "FAILED", (unsigned int) err);
+    }
+    else
+    {
+        rt_kprintf("usage: cam <init|scan|snap|stat|rd A R|bar on|off>\n");
+    }
+}
+MSH_CMD_EXPORT_ALIAS(cam_cmd, cam, camera: cam init / scan / snap / stat / rd A R / bar on|off);
+
 int main (void)
 {
-    rt_kprintf("\nRA8D1 Vision Board - Phase 2\n");
+    rt_kprintf("\nRA8D1 Vision Board - Phase 3\n");
     rt_kprintf("RT-Thread Nano %d.%d.%d, CPU %u Hz, tick %u Hz\n",
                RT_VERSION_MAJOR, RT_VERSION_MINOR, RT_VERSION_PATCH,
                SystemCoreClock, RT_TICK_PER_SECOND);

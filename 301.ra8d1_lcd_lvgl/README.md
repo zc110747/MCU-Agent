@@ -40,7 +40,7 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 0.6 | VSCode 在线仿真（pyOCD + cortex-debug） | ✅ |
 | Phase 1 | RT-Thread Nano + LED + UART | ✅ |
 | Phase 2 | LCD（GLCDC，无 LVGL） | ✅ |
-| Phase 3 | Camera（CEU） | ⏳ |
+| Phase 3 | Camera（CEU） | ✅ |
 | Phase 4 | LVGL v9.1.0 | ⏳ |
 
 ## VSCode 在线仿真（pyOCD + cortex-debug）
@@ -160,6 +160,28 @@ GLCDC 层 1（RGB565）直取 SDRAM framebuffer，TCON 驱动 RGB 面板，应�
 
 - 双构零警告：Debug FLASH 47328B(2.26%) / 内部 RAM 92128B(8.79%)；Release FLASH 41016B(1.96%) / RAM 91992B(8.77%)
 - 另：`.sdram` NOLOAD 768000B（framebuffer，32MB 的 2.29%，不占 Flash/内部 RAM）
+
+## Phase 3：Camera（OV5640 + CEU 采集）
+
+OV5640（QVGA 320×240 RGB565，8-bit DVP）→ CEU → SDRAM framebuffer 全链贯通。
+SCCB 用 P1013/P1014 位bang（100kHz）；XCLK 用 GPT7 PWM @ **P1006**（GTIOC7B，
+24MHz = PCLKA 120MHz/5）；CEU 配置逐值复刻官方 `g_ceu_qvga`，FRAME_END 中断
+（slot 1 = EVENT_CEU_CEUI）+ 信号量完成抓帧同步。串口命令
+`cam init / scan / snap / stat / rd A R / bar on|off`。
+
+> ⚠️ **XCLK 引脚根因**：P1011 是 GTIOC6B（官方 g_timer6 背光 PWM 输出），
+> GTIOC7B 在 **P1006**。官方工程 GPT 双实例（ch6/ch7）+ 双 GPT1 引脚导致
+> "寄存器逐位一致却无输出"的假象，最终以 P1006 PSEL 扫描实测 PWM 定案。
+> 完整 9 步取证链见 `documents/phase3-report.md` 第 4 节。
+
+验收：`python tools/verify/verify_phase3.py` → **14 passed, 0 failed**
+（含 SWD 读回 framebuffer、colorbar 8 条带 ~40px 周期/行均匀/确定性分析、
+传感器 ID 寄存器读回 0x56/0x40）。
+
+### 实测数据（Phase 3）
+
+- 双构零警告：Debug FLASH 60448B(2.88%) / 内部 RAM 67616B(6.45%)；Release FLASH 50944B(2.43%) / RAM 67472B(6.43%)
+- 另：SDRAM 合计 921600B（LCD fb 768000 + camera fb 153600，32MB 的 2.75%）
 
 ## 参考
 
