@@ -200,6 +200,11 @@ SDRAM framebuffer；tick 用 `lv_tick_set_cb()` 挂 `rt_tick_get_millisecond()`
 验收：`python tools/verify/verify_phase4.py` → **7 passed, 0 failed**
 （动画活体 fps>20、SWD 像素断言 4 色块精确命中 0xF800/0x07E0/0x001F/0xFFFF）。
 
+> ℹ️ **`lcd` 与 `lv` 的分层关系**：Phase 2 的 `lcd pattern/fill` 是裸 framebuffer
+> 写入，会**覆盖** LVGL 当前画面（LVGL 不感知外部写）；再次发任一 `lv
+> start/test/demo` 命令触发重绘即夺回屏幕。这是设计上的分层（裸 BSP 在 LVGL 之下），
+> 不是故障。已实测：`lv test`→px=0xF800，`lcd pattern 0`→px=0x0，`lv demo`→fps 恢复 31。
+
 ### 实测数据（Phase 4）
 
 - 双构零警告：Debug FLASH 449060B(21.41%) / 内部 RAM 263384B(25.12%)；Release FLASH 350344B(16.70%) / RAM 263176B(25.10%)

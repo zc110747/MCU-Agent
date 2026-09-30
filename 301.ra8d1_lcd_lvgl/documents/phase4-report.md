@@ -69,7 +69,19 @@ g_lcd_fb @ 0x68000000 (.sdram, 768000B)  ──►  GLCDC 层1 ──► RGB 面
   demo 为纯输出。如后续需要接 GT911/FT 系列，加 `lv_indev` 驱动即可。
 - **深色主题**：与项目 UI 约定一致（`lv_theme_default_init(..., dark=true, ...)`）。
 
-## 6. 全 Phase 总验收状态
+## 6. 与 Phase 2 `lcd` 命令的分层共存（实测）
+
+LVGL 直接渲染进 Phase 2 的 framebuffer，而 `lcd pattern/fill` 是**裸 framebuffer 写入**，
+LVGL 不感知外部写 → 会覆盖当前画面。任一 `lv start/test/demo` 触发重绘即夺回。
+这是分层设计（裸 BSP 在 LVGL 之下）而非故障。实测序列：
+
+| 步骤 | px(60,40) | 说明 |
+|---|---|---|
+| `lv test` | 0xF800 | LVGL 测试屏红色块 |
+| `lcd pattern 0` | 0x0000 | Phase 2 裸命令覆盖（pattern 0 = 黑） |
+| `lv demo` | — | fps 恢复 31，LVGL 重新接管 |
+
+## 7. 全 Phase 总验收状态
 
 | Phase | 内容 | 验收 | commit |
 |---|---|---|---|
