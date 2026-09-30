@@ -38,7 +38,7 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 0 | 硬件与官方 BSP 分析 | ✅ |
 | Phase 0.5 | GCC 裸机最小工程 + OpenOCD 调试链 | ✅ |
 | Phase 0.6 | VSCode 在线仿真（pyOCD + cortex-debug） | ✅ |
-| Phase 1 | RT-Thread Nano + LED + UART | ⏳ |
+| Phase 1 | RT-Thread Nano + LED + UART | ✅ |
 | Phase 2 | LCD（GLCDC，无 LVGL） | ⏳ |
 | Phase 3 | Camera（CEU） | ⏳ |
 | Phase 4 | LVGL v9.1.0 | ⏳ |
@@ -90,6 +90,47 @@ openocd -f openocd.cfg                                  rem 备用调试链（gd
 > 均未定义其 region），与 flash.py 行为一致，不影响运行。
 
 - 编译参数：`-mcpu=cortex-m85 -mfpu=auto -mfloat-abi=hard -mthumb`
+
+## Phase 1：RT-Thread Nano 5.0.2 + LED + 串口控制台
+
+内核跑在 RT-Thread Nano 上：`entry()` → `rtthread_startup()` → main 线程 → `main()`。
+BSP 只提供三个钩子：`rt_hw_board_init()` / `rt_hw_console_output()` / `rt_hw_console_getchar()`。
+
+| 项 | 值 |
+|---|---|
+| 内核 | RT-Thread Nano 5.0.2（`third_party/rt-thread-nano`，上游原样） |
+| 堆 | `RT_USING_SMALL_MEM_AS_HEAP`，64KB 静态数组（`.bss`） |
+| tick | SysTick @1kHz（`RT_TICK_PER_SECOND=1000`） |
+| 控制台 | SCI9（SCI_B）@P208/P209，115200 8N1；RX 中断 + 环形缓冲 + 信号量，TX 轮询 FIFO |
+| Shell | finsh / msh，`tshell` 线程 4096B；命令 `led on|off|blink` |
+| 线程 | `main`（2048B）/ `led`（512B，500ms 翻转）/ `tshell` / `tidle0` |
+
+验收：`python tools/verify/verify_phase1.py` → **15 passed, 0 failed**
+（含经 SWD 读回 P102 的 `PmnPFS` 引脚电平：`led on`→PODR=1、`led off`→PODR=0、blink→1.4s 内 3 次翻转）。
+
+```text
+RA8D1 Vision Board - Phase 1
+RT-Thread Nano 5.0.2, CPU 480000000 Hz, tick 1000 Hz
+[heartbeat] tick=4016 heap total=65440 used=7280 max=7280
+msh >led on
+led on
+```
+
+### Phase 1 踩到的三个坑
+
+| 坑 | 现象 | 根因 / 修法 |
+|---|---|---|
+| `IOPORT_CFG_NMOS_ENABLE` | TXD 完全无输出 | 0x40 = NMOS 开漏，官方 BSP 只用在 P408/P409；P208/P209 必须去掉 |
+| `CSR_b.TDRE` 门控 | 每 16 字节丢字符 | SCI_B 跑 FIFO 模式（深度 16），TDRE 只反映 TDR/移位寄存器握手；改用 `FTSR_b.T < fifo_depth`（与驱动自己的 TXI ISR 一致） |
+| RT-Thread 打成静态库 | finsh 永不启动，`help` 无任何回显，无警告无报错 | 链接器只在归档成员能解析**未定义符号**时抽取它；`shell.c` 的唯一入口是 `INIT_APP_EXPORT` 产生的 `.rti_fn.6` **数据段**，不是符号 → 整个成员被丢弃。改把 RT-Thread 源码直接编进 executable（`--gc-sections` 仍会裁剪无用代码） |
+
+> 判据：`arm-none-eabi-nm build/firmware.elf | grep __rt_init` 必须出现
+> `__rt_init_finsh_system_init`；静态库方案下只有 4 个 marker、没有它。
+
+### 实测数据（Phase 1）
+
+- 双构零警告：Debug FLASH 39128B(1.87%) / RAM 92024B(8.77%)；Release FLASH 34236B(1.63%) / RAM 91936B(8.76%)
+- 心跳 tick 间隔 2003（1kHz 准确），heap total 65440 / used 7280 / max 7280
 
 ## 参考
 

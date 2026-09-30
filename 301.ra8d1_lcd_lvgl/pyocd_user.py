@@ -14,7 +14,7 @@
 #   SRAM       : 0x22000000 .. 0x220DFFFF  (0xE0000, non-secure view)
 import os
 
-from pyocd.core.memory_map import FlashRegion, MemoryMap, RamRegion
+from pyocd.core.memory_map import DeviceRegion, FlashRegion, MemoryMap, RamRegion
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 FLM_PATH = os.path.join(_THIS_DIR, "tools", "flash", "RA8D1_2M.FLM")
@@ -25,6 +25,13 @@ SRAM_START = 0x22000000
 SRAM_LENGTH = 0xE0000
 ALGO_RAM_START = 0x22000000
 ALGO_RAM_SIZE = 0x7800
+# Peripheral space (ICU/SCI/PFS/...) - read-only from gdb, needed to verify
+# pin mux and UART status registers without a scope.
+PERIPH_START = 0x40000000
+PERIPH_LENGTH = 0x20000000
+# External memory window: QSPI 0x60000000 + SDRAM 0x68000000 (LVGL framebuffer).
+EXTMEM_START = 0x60000000
+EXTMEM_LENGTH = 0x10000000
 
 
 def _build_memory_map():
@@ -39,7 +46,9 @@ def _build_memory_map():
     flash_region._RAMsize = ALGO_RAM_SIZE
 
     sram_region = RamRegion(start=SRAM_START, length=SRAM_LENGTH, name="sram")
-    return MemoryMap([flash_region, sram_region])
+    periph_region = DeviceRegion(start=PERIPH_START, length=PERIPH_LENGTH, name="peripherals")
+    extmem_region = RamRegion(start=EXTMEM_START, length=EXTMEM_LENGTH, name="ext_mem")
+    return MemoryMap([flash_region, sram_region, periph_region, extmem_region])
 
 
 def will_init_target(target, init_sequence):
