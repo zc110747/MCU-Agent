@@ -260,7 +260,8 @@ static void led_task(void) {
 }
 
 /* ------------------------------------------------------------------------ */
-int main(void) {
+int main(void) 
+{
   bsp_init();
   bsp_log_init();         /* USART1 @ 115200 8N1 debug logging */
 
