@@ -5,6 +5,10 @@
  * -------------------------------------------------------------------------*/
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 
 void fatfs_init(void);            /* mount; format + seed README if blank */
@@ -17,3 +21,7 @@ void cmd_ls(void);                /* CDC: list root directory             */
 void cmd_cat(const char* fname);  /* CDC: print a file                    */
 void cmd_remount(void);           /* CDC: re-read the on-disk FAT (after  */
                                    /*       the USB host has changed files) */
+
+#ifdef __cplusplus
+}
+#endif

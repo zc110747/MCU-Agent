@@ -9,14 +9,20 @@
 
 SD_HandleTypeDef hsd1;
 
-static bool     s_ready  = false;
-static uint32_t s_blocks = 0;
-static uint32_t s_bsize  = 512;
+typedef struct
+{
+  bool     ready;
+  uint32_t blocks;
+  uint32_t bsize;
+} SD_CARD_STATE_T;
+
+static SD_CARD_STATE_T g_sd_card = {0};
 
 /* ------------------------------------------------------------------------ */
 /* HAL MSP hook - runs from inside HAL_SD_Init()                            */
 /* ------------------------------------------------------------------------ */
-void HAL_SD_MspInit(SD_HandleTypeDef* hsd) {
+void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
+{
   GPIO_InitTypeDef g = {0};
 
   if (hsd->Instance != SDMMC1) return;
@@ -44,13 +50,15 @@ void HAL_SD_MspInit(SD_HandleTypeDef* hsd) {
   HAL_GPIO_Init(GPIOD, &g);
 }
 
-void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd) {
+void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd)
+{
   if (hsd->Instance != SDMMC1) return;
   __HAL_RCC_SDMMC1_CLK_DISABLE();
 }
 
 /* ------------------------------------------------------------------------ */
-void sdcard_init(void) {
+void sdcard_init(void)
+{
   HAL_SD_CardInfoTypeDef info;
 
   HAL_SD_DeInit(&hsd1);
@@ -64,37 +72,44 @@ void sdcard_init(void) {
    * HAL drops this to <=400 kHz on its own for the card-identification phase. */
   hsd1.Init.ClockDiv            = 2;
 
-  s_ready = false;
+  g_sd_card.ready = false;
 
   if (HAL_SD_Init(&hsd1) != HAL_OK)                               return;
   if (HAL_SD_ConfigWideBusOperation(&hsd1, SDMMC_BUS_WIDE_4B) != HAL_OK) return;
 
-  if (HAL_SD_GetCardInfo(&hsd1, &info) == HAL_OK) {
-    s_blocks = info.LogBlockNbr;
-    s_bsize  = info.LogBlockSize;   /* 512 */
+  if (HAL_SD_GetCardInfo(&hsd1, &info) == HAL_OK)
+  {
+    g_sd_card.blocks = info.LogBlockNbr;
+    g_sd_card.bsize  = info.LogBlockSize;   /* 512 */
   }
-  s_ready = (s_blocks > 0);
+  g_sd_card.ready = (g_sd_card.blocks > 0);
 }
 
-bool sdcard_present(void) { return s_ready; }
+bool sdcard_present(void)
+{ return g_sd_card.ready; }
 
-uint32_t sdcard_block_count(void) { return s_blocks; }
-uint32_t sdcard_block_size(void)  { return s_bsize;  }
+uint32_t sdcard_block_count(void)
+{ return g_sd_card.blocks; }
+uint32_t sdcard_block_size(void)
+{ return g_sd_card.bsize;  }
 
-int sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count) {
-  if (!s_ready) return SD_ST_NO_CARD;
+int sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count)
+{
+  if (!g_sd_card.ready) return SD_ST_NO_CARD;
   return (HAL_SD_ReadBlocks(&hsd1, buf, lba, count, 5000) == HAL_OK)
          ? SD_ST_OK : SD_ST_ERR;
 }
 
-int sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count) {
-  if (!s_ready) return SD_ST_NO_CARD;
+int sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count)
+{
+  if (!g_sd_card.ready) return SD_ST_NO_CARD;
   if (HAL_SD_WriteBlocks(&hsd1, (uint8_t*) buf, lba, count, 5000) != HAL_OK)
     return SD_ST_ERR;
 
   /* Wait until the card has finished programming the blocks. */
   uint32_t deadline = HAL_GetTick() + 5000;
-  while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER) {
+  while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
+  {
     if ((int32_t)(HAL_GetTick() - deadline) >= 0) return SD_ST_ERR;
   }
   return SD_ST_OK;

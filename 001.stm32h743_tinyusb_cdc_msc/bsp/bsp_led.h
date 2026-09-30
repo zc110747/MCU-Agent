@@ -5,6 +5,10 @@
  * -------------------------------------------------------------------------*/
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "stm32h7xx.h"
@@ -19,3 +23,7 @@
 void bsp_led_init(void);
 void bsp_led_write(bool on);
 void bsp_led_toggle(void);
+
+#ifdef __cplusplus
+}
+#endif

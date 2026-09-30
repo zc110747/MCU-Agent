@@ -7,38 +7,53 @@
 /* ------------------------------------------------------------------------ */
 /* Core exceptions                                                           */
 /* ------------------------------------------------------------------------ */
-void NMI_Handler(void) {
-  while (1) { }
+void NMI_Handler(void)
+{
+  while (1)
+  { }
 }
 
-void HardFault_Handler(void) {
+void HardFault_Handler(void)
+{
   /* Break here with the debugger: inspect SCB->CFSR / HFSR and the stacked
    * PC to find the offending instruction. */
-  while (1) { }
+  while (1)
+  { }
 }
 
-void MemManage_Handler(void) {
-  while (1) { }
+void MemManage_Handler(void)
+{
+  while (1)
+  { }
 }
 
-void BusFault_Handler(void) {
-  while (1) { }
+void BusFault_Handler(void)
+{
+  while (1)
+  { }
 }
 
-void UsageFault_Handler(void) {
-  while (1) { }
+void UsageFault_Handler(void)
+{
+  while (1)
+  { }
 }
 
-void SVC_Handler(void)      { }
-void DebugMon_Handler(void) { }
-void PendSV_Handler(void)   { }
+void SVC_Handler(void)
+{ }
+void DebugMon_Handler(void)
+{ }
+void PendSV_Handler(void)
+{ }
 
 /* USART1 - debug log UART (TX ring-buffer drain handled in bsp_log.c). */
-void USART1_IRQHandler(void) {
+void USART1_IRQHandler(void)
+{
   log_uart_tx_irq();
 }
 
-void SysTick_Handler(void) {
+void SysTick_Handler(void)
+{
   HAL_IncTick();
 }
 
@@ -49,10 +64,12 @@ void SysTick_Handler(void) {
 /* family: rhport 0 is always OTG_FS, rhport 1 is always OTG_HS - even though */
 /* the H7 reference manual calls them USB2_OTG_FS and USB1_OTG_HS.            */
 /* ------------------------------------------------------------------------ */
-void OTG_FS_IRQHandler(void) {
+void OTG_FS_IRQHandler(void)
+{
   tud_int_handler(0);
 }
 
-void OTG_HS_IRQHandler(void) {
+void OTG_HS_IRQHandler(void)
+{
   tud_int_handler(1);
 }

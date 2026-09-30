@@ -13,6 +13,10 @@
  * -------------------------------------------------------------------------*/
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "bsp.h"
@@ -21,7 +25,7 @@ typedef enum {
   SD_ST_OK      =  0,
   SD_ST_ERR     = -1,
   SD_ST_NO_CARD = -2,
-} sd_status_t;
+} SD_STATUS_T;
 
 void     sdcard_init(void);
 bool     sdcard_present(void);
@@ -33,5 +37,9 @@ int sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count);
 int sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count);
 HAL_StatusTypeDef sdcard_read_disk(uint8_t *buf, uint32_t startBlocks,
                                    uint32_t NumberOfBlocks);
+
+#ifdef __cplusplus
+}
+#endif
 HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
                                     uint32_t NumberOfBlocks);

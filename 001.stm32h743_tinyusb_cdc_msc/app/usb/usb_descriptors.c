@@ -47,7 +47,8 @@ static const tusb_desc_device_t desc_device = {
     .bNumConfigurations = 0x01,
 };
 
-const uint8_t* tud_descriptor_device_cb(void) {
+const uint8_t* tud_descriptor_device_cb(void)
+{
   return (const uint8_t*) &desc_device;
 }
 
@@ -84,7 +85,8 @@ static const uint8_t desc_fs_configuration[] = {
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 5, EPNUM_MSC_OUT, EPNUM_MSC_IN, 64),
 };
 
-const uint8_t* tud_descriptor_configuration_cb(uint8_t index) {
+const uint8_t* tud_descriptor_configuration_cb(uint8_t index)
+{
   (void) index;
   return desc_fs_configuration;
 }
@@ -95,7 +97,8 @@ const uint8_t* tud_descriptor_configuration_cb(uint8_t index) {
 enum { STRID_LANGID = 0, STRID_MANUFACTURER, STRID_PRODUCT, STRID_SERIAL, STRID_CDC, STRID_MSC };
 
 static const char* string_desc_arr[] = {
-    (const char[]) { 0x09, 0x04 },   /* 0: English (0x0409), as raw bytes */
+    (const char[])
+    { 0x09, 0x04 },   /* 0: English (0x0409), as raw bytes */
     "STM32",                         /* 1: Manufacturer */
     "H743 TinyUSB CDC",              /* 2: Product      */
     NULL,                            /* 3: Serial - generated from the chip UID */
@@ -108,25 +111,30 @@ static uint16_t _desc_str[33];
 
 /* Turn the 96-bit unique device ID into a 24-char hex serial number, so every
  * board enumerates as a distinct device instead of sharing one COM port. */
-static uint8_t serial_from_uid(uint16_t* utf16, uint8_t max_chars) {
+static uint8_t serial_from_uid(uint16_t* utf16, uint8_t max_chars)
+{
   static const char hex[] = "0123456789ABCDEF";
   const uint32_t* uid = (const uint32_t*) UID_BASE;
   uint8_t n = 0;
 
-  for (uint8_t w = 0; w < 3 && n + 8 <= max_chars; w++) {
+  for (uint8_t w = 0; w < 3 && n + 8 <= max_chars; w++)
+  {
     uint32_t v = uid[w];
-    for (int8_t nib = 7; nib >= 0; nib--) {
+    for (int8_t nib = 7; nib >= 0; nib--)
+    {
       utf16[n++] = (uint16_t) hex[(v >> (nib * 4)) & 0x0F];
     }
   }
   return n;
 }
 
-const uint16_t* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+const uint16_t* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
+{
   (void) langid;
   uint8_t chr_count = 0;
 
-  switch (index) {
+  switch (index)
+  {
     case STRID_LANGID:
       memcpy(&_desc_str[1], string_desc_arr[STRID_LANGID], 2);
       chr_count = 1;
@@ -143,7 +151,8 @@ const uint16_t* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         const char* str = string_desc_arr[index];
         chr_count = (uint8_t) strlen(str);
         if (chr_count > 32) chr_count = 32;
-        for (uint8_t i = 0; i < chr_count; i++) {
+        for (uint8_t i = 0; i < chr_count; i++)
+        {
           _desc_str[1 + i] = str[i];       /* ASCII -> UTF-16LE */
         }
       }

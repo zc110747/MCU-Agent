@@ -28,13 +28,16 @@ uint32_t g_hclk_hz;
 #define GPIO_AF12_OTG1_FS  ((uint8_t)0x0C)
 #endif
 
-static void error_trap(void) {
+static void error_trap(void)
+{
   __disable_irq();
-  while (1) { /* hang here - attach the debugger to see who called us */ }
+  while (1)
+  { /* hang here - attach the debugger to see who called us */ }
 }
 
 /* ------------------------------------------------------------------------ */
-static void system_clock_config(void) {
+static void system_clock_config(void)
+{
   RCC_OscInitTypeDef       osc  = {0};
   RCC_ClkInitTypeDef       clk  = {0};
   RCC_PeriphCLKInitTypeDef pclk = {0};
@@ -45,7 +48,8 @@ static void system_clock_config(void) {
 
   /* 2. Voltage scale 1 supports up to 400 MHz on this part. */
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-  while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) { }
+  while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY))
+  { }
 
   /* 3. HSE (25 MHz passive crystal, PLL source) + HSI48 (USB).
    *    Leave HSI running: right after reset HSI is the system clock, and HAL
@@ -67,7 +71,8 @@ static void system_clock_config(void) {
   osc.PLL.PLLRGE    = RCC_PLL1VCIRANGE_3;   /* input is 8..16 MHz      */
   osc.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;      /* VCO 192..836 MHz        */
   osc.PLL.PLLFRACN  = 0;
-  if (HAL_RCC_OscConfig(&osc) != HAL_OK) {
+  if (HAL_RCC_OscConfig(&osc) != HAL_OK)
+  {
     error_trap();
   }
 
@@ -82,7 +87,8 @@ static void system_clock_config(void) {
   clk.APB1CLKDivider = RCC_APB1_DIV2;
   clk.APB2CLKDivider = RCC_APB2_DIV2;
   clk.APB4CLKDivider = RCC_APB4_DIV2;
-  if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_2) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_2) != HAL_OK)
+  {
     error_trap();
   }
 
@@ -92,7 +98,8 @@ static void system_clock_config(void) {
   pclk.PeriphClockSelection = RCC_PERIPHCLK_USB | RCC_PERIPHCLK_SDMMC;
   pclk.UsbClockSelection    = RCC_USBCLKSOURCE_HSI48;
   pclk.SdmmcClockSelection  = RCC_SDMMCCLKSOURCE_PLL;   /* PLL1Q = 100 MHz */
-  if (HAL_RCCEx_PeriphCLKConfig(&pclk) != HAL_OK) {
+  if (HAL_RCCEx_PeriphCLKConfig(&pclk) != HAL_OK)
+  {
     error_trap();
   }
 
@@ -105,7 +112,8 @@ static void system_clock_config(void) {
  * the 48 MHz USB clock keeps the 0.25 % accuracy full-speed USB requires,
  * with no crystal involved.
  * -------------------------------------------------------------------------*/
-static void usb_crs_config(void) {
+static void usb_crs_config(void)
+{
   RCC_CRSInitTypeDef crs = {0};
 
   __HAL_RCC_CRS_CLK_ENABLE();
@@ -124,15 +132,18 @@ static void usb_crs_config(void) {
   HAL_RCCEx_CRSConfig(&crs);
 }
 
-uint32_t board_millis(void)          { return HAL_GetTick(); }
-void     board_delay_ms(uint32_t ms) { HAL_Delay(ms); }
+uint32_t board_millis(void)
+{ return HAL_GetTick(); }
+void     board_delay_ms(uint32_t ms)
+{ HAL_Delay(ms); }
 
 /* ---------------------------------------------------------------------------
  * USB pins, clock and power.
  * TinyUSB itself takes care of the GCCFG power-down bit and the core reset;
  * everything below is what the stack expects the board to have done already.
  * -------------------------------------------------------------------------*/
-static void usb_hw_init(void) {
+static void usb_hw_init(void)
+{
   GPIO_InitTypeDef g = {0};
 
 #if BOARD_TUD_RHPORT == 0
@@ -179,7 +190,8 @@ static void usb_hw_init(void) {
 }
 
 /* ------------------------------------------------------------------------ */
-void bsp_init(void) {
+void bsp_init(void)
+{
   /* Instruction + data cache. Safe here because the DWC2 core runs in FIFO
    * (slave) mode: every USB byte moves through CPU accesses to the peripheral
    * region, which the default MPU map already treats as non-cacheable. */

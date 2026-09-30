@@ -11,7 +11,8 @@
 void tud_msc_inquiry_cb(uint8_t lun,
                         uint8_t vendor_id[8],
                         uint8_t product_id[16],
-                        uint8_t product_rev[4]) {
+                        uint8_t product_rev[4])
+                        {
   (void) lun;
   /* The stack has already flagged this as a REMOVABLE device (U-disk). */
   static const char v[] = "STM32H7";
@@ -22,19 +23,22 @@ void tud_msc_inquiry_cb(uint8_t lun,
   memcpy(product_rev, r, sizeof(r) - 1);
 }
 
-bool tud_msc_test_unit_ready_cb(uint8_t lun) {
+bool tud_msc_test_unit_ready_cb(uint8_t lun)
+{
   (void) lun;
   return sdcard_present();
 }
 
-void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size) {
+void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size)
+{
   (void) lun;
   *block_count = sdcard_block_count();
   *block_size  = (uint16_t) sdcard_block_size();
 }
 
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
-                           void* buffer, uint32_t bufsize) {
+                           void* buffer, uint32_t bufsize)
+                           {
   (void) lun;
   uint32_t const blk   = sdcard_block_size();
   uint32_t const start = lba + (offset / blk);
@@ -44,7 +48,8 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 }
 
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
-                            uint8_t* buffer, uint32_t bufsize) {
+                            uint8_t* buffer, uint32_t bufsize)
+                            {
   (void) lun;
   uint32_t const blk   = sdcard_block_size();
   uint32_t const start = lba + (offset / blk);
@@ -54,7 +59,8 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 }
 
 int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16],
-                         void* buffer, uint16_t bufsize) {
+                         void* buffer, uint16_t bufsize)
+                         {
   (void) lun; (void) buffer; (void) bufsize;
   /* Commands the stack does not implement itself land here. SYNCHRONIZE CACHE
    * (0x35) is routinely sent by Linux/macOS hosts; acknowledge it with no data.
@@ -67,9 +73,11 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16],
  * While the host owns the card we release the device-side FatFs mount so the
  * two writers can never race and corrupt the filesystem. */
 bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition,
-                            bool start, bool load_eject) {
+                            bool start, bool load_eject)
+                            {
   (void) lun; (void) power_condition;
-  if (load_eject) {
+  if (load_eject)
+  {
     if (start) fatfs_release_for_host();
     else       fatfs_reacquire();
   }
