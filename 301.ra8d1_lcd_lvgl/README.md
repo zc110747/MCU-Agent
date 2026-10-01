@@ -45,6 +45,7 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 5 | MIPI DSI 显示通路重做 + LVGL 菜单 + 触摸（CST812T） | ⚠️ 显示/菜单 ✅，触摸未连通（硬件层，见 `documents/phase5-touch-report.md`） |
 | Phase 6 | 触摸排查收尾（判定硬件/面板层故障） | ✅ |
 | Phase 7 | 取消触摸 + 单页信息界面 + 硬件 RTC 实时时钟 | ✅ |
+| Phase 8 | 移除复位静态彩条 + 启动动作条（boot splash） | ✅ |
 
 ## VSCode 在线仿真（pyOCD + cortex-debug）
 
@@ -264,3 +265,39 @@ Phase 7 据此**整体移除触摸实现**，并把多页菜单（boot/menu/info
 - 走时精度：60.61s 墙钟 ↔ RTC 60s（ratio **0.9899**），`rtc set 2026 10 01 16 30 0` → 读回 `16:30:01`
 - SWD framebuffer 取证：header `0x09EC`、时钟 cyan `0x073F`、值绿 `0x470E`、标题金 `0xFECC`
   全部命中设计色；时钟文字包围盒 x=191..288 / y=85..104（水平居中于 480px 面板）
+
+## Phase 8：移除复位静态彩条 + 启动动作条（boot splash）
+
+Phase 7 之后，复位时面板会在 `bsp_lcd_init()` 与 LVGL 首帧之间显示一段**冻结的
+8 色彩条**（`bsp_lcd_pattern(2U)` 作为占位）。Phase 8 去掉这个占位，改为
+**启动动作条界面**：板名 + "Booting..." + 橙色进度条 + 当前动作文字，跑满后
+自动切到 Phase 7 的单页状态页。
+
+### 变更
+
+- **新增 `applications/ui/ui_page_boot.c/.h`**：标题栏 + 居中 "Booting..." +
+  `lv_bar`（轨道 `COL_BAR_BG`、填充 `COL_ACCENT`）+ 步骤 caption + 百分比 +
+  底部版本行。40 ms `lv_timer` 自驱动步进（2%/tick，约 2 s 跑满），
+  `ui_page_boot_done()` 供交接判定，`ui_page_boot_set()` 允许外部命名真实步骤。
+- **`lv_port.c`**：LVGL 线程起来后先 `build_boot_screen()`（`g_boot_active=true`），
+  `mode_timer_cb` 检测 `ui_page_boot_done()` 后自动 `build_main_screen()` 交接；
+  `lv test` / `lv main` 请求会抢先取消启动页。
+- **`main.c`**：`bsp_lcd_pattern(2U)` → `bsp_lcd_fill(0x0000U)`（黑屏占位，
+  LVGL 启动页立即接管）；启动横幅改印 Phase 8。
+- **`tools/verify/verify_phase8.py`**：L1 串口 shell/LVGL 存活；L2 复位后
+  **0.55 s 立刻 halt** 抓启动帧（校验动作条轨道/填充/标题栏命中、无大块纯白彩条），
+  再抓 4.0 s 的主页面帧（时钟/值/标签命中、动作条已消失）。
+
+> ⚠️ **抓短命启动帧要靠 SWD reset + 快速 halt**：启动动作条约 2 s，
+> 复位后 `time.sleep(0.55)` 再 `halt()` 才能落到动画中段；用串口看不到画面，
+> 只能读 framebuffer 取证。判定"是否存在彩条"要看**是否有整块大面积纯色**，
+> 不要把标题白字（几百 px 抗锯齿）误判为彩条。
+
+### 实测数据（Phase 8）
+
+- 双构**零警告**：Debug text 534604B / data 496B / bss 914740B；Release text 437676B / data 252B / bss 914768B
+- 启动帧取证（复位后 0.55 s）：动作条轨道 `0x2945` = **5514 px**、填充 `0xFD00` = **228 px**
+  （≈4% 进度，与动画位置吻合）、标题栏 `0x09EC` = 15824 px、标题白字仅 509 px（无彩条）
+- 主页面帧取证（复位后 4.0 s）：时钟 cyan `0x073F` = 513 px、值绿 `0x470E` = 1344 px、
+  标签灰 `0x8C51` = 517 px；动作条轨道像素归 **0**（确认已交接）
+- `tools/verify/verify_phase8.py` → **10 passed / 0 failed / 2 manual**

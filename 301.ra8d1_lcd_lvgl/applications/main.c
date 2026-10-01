@@ -1,7 +1,7 @@
 /**
  * @file main.c
  * @brief Application: RT-Thread Nano + LED + UART + MIPI DSI panel + LVGL
- *        single-page UI with a hardware-RTC clock.
+ *        single-page UI with a hardware-RTC clock and a boot action bar.
  *
  * NOTE: entry() is NOT here. For __GNUC__ RT-Thread provides it in
  * third_party/rt-thread-nano/src/components.c: entry() -> rtthread_startup(),
@@ -326,7 +326,7 @@ MSH_CMD_EXPORT_ALIAS(rtc_cmd, rtc, hardware RTC: rtc info / rtc set YYYY MM DD h
 
 int main (void)
 {
-    rt_kprintf("\nRA8D1 Vision Board - Phase 7 (single-page UI + RTC)\n");
+    rt_kprintf("\nRA8D1 Vision Board - Phase 8 (boot action bar + single-page UI + RTC)\n");
     rt_kprintf("RT-Thread Nano %d.%d.%d, CPU %u Hz, tick %u Hz\n",
                RT_VERSION_MAJOR, RT_VERSION_MINOR, RT_VERSION_PATCH,
                SystemCoreClock, RT_TICK_PER_SECOND);
@@ -375,8 +375,8 @@ int main (void)
 
         if (g_lcd_started)
         {
-            bsp_lcd_pattern(2U);   /* colour bars until LVGL paints over them */
-            lv_port_start();       /* Phase 5: LVGL demo thread                */
+            bsp_lcd_fill(0x0000U); /* black until the LVGL boot splash paints */
+            lv_port_start();       /* Phase 8: boot splash -> main screen     */
         }
     }
 

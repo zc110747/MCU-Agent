@@ -16,6 +16,10 @@
  * Phase 7 removed the touch input device: the 2.0" panel fitted to this board
  * does not answer any I2C transaction (see documents/phase5-touch-report.md),
  * so the screen is display-only and the UI is driven from the debug console.
+ *
+ * Phase 8 adds a boot splash with an animated action bar: the LVGL thread
+ * builds ui_page_boot first, then mode_timer_cb swaps to the main screen once
+ * the bar has filled (see applications/ui/ui_page_boot.c).
  */
 #include "lv_port.h"
 
@@ -24,6 +28,7 @@
 
 #include "bsp_lcd.h"
 #include "ui_page_main.h"
+#include "ui_page_boot.h"
 
 /* ---- state --------------------------------------------------------------- */
 static rt_thread_t       g_lvgl_thread;
@@ -109,6 +114,18 @@ static void build_main_screen (void)
     lv_screen_load(scr);
 }
 
+/* ---- boot splash + action bar --------------------------------------------
+   The panel used to show a frozen 8-colour-bar pattern between bsp_lcd_init()
+   and the first LVGL frame.  It now shows a real boot screen with an animated
+   action bar: this builds it, and mode_timer_cb hands over to the main screen
+   once the bar has filled. */
+static void build_boot_screen (void)
+{
+    lv_obj_t * scr = ui_page_boot_build();
+
+    lv_screen_load(scr);
+}
+
 /* ---- deterministic test screen for SWD pixel asserts ----------------------
    Solid rects, no radius/border/shadow. Center pixels are pure colors.
    Row 10..70 / cols spread across 480: four 100 px rects starting at
@@ -157,16 +174,28 @@ static void build_test_screen (void)
 }
 
 /* ---- screen-mode requests, served inside the LVGL thread ----------------- */
+static volatile bool g_boot_active;    /* boot splash owns the panel       */
+
 static void mode_timer_cb (lv_timer_t * timer)
 {
+    /* Hand over from the boot splash as soon as its action bar fills, unless
+       the user explicitly asked for another screen meanwhile. */
+    if (g_boot_active && ui_page_boot_done())
+    {
+        g_boot_active = false;
+        build_main_screen();
+    }
+
     if (g_test_req)
     {
         g_test_req = false;
+        g_boot_active = false;
         build_test_screen();
     }
     else if (g_main_req)
     {
         g_main_req = false;
+        g_boot_active = false;
         build_main_screen();
     }
 
@@ -205,7 +234,10 @@ static void lvgl_thread_entry (void * param)
                                  lv_color_hex(0x4C8DFF), lv_color_hex(0x3DDC84),
                                  true, &lv_font_montserrat_14);
 
-    build_main_screen();
+    /* Phase 8: show the boot splash first; mode_timer_cb swaps to the main
+       screen once its action bar reaches 100%. */
+    g_boot_active = true;
+    build_boot_screen();
 
     lv_timer_create(sec_timer_cb, 1000, NULL);
     lv_timer_create(mode_timer_cb, 50, NULL);
