@@ -32,7 +32,6 @@ file(GLOB FSP_MODULE_SOURCES
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_gpt/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_mipi_phy/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_mipi_dsi/*.c"
-    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_sci_b_i2c/*.c"
 )
 
 # Renesas EK board support (SDRAM controller init sequence), upstream as-is.

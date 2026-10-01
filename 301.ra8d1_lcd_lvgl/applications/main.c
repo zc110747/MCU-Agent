@@ -1,6 +1,7 @@
 /**
  * @file main.c
- * @brief Phase 2 application: RT-Thread Nano + LED + UART + GLCDC test patterns
+ * @brief Application: RT-Thread Nano + LED + UART + MIPI DSI panel + LVGL
+ *        single-page UI with a hardware-RTC clock.
  *
  * NOTE: entry() is NOT here. For __GNUC__ RT-Thread provides it in
  * third_party/rt-thread-nano/src/components.c: entry() -> rtthread_startup(),
@@ -8,15 +9,11 @@
  */
 #include <rtthread.h>
 
-#include "app_config.h"
-#include "app_ui.h"
 #include "bsp_api.h"
 #include "bsp_led.h"
 #include "bsp_lcd.h"
+#include "bsp_rtc.h"
 #include "lv_port.h"
-#if APP_ENABLE_TOUCH
-#include "bsp_touch.h"
-#endif
 
 #define LED_THREAD_STACK_SIZE    (512U)
 #define LED_THREAD_PRIORITY      (20U)
@@ -239,7 +236,7 @@ static void lv_cmd (uint8_t argc, char ** argv)
 {
     if ((argc < 2U) || (RT_NULL == argv[1]))
     {
-        rt_kprintf("usage: lv <start|test|demo|info>\n");
+        rt_kprintf("usage: lv <start|test|main|info>\n");
         return;
     }
 
@@ -253,10 +250,10 @@ static void lv_cmd (uint8_t argc, char ** argv)
         lv_port_test_screen();
         rt_kprintf("lv test: solid-rect screen requested\n");
     }
-    else if (0 == rt_strcmp(argv[1], "demo"))
+    else if (0 == rt_strcmp(argv[1], "main"))
     {
-        lv_port_demo_screen();
-        rt_kprintf("lv demo: animated screen requested\n");
+        lv_port_main_screen();
+        rt_kprintf("lv main: main screen requested\n");
     }
     else if (0 == rt_strcmp(argv[1], "info"))
     {
@@ -273,152 +270,83 @@ static void lv_cmd (uint8_t argc, char ** argv)
     }
     else
     {
-        rt_kprintf("usage: lv <start|test|demo|info>\n");
+        rt_kprintf("usage: lv <start|test|main|info>\n");
     }
 }
-MSH_CMD_EXPORT_ALIAS(lv_cmd, lv, LVGL: lv start / test / demo / info);
+MSH_CMD_EXPORT_ALIAS(lv_cmd, lv, LVGL: lv start / test / main / info);
 
-/* No physical buttons on this board: the menu cursor is driven from the msh
-   console.  Requests only set a volatile flag; the LVGL thread drains them in
-   app_ui_service(), so no LVGL object is ever touched off-thread. */
-static void menu_cmd (uint8_t argc, char ** argv)
+/* Hardware RTC on the 32.768 kHz sub-clock.  "rtc set" reloads the calendar
+   so the on-screen clock can be pointed at the wall time (there is no battery
+   and no NTP, so a power cycle restarts at the build-time default). */
+static void rtc_cmd (uint8_t argc, char ** argv)
 {
+    bsp_rtc_time_t t;
+
     if ((argc < 2U) || (RT_NULL == argv[1]))
     {
-        rt_kprintf("usage: menu <up|down|enter|back|select N|list>\n");
+        rt_kprintf("usage: rtc <info|set YYYY MM DD hh mm ss>\n");
         return;
     }
 
-    if (0 == rt_strcmp(argv[1], "up"))
+    if (0 == rt_strcmp(argv[1], "info"))
     {
-        app_ui_req_up();
-        rt_kprintf("menu up -> %u\n", (unsigned int) app_ui_menu_index());
-    }
-    else if (0 == rt_strcmp(argv[1], "down"))
-    {
-        app_ui_req_down();
-        rt_kprintf("menu down -> %u\n", (unsigned int) app_ui_menu_index());
-    }
-    else if (0 == rt_strcmp(argv[1], "enter"))
-    {
-        app_ui_req_enter();
-        rt_kprintf("menu enter -> action %u\n",
-                   (unsigned int) app_ui_menu_index());
-    }
-    else if (0 == rt_strcmp(argv[1], "back"))
-    {
-        app_ui_req_back();
-        rt_kprintf("menu back\n");
-    }
-    else if (0 == rt_strcmp(argv[1], "select"))
-    {
-        uint32_t index = (argc >= 3U) ? cmd_parse_u32(argv[2]) : 0U;
-
-        if (index >= (uint32_t) app_ui_menu_count())
+        if (!bsp_rtc_get(&t))
         {
-            rt_kprintf("menu select: out of range (0..%u)\n",
-                       (unsigned int) (app_ui_menu_count() - 1U));
+            rt_kprintf("rtc: not running\n");
             return;
         }
-
-        app_ui_req_select((uint8_t) index);
-        rt_kprintf("menu select %u (%s)\n", (unsigned int) index,
-                   app_ui_menu_label((uint8_t) index));
+        rt_kprintf("rtc: %04u-%02u-%02u (wday %u) %02u:%02u:%02u  running=%u\n",
+                   (unsigned int) t.year, (unsigned int) t.mon,
+                   (unsigned int) t.mday, (unsigned int) t.wday,
+                   (unsigned int) t.hour, (unsigned int) t.min,
+                   (unsigned int) t.sec, (unsigned int) bsp_rtc_is_running());
     }
-    else if (0 == rt_strcmp(argv[1], "list"))
+    else if ((0 == rt_strcmp(argv[1], "set")) && (argc >= 8U))
     {
-        for (uint8_t i = 0U; i < app_ui_menu_count(); i++)
-        {
-            rt_kprintf("menu [%u] %s%s\n", (unsigned int) i,
-                       (i == app_ui_menu_index()) ? "* " : "  ",
-                       app_ui_menu_label(i));
-        }
-        rt_kprintf("menu page=%u action=%u\n",
-                   (unsigned int) app_ui_current(),
-                   (unsigned int) app_ui_last_action());
+        t.year = (uint16_t) cmd_parse_u32(argv[2]);
+        t.mon  = (uint8_t) cmd_parse_u32(argv[3]);
+        t.mday = (uint8_t) cmd_parse_u32(argv[4]);
+        t.hour = (uint8_t) cmd_parse_u32(argv[5]);
+        t.min  = (uint8_t) cmd_parse_u32(argv[6]);
+        t.sec  = (uint8_t) cmd_parse_u32(argv[7]);
+        t.wday = 0U;   /* recomputed by the caller if needed */
+
+        (void) bsp_rtc_set(&t);
+        rt_kprintf("rtc set: %04u-%02u-%02u %02u:%02u:%02u\n",
+                   (unsigned int) t.year, (unsigned int) t.mon,
+                   (unsigned int) t.mday, (unsigned int) t.hour,
+                   (unsigned int) t.min, (unsigned int) t.sec);
     }
     else
     {
-        rt_kprintf("usage: menu <up|down|enter|back|select N|list>\n");
+        rt_kprintf("usage: rtc <info|set YYYY MM DD hh mm ss>\n");
     }
 }
-MSH_CMD_EXPORT_ALIAS(menu_cmd, menu, UI menu: menu up / down / enter / back / select N / list);
-
-#if APP_ENABLE_TOUCH
-static void touch_cmd (uint8_t argc, char ** argv)
-{
-    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "read")))
-    {
-        bsp_touch_point_t point = {0};
-
-        if (FSP_SUCCESS != bsp_touch_read(&point))
-        {
-            rt_kprintf("touch read: no answer (probe failed?)\n");
-            return;
-        }
-
-        rt_kprintf("touch %s x=%u y=%u (panel %ux%u)\n",
-                   point.pressed ? "DOWN" : "up  ",
-                   (unsigned int) point.x, (unsigned int) point.y,
-                   (unsigned int) BSP_TOUCH_WIDTH, (unsigned int) BSP_TOUCH_HEIGHT);
-        return;
-    }
-
-    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "init")))
-    {
-        fsp_err_t err = bsp_touch_init();
-
-        rt_kprintf("touch init: %s (0x%x)\n",
-                   (FSP_SUCCESS == err) ? "OK" : "FAILED", (unsigned int) err);
-        return;
-    }
-
-    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "scan")))
-    {
-        uint8_t addr;
-        int     found = 0;
-
-        rt_kprintf("touch scan: probing 0x08..0x77 ...\n");
-        for (addr = 0x08U; addr <= 0x77U; addr++)
-        {
-            if (FSP_SUCCESS == bsp_touch_probe_addr(addr))
-            {
-                rt_kprintf("  ACK at 0x%02x\n", (unsigned int) addr);
-                found++;
-            }
-        }
-        rt_kprintf("touch scan: %d device(s)\n", found);
-        return;
-    }
-
-    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "id")))
-    {
-        uint8_t fw = 0U;
-
-        if (FSP_SUCCESS != bsp_touch_product_id(&fw, 1U))
-        {
-            rt_kprintf("touch id: no answer\n");
-            return;
-        }
-        rt_kprintf("touch id: fw=0x%02x finger=0x%02x\n",
-                   (unsigned int) fw, (unsigned int) bsp_touch_status_raw());
-        return;
-    }
-
-    rt_kprintf("touch: %s (CST812T @0x15, SCI3 P408/P409) indev=%s\n",
-               bsp_touch_ready() ? "ready" : "down",
-               lv_port_touch_active() ? "registered" : "none");
-    rt_kprintf("usage: touch <info|init|read|scan|id>\n");
-}
-MSH_CMD_EXPORT_ALIAS(touch_cmd, touch, CST812T: touch info / touch init / touch read / touch scan / touch id);
-#endif /* APP_ENABLE_TOUCH */
+MSH_CMD_EXPORT_ALIAS(rtc_cmd, rtc, hardware RTC: rtc info / rtc set YYYY MM DD hh mm ss);
 
 int main (void)
 {
-    rt_kprintf("\nRA8D1 Vision Board - Phase 5\n");
+    rt_kprintf("\nRA8D1 Vision Board - Phase 7 (single-page UI + RTC)\n");
     rt_kprintf("RT-Thread Nano %d.%d.%d, CPU %u Hz, tick %u Hz\n",
                RT_VERSION_MAJOR, RT_VERSION_MINOR, RT_VERSION_PATCH,
                SystemCoreClock, RT_TICK_PER_SECOND);
+
+    /* Hardware RTC first: the UI reads it every second, and it must be up
+       before the panel shows a time. */
+    if (bsp_rtc_init(NULL))
+    {
+        bsp_rtc_time_t t;
+
+        (void) bsp_rtc_get(&t);
+        rt_kprintf("[main] RTC on 32k sub-clock: %04u-%02u-%02u %02u:%02u:%02u\n",
+                   (unsigned int) t.year, (unsigned int) t.mon,
+                   (unsigned int) t.mday, (unsigned int) t.hour,
+                   (unsigned int) t.min, (unsigned int) t.sec);
+    }
+    else
+    {
+        rt_kprintf("[main] WARN: RTC did not start\n");
+    }
 
     g_led_thread = rt_thread_create("led",
                                     led_thread_entry,

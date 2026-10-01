@@ -14,7 +14,8 @@
  *
  * The CEU capture slot this table used to carry at index 1 was removed
  * together with the camera stack (r_ceu dropped from the build, bsp_cam /
- * bsp_sccb / bsp_ov5640 deleted).  Slots are renumbered densely from 0
+ * bsp_sccb / bsp_ov5640 deleted), and the SCI3 TXI/TEI slots were removed
+ * with the touch panel in Phase 7.  Slots are renumbered densely from 0
  * because bsp_irq_cfg() only programs the entries the array provides and the
  * DSI slots carry their own explicit IRQ numbers in mipi_dsi_conf.c -- an
  * empty hole would work, but a dense table keeps slot i == IRQ i obvious.
@@ -36,8 +37,6 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES]
     [5] = mipi_dsi_rcv,         /* DSI RCV                                 */
     [6] = mipi_dsi_ferr,        /* DSI FERR                                */
     [7] = mipi_dsi_ppi,         /* DSI PPI                                 */
-    [8] = sci_b_i2c_txi_isr,    /* SCI3 TXI (touch I2C transmit)           */
-    [9] = sci_b_i2c_tei_isr,    /* SCI3 TEI (touch I2C transmit end)       */
 };
 
 const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
@@ -50,8 +49,6 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
     [5] = BSP_PRV_IELS_ENUM(EVENT_MIPI_DSI_RCV),       /* DSI RCV                 */
     [6] = BSP_PRV_IELS_ENUM(EVENT_MIPI_DSI_FERR),      /* DSI FERR                */
     [7] = BSP_PRV_IELS_ENUM(EVENT_MIPI_DSI_PPI),       /* DSI PPI                 */
-    [8] = BSP_PRV_IELS_ENUM(EVENT_SCI3_TXI),           /* SCI3 TXI                */
-    [9] = BSP_PRV_IELS_ENUM(EVENT_SCI3_TEI),           /* SCI3 TEI                */
 };
 
 #endif /* VECTOR_DATA_IRQ_COUNT > 0 */

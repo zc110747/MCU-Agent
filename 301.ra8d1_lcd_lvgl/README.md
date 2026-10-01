@@ -43,6 +43,8 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 3 | Camera（CEU） | ✅ |
 | Phase 4 | LVGL v9.1.0 | ✅ |
 | Phase 5 | MIPI DSI 显示通路重做 + LVGL 菜单 + 触摸（CST812T） | ⚠️ 显示/菜单 ✅，触摸未连通（硬件层，见 `documents/phase5-touch-report.md`） |
+| Phase 6 | 触摸排查收尾（判定硬件/面板层故障） | ✅ |
+| Phase 7 | 取消触摸 + 单页信息界面 + 硬件 RTC 实时时钟 | ✅ |
 
 ## VSCode 在线仿真（pyOCD + cortex-debug）
 
@@ -229,3 +231,36 @@ SDRAM framebuffer；tick 用 `lv_tick_set_cb()` 挂 `rt_tick_get_millisecond()`
 
 > ⚠️ `tools/dbg/` 曾因仓库根 `.gitignore` 的 `**/Debug/*`（Windows 大小写不敏感）被整体忽略，
 > 目录已从 `tools/debug/` 更名为 `tools/dbg/` 以避开黑名单。
+
+## Phase 7：取消触摸 + 单页信息界面 + 硬件 RTC 实时时钟
+
+Phase 5 已定性触摸面板为**硬件/面板层故障**（控制器不响应任何 I2C 事务），
+Phase 7 据此**整体移除触摸实现**，并把多页菜单（boot/menu/info）收敛为**单页面**
+信息界面：板名 + 硬件信息行 + **硬件 RTC 实时年月日时分秒**（每秒刷新）。
+
+### 变更
+
+- **删除触摸**：`bsp_touch.c/.h`、`app_config.h`（`APP_ENABLE_TOUCH`）、
+  `applications/ui/app_ui.*` 与 `ui_page_boot/menu/info` 全部删除；
+  `bsp_pin.c` 回退 P000/P010/P408/P409；`vector_data.c/.h` 去掉 SCI3 TXI/TEI 两槽
+  （10→8）；`Drivers/renesas/fsp/src/r_sci_b_i2c/` 与 3 个 I2C 头文件删除并移出 CMake glob。
+- **单页面 `applications/ui/ui_page_main.c`**：`ui_common` 之上建一页——
+  顶部标题栏、居中日期 + 大字时钟（cyan `COL_CLOCK`）、分隔线、6 行遥测
+  （CPU / Display / DSI / LVGL / Memory / Uptime），1Hz `lv_timer` 只改文本。
+- **手写 RTC 驱动 `bsp/ra8d1-vision-board/bsp_rtc.c/.h`**：FSP 树无 `r_rtc`，
+  直接编程 `R_RTC @ 0x40202000`，计数源为 **32.768 kHz 子时钟晶振 Y2**（原理图 p3 已贴，
+  `bsp_sosc_init()` 已由 `SUBCLOCK_POPULATED=1` 启动）。BCD 计数器 + 24h 模式。
+- 控制台命令：`rtc info` / `rtc set YYYY MM DD hh mm ss`；`lv start/test/main/info`
+  （`menu`、`touch` 命令随实现一并删除）。
+
+> ⚠️ **RCR4.RCKSEL 语义与字面相反（本节最大坑）**：`0 = 子时钟`、`1 = LOCO`。
+> 误置为 1 会让 RTC 跑在**未校准的 LOCO** 上，实测**快 10.63×**（60s 真实时间走 644s）；
+> 改为 0 后 60s 实走 60s（ratio 0.99）。另：SWD 直读 0x40202000 常返回 0
+> （VBATT 域），**不要靠 SWD 读 RTC 判断**，用串口 `rtc info` 差值测走时。
+
+### 实测数据（Phase 7）
+
+- 双构**零警告**：Debug FLASH 534244B(25.47%) / RAM 915204B(87.26%)；Release FLASH 437032B(20.84%) / RAM 914988B(87.26%)
+- 走时精度：60.61s 墙钟 ↔ RTC 60s（ratio **0.9899**），`rtc set 2026 10 01 16 30 0` → 读回 `16:30:01`
+- SWD framebuffer 取证：header `0x09EC`、时钟 cyan `0x073F`、值绿 `0x470E`、标题金 `0xFECC`
+  全部命中设计色；时钟文字包围盒 x=191..288 / y=85..104（水平居中于 480px 面板）

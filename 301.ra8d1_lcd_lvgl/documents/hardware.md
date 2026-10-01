@@ -46,7 +46,8 @@
 | LCD RGB 4.3" | GLCDC，800×480，RGB565（16bpp），双缓冲 | [src] `common_data.h` |
 | LCD MIPI-DSI | 2.0"/7.0"（GLCDC DSI 模式，r_mipi_dsi + r_mipi_phy） | [src] camera 工程 ra/fsp |
 | Camera | 8-bit 并口 DVP（CEU）+ SCCB，支持 OV2640/OV5640/OV7670/OV7725/GC0328/GC2145/HM01B0 等 | [src] camera 工程 sensors/ |
-| Touch | **CST812T**（I2C，本板 MIPI 2.0" 面板），从机 0x15，SCL=P408/SDA=P409（SCI3）、INT=P010、RST=P000 | [src] mipi 2.0" 工程 `cst812t.h` + 原理图 p3/p9 + SWD 实测 |
+| Touch | ⛔ **Phase 7 已移除**（CST812T 硬件/面板层故障）。历史记录：I2C 从机 0x15，SCL=P408/SDA=P409（SCI3）、INT=P010、RST=P000 | [src] mipi 2.0" 工程 `cst812t.h` + 原理图 p3/p9 + SWD 实测 |
+| RTC 时钟 | 32.768 kHz 子时钟晶振 **Y2**（XCIN=J15/XCOUT=J14，9pF，负载电容 C23/C24=15pF 已贴）；Phase 7 启用为 RTC 计数源 | 原理图 p3 |
 | SDRAM 驱动 | BSP 自带 `drv_sdram.c`：CL=3、TRAS=6、TRCD=3、TRP=3、TWR=2、TRFC=8，初始化后注册 memheap | [src] |
 | USB | FS（P40x 引脚组）+ HS；后续 TinyUSB 可用 | [pin] |
 

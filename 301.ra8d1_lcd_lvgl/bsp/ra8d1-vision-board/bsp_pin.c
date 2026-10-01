@@ -8,8 +8,10 @@
  * the RGB bus and the SDRAM bus are configured DRIVE_HIGH / DRIVE_HS_HIGH).
  *
  * WARNING - the NMOS trap: IOPORT_CFG_NMOS_ENABLE (0x40) is N-channel open
- * drain. The generator only uses it on P408/P409. Copying it onto any other
- * pin silently kills the output (that is how P208 TXD died in Phase 1).
+ * drain. The generator only used it on P408/P409 for the RGB 4.3" touch bus.
+ * Copying it onto any other pin silently kills the output (that is how P208
+ * TXD died in Phase 1). No pin in this table needs it any more - the MIPI
+ * 2.0" board's touch bus (which must NOT have it) was removed in Phase 7.
  */
 #include "bsp_pin.h"
 
@@ -21,11 +23,8 @@
 
    NOTE on the shared PSEL group: P208/P209 are muxed to
    IOPORT_PERIPHERAL_SCI1_3_5_7_9, which is a *group* selector covering
-   SCI1/3/5/7/9 - not a per-channel one.  SCI9 (debug console UART) and SCI3
-   (touch panel I2C) therefore share the same PSEL value and the same two
-   package pins; the console is "uart9" and the touch bus is "sci3i" on the
-   official board, both on P208/P209.  The pin is listed once, and the two
-   peripherals are told apart by the SCI channel they open. */
+   SCI1/3/5/7/9 - not a per-channel one.  SCI9 (debug console UART) opens the
+   pins as a UART; the same group also once carried the SCI3 touch bus. */
 #define PIN_PERIPH(_pin, _periph)                          \
     {                                                      \
         .pin     = (_pin),                                 \
@@ -49,17 +48,6 @@
                     (uint32_t) (_periph)),                 \
     }
 
-/* N-channel open-drain peripheral pin.  Currently unused: the RGB 4.3" touch
-   bus needed it, the MIPI 2.0" (CST812T) bus must NOT have it - see Phase 6.
-   Kept because the warning above is worth having a name for. */
-#define PIN_PERIPH_NMOS(_pin, _periph)                     \
-    {                                                      \
-        .pin     = (_pin),                                 \
-        .pin_cfg = ((uint32_t) IOPORT_CFG_NMOS_ENABLE |    \
-                    (uint32_t) IOPORT_CFG_PERIPHERAL_PIN | \
-                    (uint32_t) (_periph)),                 \
-    }
-
 #define PIN_GPIO_OUT(_pin, _level)                                       \
     {                                                                    \
         .pin     = (_pin),                                               \
@@ -73,10 +61,7 @@ static ioport_instance_ctrl_t g_ioport_ctrl;
 static const ioport_pin_cfg_t g_bsp_pin_cfg_data[] =
 {
     /* ---- Phase 1: debug console (SCI9) + LED ----------------------------
-       P208/P209 are the SCI9 console UART pins (TXD9/RXD9).  The touch bus is
-       a *separate* SCI3 pair on P408/P409 - see Phase 6 below.  Both pairs use
-       the SCI1_3_5_7_9 group selector, which is why the two listings look
-       alike. */
+       P208/P209 are the SCI9 console UART pins (TXD9/RXD9). */
     PIN_PERIPH(BSP_IO_PORT_02_PIN_08, IOPORT_PERIPHERAL_SCI1_3_5_7_9),  /* TXD9 */
     PIN_PERIPH(BSP_IO_PORT_02_PIN_09, IOPORT_PERIPHERAL_SCI1_3_5_7_9),  /* RXD9 */
     PIN_GPIO_OUT(BSP_IO_PORT_01_PIN_02, 0),                             /* LED */
@@ -168,37 +153,12 @@ static const ioport_pin_cfg_t g_bsp_pin_cfg_data[] =
     PIN_GPIO_OUT(BSP_IO_PORT_10_PIN_11, 1),                             /* backlight */
     PIN_GPIO_OUT(BSP_IO_PORT_11_PIN_04, 1),                             /* panel RESET (idle high) */
 
-    /* ---- Phase 6: CST812T touch panel (SCI3 I2C + reset/interrupt) -----
-       The panel fitted to this board is the MIPI DSI 2.0" (480x360) unit
-       carrying a Hynitron CST812T - NOT the GT9147 of the RGB 4.3" variant.
-       Its bus is SCI3 on P408/P409, NOT on P208/P209 (those are the SCI9
-       console).  Both pin pairs happen to sit in the same IOPORT PSEL *group*
-       selector (SCI1_3_5_7_9), which is why the generator emits the same
-       group value for both; the channel that actually drives them is decided
-       by which SCI is opened (SCI9 = console, SCI3 = touch).
-
-       *** DO NOT add IOPORT_CFG_NMOS_ENABLE here. ***
-       The RGB 4.3" variant routes its touch bus through a level shifter and
-       needs N-channel open-drain drivers on P408/P409, which is why an
-       earlier revision of this table used NMOS.  On the MIPI 2.0" board that
-       same bit is fatal: the SCI_B I2C block cannot pull SCL high through an
-       NMOS-only driver, so the START condition never completes and
-       ISR.IICSTIF stays 0 forever - the transfer times out with no ACK, which
-       looks exactly like a missing panel.  Confirmed by comparison against
-       the official MIPI 2.0" project (which uses plain
-       IOPORT_CFG_PERIPHERAL_PIN for both pins) and by driving SCI3 manually
-       over SWD: with NMOS the START never completes, without it IICSTIF=1 and
-       IICACKR=1 on the first try.
-
-       RST=P000 is reconfigured to a driven output by bsp_touch_init();
-       INT=P010 is left as a plain input (this driver polls). */
-    PIN_PERIPH(BSP_IO_PORT_04_PIN_08, IOPORT_PERIPHERAL_SCI1_3_5_7_9),   /* SCL3 */
-    PIN_PERIPH(BSP_IO_PORT_04_PIN_09, IOPORT_PERIPHERAL_SCI1_3_5_7_9),   /* SDA3 */
-    PIN_GPIO_OUT(BSP_IO_PORT_00_PIN_00, 1),                             /* touch RST (idle high) */
-    {                                                                   /* touch INT (input) */
-        .pin     = BSP_IO_PORT_00_PIN_10,
-        .pin_cfg = ((uint32_t) IOPORT_CFG_PORT_DIRECTION_INPUT),
-    },
+    /* ---- Phase 7: single-page UI on the MIPI DSI panel -------------------
+       The CST812T touch panel was removed from this project: the 2.0" unit
+       fitted to this board does not respond to any I2C transaction (see
+       documents/phase5-touch-report.md), so P000/P010/P408/P409 are no longer
+       configured and the SCI3 I2C block is gone from the build. The panel is
+       display-only now; the UI is driven entirely from the debug console. */
 };
 
 static const ioport_cfg_t g_ioport_cfg =

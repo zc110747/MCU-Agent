@@ -12,19 +12,18 @@
  * Threading model: only the LVGL thread touches LVGL objects. The msh
  * commands only flip volatile flags (screen switch) or read 32-bit counters
  * (fps/flushes/mem), both atomic on Cortex-M85.
+ *
+ * Phase 7 removed the touch input device: the 2.0" panel fitted to this board
+ * does not answer any I2C transaction (see documents/phase5-touch-report.md),
+ * so the screen is display-only and the UI is driven from the debug console.
  */
 #include "lv_port.h"
 
 #include <rtthread.h>
 #include <lvgl.h>
 
-#include "app_config.h"
 #include "bsp_lcd.h"
-#if APP_ENABLE_TOUCH
-#include "bsp_touch.h"
-#endif
-#include "app_ui.h"
-#include "ui_page_menu.h"
+#include "ui_page_main.h"
 
 /* ---- state --------------------------------------------------------------- */
 static rt_thread_t       g_lvgl_thread;
@@ -32,59 +31,11 @@ static lv_display_t *    g_disp;
 static rt_sem_t          g_vsync_sem;
 static volatile bool     g_running;
 static volatile bool     g_test_req;
-static volatile bool     g_demo_req;
+static volatile bool     g_main_req;
 static volatile uint32_t g_flush_count;
 static volatile uint32_t g_fps;
 static volatile uint32_t g_loop_count;
 static volatile uint32_t g_handler_count;
-
-/* Touch input device (CST812T) - NULL unless the panel answered at init. */
-static lv_indev_t *      g_touch_indev;
-
-#if APP_ENABLE_TOUCH
-/* ---- pointer input: CST812T touch panel ----------------------------------
-   LVGL calls this from lv_timer_handler() on the LVGL thread, so the I2C
-   transfer runs in thread context (bsp_touch_read blocks on a semaphore that
-   the FSP completion callback posts).  When the read fails the last known
-   position is kept and the state is released, so a glitch cannot leave the
-   UI stuck in a press. */
-static void touch_read_cb (lv_indev_t * indev, lv_indev_data_t * data)
-{
-    static uint16_t last_x;
-    static uint16_t last_y;
-    bsp_touch_point_t point;
-
-    LV_UNUSED(indev);
-
-    if (FSP_SUCCESS != bsp_touch_read(&point))
-    {
-        data->point.x = last_x;
-        data->point.y = last_y;
-        data->state   = LV_INDEV_STATE_REL;
-        return;
-    }
-
-    if (point.pressed)
-    {
-        /* Clamp to the display: a stray sample must not push the cursor
-           off-screen (and the panel reports 480x360, same as the display). */
-        if (point.x >= BSP_LCD_WIDTH)
-        {
-            point.x = BSP_LCD_WIDTH - 1U;
-        }
-        if (point.y >= BSP_LCD_HEIGHT)
-        {
-            point.y = BSP_LCD_HEIGHT - 1U;
-        }
-        last_x = point.x;
-        last_y = point.y;
-    }
-
-    data->point.x = last_x;
-    data->point.y = last_y;
-    data->state   = point.pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
-}
-#endif /* APP_ENABLE_TOUCH */
 
 /* ---- frame-boundary gate -------------------------------------------------
    Signalled from the GLCDC line-detect ISR (bsp_lcd.c).  Only waited on once
@@ -146,15 +97,16 @@ static void sec_timer_cb (lv_timer_t * timer)
     LV_UNUSED(timer);
 }
 
-/* ---- demo screen (minimal dark) -----------------------------------------
-   Phase 5 moved the UI into applications/ui/ (ui_common + ui_page_* +
-   app_ui), 1:1 with the reference project 003.stm32h743_lvgl_oled.  The
-   ad-hoc 480x360 demo drawn here in Phase 4 is gone; lv_port now owns only
-   the display driver, the tick, the flush path and the thread, and delegates
-   all screen content to app_ui. */
-static void build_demo_screen (void)
+/* ---- the one screen ------------------------------------------------------
+   Phase 7 replaced the boot/menu/info page system with a single screen:
+   board identity, live hardware telemetry and the hardware-RTC clock.  The
+   content lives in applications/ui/ui_page_main.c; lv_port owns only the
+   display driver, the tick, the flush path and the thread. */
+static void build_main_screen (void)
 {
-    app_ui_create();
+    lv_obj_t * scr = ui_page_main_build();
+
+    lv_screen_load(scr);
 }
 
 /* ---- deterministic test screen for SWD pixel asserts ----------------------
@@ -212,10 +164,10 @@ static void mode_timer_cb (lv_timer_t * timer)
         g_test_req = false;
         build_test_screen();
     }
-    else if (g_demo_req)
+    else if (g_main_req)
     {
-        g_demo_req = false;
-        app_ui_show(APP_UI_MENU);   /* "demo" = back to the menu */
+        g_main_req = false;
+        build_main_screen();
     }
 
     LV_UNUSED(timer);
@@ -253,27 +205,7 @@ static void lvgl_thread_entry (void * param)
                                  lv_color_hex(0x4C8DFF), lv_color_hex(0x3DDC84),
                                  true, &lv_font_montserrat_14);
 
-#if APP_ENABLE_TOUCH
-    /* Pointer input.  The panel is on SCI3 I2C; when it does not answer the
-       indev is simply not registered and the msh cursor commands remain the
-       only way to drive the menu. */
-    if (FSP_SUCCESS == bsp_touch_init())
-    {
-        g_touch_indev = lv_indev_create();
-        lv_indev_set_type(g_touch_indev, LV_INDEV_TYPE_POINTER);
-        lv_indev_set_read_cb(g_touch_indev, touch_read_cb);
-        lv_indev_set_display(g_touch_indev, g_disp);
-    }
-    else
-    {
-        rt_kprintf("[lv] touch unavailable: use 'menu up/down/enter' over msh\n");
-    }
-#endif
-
-    build_demo_screen();
-
-    /* Let the menu rows react to taps as well as to the msh cursor. */
-    ui_page_menu_set_input(g_touch_indev);
+    build_main_screen();
 
     lv_timer_create(sec_timer_cb, 1000, NULL);
     lv_timer_create(mode_timer_cb, 50, NULL);
@@ -282,10 +214,6 @@ static void lvgl_thread_entry (void * param)
 
     while (1)
     {
-        /* Drain msh-posted navigation requests here so every LVGL call
-           stays on this thread. */
-        app_ui_service();
-
         g_loop_count++;
 
         uint32_t next = lv_timer_handler();
@@ -363,11 +291,6 @@ uint32_t lv_port_handler_count (void)
     return g_handler_count;
 }
 
-bool lv_port_touch_active (void)
-{
-    return (g_touch_indev != NULL);
-}
-
 void lv_port_test_screen (void)
 {
     if (g_running)
@@ -376,11 +299,11 @@ void lv_port_test_screen (void)
     }
 }
 
-void lv_port_demo_screen (void)
+void lv_port_main_screen (void)
 {
     if (g_running)
     {
-        g_demo_req = true;
+        g_main_req = true;
     }
 }
 

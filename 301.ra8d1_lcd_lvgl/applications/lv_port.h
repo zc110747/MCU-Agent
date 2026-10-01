@@ -3,7 +3,8 @@
  * @brief LVGL v9.1.0 port on top of the MIPI DSI panel via the GLCDC
  *
  * - display: DIRECT mode, two full-screen SDRAM pages, flush = R_GLCDC_BufferChange
- * - input:   CST812T touch panel as an LV_INDEV_TYPE_POINTER indev (polled)
+ * - input:   none.  The CST812T touch panel was removed in Phase 7 (the 2.0"
+ *            board's panel does not answer I2C); the screen is display-only.
  * - tick:    RT-Thread millisecond tick (1 kHz kernel tick)
  * - thread:  lv_timer_handler() loop at ~30 fps, created by lv_port_start()
  */
@@ -13,7 +14,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/** Create the LVGL thread and build the demo UI. Idempotent. */
+/** Create the LVGL thread and build the single main screen. Idempotent. */
 void lv_port_start (void);
 
 /** True once the LVGL thread is up. */
@@ -34,9 +35,6 @@ uint32_t lv_port_mem_used_pct (void);
 uint32_t lv_port_loop_count (void);
 uint32_t lv_port_handler_count (void);
 
-/** True when the CST812T touch indev was registered (chip answered at init). */
-bool lv_port_touch_active (void);
-
 /** Size of the LVGL memory pool in KB (for the lv info printout). */
 #define LV_PORT_MEM_TOTAL_KB  (128U)
 
@@ -49,7 +47,7 @@ void lv_port_vsync_notify (void);
  *  Safe to call from any thread: a flag is served inside the LVGL thread. */
 void lv_port_test_screen (void);
 
-/** Back to the animated demo screen. Thread-safe like lv_port_test_screen. */
-void lv_port_demo_screen (void);
+/** Back to the main screen. Thread-safe like lv_port_test_screen. */
+void lv_port_main_screen (void);
 
 #endif /* LV_PORT_H_ */
