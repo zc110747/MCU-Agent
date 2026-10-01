@@ -8,12 +8,15 @@
  */
 #include <rtthread.h>
 
+#include "app_config.h"
+#include "app_ui.h"
 #include "bsp_api.h"
 #include "bsp_led.h"
 #include "bsp_lcd.h"
-#include "bsp_cam.h"
-#include "bsp_sccb.h"
 #include "lv_port.h"
+#if APP_ENABLE_TOUCH
+#include "bsp_touch.h"
+#endif
 
 #define LED_THREAD_STACK_SIZE    (512U)
 #define LED_THREAD_PRIORITY      (20U)
@@ -141,7 +144,7 @@ static void lcd_cmd (uint8_t argc, char ** argv)
 {
     if ((argc < 2U) || (RT_NULL == argv[1]))
     {
-        rt_kprintf("usage: lcd <init|info|pattern N|fill HEX|bl on|off>\n");
+        rt_kprintf("usage: lcd <init|info|stat|dsi|vsync|pattern N|fill HEX|bl on|off>\n");
         return;
     }
 
@@ -172,6 +175,28 @@ static void lcd_cmd (uint8_t argc, char ** argv)
                    (unsigned int) (st.panel_clk & 0x3FU),
                    (unsigned int) ((st.panel_clk >> 6) & 1U),
                    (unsigned int) ((st.panel_clk >> 8) & 1U));
+    }
+    else if (0 == rt_strcmp(argv[1], "dsi"))
+    {
+        bsp_lcd_dsi_status_t ds;
+
+        bsp_lcd_dsi_status(&ds);
+        rt_kprintf("DSI cmds=%u seq0=%u phy_status=0x%x\n",
+                   (unsigned int) ds.cmd_count,
+                   (unsigned int) ds.seq0_count,
+                   (unsigned int) ds.phy_status);
+        rt_kprintf("DSI link_status=0x%04x (CH0=%u CH1=%u VIDEO=%u)\n",
+                   (unsigned int) ds.link_status,
+                   (unsigned int) (ds.link_status & 0x1U),
+                   (unsigned int) ((ds.link_status >> 4) & 0x1U),
+                   (unsigned int) ((ds.link_status >> 8) & 0x1U));
+        rt_kprintf("DSI ack_err=0x%08x vsync=%u\n",
+                   (unsigned int) ds.ack_err,
+                   (unsigned int) bsp_lcd_vsync_count());
+    }
+    else if (0 == rt_strcmp(argv[1], "vsync"))
+    {
+        rt_kprintf("lcd vsync: count=%u\n", (unsigned int) bsp_lcd_vsync_count());
     }
     else if (0 == rt_strcmp(argv[1], "info"))
     {
@@ -205,108 +230,10 @@ static void lcd_cmd (uint8_t argc, char ** argv)
     }
     else
     {
-        rt_kprintf("usage: lcd <init|info|pattern N|fill HEX|bl on|off>\n");
+        rt_kprintf("usage: lcd <init|info|stat|dsi|vsync|pattern N|fill HEX|bl on|off>\n");
     }
 }
-MSH_CMD_EXPORT_ALIAS(lcd_cmd, lcd, RGB panel: lcd init / info / pattern N / fill HEX);
-
-static void cam_cmd (uint8_t argc, char ** argv)
-{
-    if ((argc < 2U) || (RT_NULL == argv[1]))
-    {
-        rt_kprintf("usage: cam <init|scan|snap|stat|rd A R|bar on|off>\n");
-        return;
-    }
-
-    if (0 == rt_strcmp(argv[1], "init"))
-    {
-        fsp_err_t err = bsp_cam_init();
-
-        rt_kprintf("cam init: %s (0x%x)\n", (FSP_SUCCESS == err) ? "OK" : "FAILED",
-                   (unsigned int) err);
-    }
-    else if (0 == rt_strcmp(argv[1], "scan"))
-    {
-        bsp_cam_scan_t scan = {0};
-        fsp_err_t      err  = bsp_cam_scan(&scan);
-
-        if (FSP_SUCCESS == err)
-        {
-            rt_kprintf("cam scan: ACK addr7=0x%02x id=0x%04x (%s)\n",
-                       scan.addr7, scan.id, scan.name);
-        }
-        else
-        {
-            rt_kprintf("cam scan: no device ACKed (0x%x)\n", (unsigned int) err);
-        }
-    }
-    else if (0 == rt_strcmp(argv[1], "snap"))
-    {
-        fsp_err_t err = bsp_cam_snap();
-
-        if (FSP_SUCCESS == err)
-        {
-            uint8_t *  fb  = bsp_cam_framebuffer();
-            uint32_t   sum = 0U;
-
-            for (uint32_t i = 0U; i < BSP_CAM_FRAME_BYTES / 2U; i++)
-            {
-                sum += ((uint16_t) fb[2 * i] << 8) | fb[2 * i + 1U];
-            }
-
-            rt_kprintf("cam snap: OK fb=0x%08x first=%02x %02x %02x %02x %02x %02x %02x %02x sum=0x%08x\n",
-                       (unsigned int) (uint32_t) fb,
-                       fb[0], fb[1], fb[2], fb[3], fb[4], fb[5], fb[6], fb[7],
-                       (unsigned int) sum);
-        }
-        else
-        {
-            rt_kprintf("cam snap: FAILED (0x%x)\n", (unsigned int) err);
-        }
-    }
-    else if (0 == rt_strcmp(argv[1], "rd"))
-    {
-        /* cam rd <addr7hex> <reg16hex>: raw 16-bit-reg debug read. */
-        if (argc >= 4U)
-        {
-            uint8_t  addr = (uint8_t) cmd_parse_u32(argv[2]);
-            uint16_t reg  = (uint16_t) cmd_parse_u32(argv[3]);
-            uint8_t  val  = 0U;
-            fsp_err_t err = bsp_sccb_read16(addr, reg, &val);
-
-            rt_kprintf("cam rd 0x%02x[0x%04x]: %s val=0x%02x (0x%x)\n",
-                       addr, reg, (FSP_SUCCESS == err) ? "OK" : "FAIL",
-                       val, (unsigned int) err);
-        }
-        else
-        {
-            rt_kprintf("usage: cam rd <addr7hex> <reg16hex>  (e.g. cam rd 0x3c 0x300a)\n");
-        }
-    }
-    else if (0 == rt_strcmp(argv[1], "stat"))
-    {
-        rt_kprintf("cam %s, %ux%u bpp%u fb=0x%08x (%u bytes, .nocache_sdram)\n",
-                   bsp_cam_ready() ? "ready" : "down",
-                   (unsigned int) BSP_CAM_WIDTH,
-                   (unsigned int) BSP_CAM_HEIGHT,
-                   (unsigned int) BSP_CAM_BPP,
-                   (unsigned int) (uint32_t) bsp_cam_framebuffer(),
-                   (unsigned int) BSP_CAM_FRAME_BYTES);
-    }
-    else if (0 == rt_strcmp(argv[1], "bar"))
-    {
-        bool on  = (argc >= 3U) && (0 == rt_strcmp(argv[2], "on"));
-        fsp_err_t err = bsp_cam_colorbar(on);
-
-        rt_kprintf("cam colorbar %s: %s (0x%x)\n", on ? "on" : "off",
-                   (FSP_SUCCESS == err) ? "OK" : "FAILED", (unsigned int) err);
-    }
-    else
-    {
-        rt_kprintf("usage: cam <init|scan|snap|stat|rd A R|bar on|off>\n");
-    }
-}
-MSH_CMD_EXPORT_ALIAS(cam_cmd, cam, camera: cam init / scan / snap / stat / rd A R / bar on|off);
+MSH_CMD_EXPORT_ALIAS(lcd_cmd, lcd, MIPI panel: lcd init / info / stat / dsi / vsync / pattern N / fill HEX);
 
 static void lv_cmd (uint8_t argc, char ** argv)
 {
@@ -340,6 +267,9 @@ static void lv_cmd (uint8_t argc, char ** argv)
                    (unsigned int) lv_port_mem_used_kb(),
                    (unsigned int) (LV_PORT_MEM_TOTAL_KB),
                    (unsigned int) lv_port_mem_used_pct());
+        rt_kprintf("lv loop=%u handler=%u\n",
+                   (unsigned int) lv_port_loop_count(),
+                   (unsigned int) lv_port_handler_count());
     }
     else
     {
@@ -348,9 +278,144 @@ static void lv_cmd (uint8_t argc, char ** argv)
 }
 MSH_CMD_EXPORT_ALIAS(lv_cmd, lv, LVGL: lv start / test / demo / info);
 
+/* No physical buttons on this board: the menu cursor is driven from the msh
+   console.  Requests only set a volatile flag; the LVGL thread drains them in
+   app_ui_service(), so no LVGL object is ever touched off-thread. */
+static void menu_cmd (uint8_t argc, char ** argv)
+{
+    if ((argc < 2U) || (RT_NULL == argv[1]))
+    {
+        rt_kprintf("usage: menu <up|down|enter|back|select N|list>\n");
+        return;
+    }
+
+    if (0 == rt_strcmp(argv[1], "up"))
+    {
+        app_ui_req_up();
+        rt_kprintf("menu up -> %u\n", (unsigned int) app_ui_menu_index());
+    }
+    else if (0 == rt_strcmp(argv[1], "down"))
+    {
+        app_ui_req_down();
+        rt_kprintf("menu down -> %u\n", (unsigned int) app_ui_menu_index());
+    }
+    else if (0 == rt_strcmp(argv[1], "enter"))
+    {
+        app_ui_req_enter();
+        rt_kprintf("menu enter -> action %u\n",
+                   (unsigned int) app_ui_menu_index());
+    }
+    else if (0 == rt_strcmp(argv[1], "back"))
+    {
+        app_ui_req_back();
+        rt_kprintf("menu back\n");
+    }
+    else if (0 == rt_strcmp(argv[1], "select"))
+    {
+        uint32_t index = (argc >= 3U) ? cmd_parse_u32(argv[2]) : 0U;
+
+        if (index >= (uint32_t) app_ui_menu_count())
+        {
+            rt_kprintf("menu select: out of range (0..%u)\n",
+                       (unsigned int) (app_ui_menu_count() - 1U));
+            return;
+        }
+
+        app_ui_req_select((uint8_t) index);
+        rt_kprintf("menu select %u (%s)\n", (unsigned int) index,
+                   app_ui_menu_label((uint8_t) index));
+    }
+    else if (0 == rt_strcmp(argv[1], "list"))
+    {
+        for (uint8_t i = 0U; i < app_ui_menu_count(); i++)
+        {
+            rt_kprintf("menu [%u] %s%s\n", (unsigned int) i,
+                       (i == app_ui_menu_index()) ? "* " : "  ",
+                       app_ui_menu_label(i));
+        }
+        rt_kprintf("menu page=%u action=%u\n",
+                   (unsigned int) app_ui_current(),
+                   (unsigned int) app_ui_last_action());
+    }
+    else
+    {
+        rt_kprintf("usage: menu <up|down|enter|back|select N|list>\n");
+    }
+}
+MSH_CMD_EXPORT_ALIAS(menu_cmd, menu, UI menu: menu up / down / enter / back / select N / list);
+
+#if APP_ENABLE_TOUCH
+static void touch_cmd (uint8_t argc, char ** argv)
+{
+    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "read")))
+    {
+        bsp_touch_point_t point = {0};
+
+        if (FSP_SUCCESS != bsp_touch_read(&point))
+        {
+            rt_kprintf("touch read: no answer (probe failed?)\n");
+            return;
+        }
+
+        rt_kprintf("touch %s x=%u y=%u (panel %ux%u)\n",
+                   point.pressed ? "DOWN" : "up  ",
+                   (unsigned int) point.x, (unsigned int) point.y,
+                   (unsigned int) BSP_TOUCH_WIDTH, (unsigned int) BSP_TOUCH_HEIGHT);
+        return;
+    }
+
+    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "init")))
+    {
+        fsp_err_t err = bsp_touch_init();
+
+        rt_kprintf("touch init: %s (0x%x)\n",
+                   (FSP_SUCCESS == err) ? "OK" : "FAILED", (unsigned int) err);
+        return;
+    }
+
+    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "scan")))
+    {
+        uint8_t addr;
+        int     found = 0;
+
+        rt_kprintf("touch scan: probing 0x08..0x77 ...\n");
+        for (addr = 0x08U; addr <= 0x77U; addr++)
+        {
+            if (FSP_SUCCESS == bsp_touch_probe_addr(addr))
+            {
+                rt_kprintf("  ACK at 0x%02x\n", (unsigned int) addr);
+                found++;
+            }
+        }
+        rt_kprintf("touch scan: %d device(s)\n", found);
+        return;
+    }
+
+    if ((argc >= 2U) && (0 == rt_strcmp(argv[1], "id")))
+    {
+        uint8_t fw = 0U;
+
+        if (FSP_SUCCESS != bsp_touch_product_id(&fw, 1U))
+        {
+            rt_kprintf("touch id: no answer\n");
+            return;
+        }
+        rt_kprintf("touch id: fw=0x%02x finger=0x%02x\n",
+                   (unsigned int) fw, (unsigned int) bsp_touch_status_raw());
+        return;
+    }
+
+    rt_kprintf("touch: %s (CST812T @0x15, SCI3 P408/P409) indev=%s\n",
+               bsp_touch_ready() ? "ready" : "down",
+               lv_port_touch_active() ? "registered" : "none");
+    rt_kprintf("usage: touch <info|init|read|scan|id>\n");
+}
+MSH_CMD_EXPORT_ALIAS(touch_cmd, touch, CST812T: touch info / touch init / touch read / touch scan / touch id);
+#endif /* APP_ENABLE_TOUCH */
+
 int main (void)
 {
-    rt_kprintf("\nRA8D1 Vision Board - Phase 4\n");
+    rt_kprintf("\nRA8D1 Vision Board - Phase 5\n");
     rt_kprintf("RT-Thread Nano %d.%d.%d, CPU %u Hz, tick %u Hz\n",
                RT_VERSION_MAJOR, RT_VERSION_MINOR, RT_VERSION_PATCH,
                SystemCoreClock, RT_TICK_PER_SECOND);
@@ -374,7 +439,7 @@ int main (void)
         fsp_err_t err = bsp_lcd_init();
 
         g_lcd_started = (FSP_SUCCESS == err);
-        rt_kprintf("[main] GLCDC %ux%u: %s (0x%x)\n",
+        rt_kprintf("[main] MIPI panel %ux%u: %s (0x%x)\n",
                    (unsigned int) BSP_LCD_WIDTH,
                    (unsigned int) BSP_LCD_HEIGHT,
                    g_lcd_started ? "OK" : "FAILED",
@@ -383,7 +448,7 @@ int main (void)
         if (g_lcd_started)
         {
             bsp_lcd_pattern(2U);   /* colour bars until LVGL paints over them */
-            lv_port_start();       /* Phase 4: LVGL demo thread                */
+            lv_port_start();       /* Phase 5: LVGL demo thread                */
         }
     }
 

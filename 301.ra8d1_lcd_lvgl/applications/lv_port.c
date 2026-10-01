@@ -1,6 +1,13 @@
 /**
  * @file lv_port.c
- * @brief LVGL v9.1.0 port: partial renderer + memcpy flush + RT-Thread tick
+ * @brief LVGL v9.1.0 port: DIRECT renderer, page swap via R_GLCDC_BufferChange
+ *
+ * Phase 5 changed the display path from "partial buffer memcpy'd into one
+ * framebuffer" to LVGL's DIRECT mode: LVGL renders straight into one of the
+ * two SDRAM pages that bsp_lcd owns, then the flush callback hands that page
+ * to the GLCDC with R_GLCDC_BufferChange() and waits for the frame boundary
+ * (GLCDC line-detect interrupt) before returning, so the panel never samples
+ * a page while it is still being written.
  *
  * Threading model: only the LVGL thread touches LVGL objects. The msh
  * commands only flip volatile flags (screen switch) or read 32-bit counters
@@ -11,55 +18,113 @@
 #include <rtthread.h>
 #include <lvgl.h>
 
+#include "app_config.h"
 #include "bsp_lcd.h"
-
-/* ---- render buffer: 40 full lines of RGB565 in internal SRAM ------------- */
-#define DRAW_BUF_LINES   (40U)
-#define DRAW_BUF_BYTES   (BSP_LCD_WIDTH * DRAW_BUF_LINES * (BSP_LCD_BPP / 8U))
-
-static uint8_t g_draw_buf[DRAW_BUF_BYTES] __attribute__((aligned(32)));
+#if APP_ENABLE_TOUCH
+#include "bsp_touch.h"
+#endif
+#include "app_ui.h"
+#include "ui_page_menu.h"
 
 /* ---- state --------------------------------------------------------------- */
 static rt_thread_t       g_lvgl_thread;
 static lv_display_t *    g_disp;
+static rt_sem_t          g_vsync_sem;
 static volatile bool     g_running;
 static volatile bool     g_test_req;
 static volatile bool     g_demo_req;
 static volatile uint32_t g_flush_count;
 static volatile uint32_t g_fps;
+static volatile uint32_t g_loop_count;
+static volatile uint32_t g_handler_count;
 
-static lv_obj_t * g_lbl_uptime;
+/* Touch input device (CST812T) - NULL unless the panel answered at init. */
+static lv_indev_t *      g_touch_indev;
 
-/* ---- flush: partial buffer -> SDRAM framebuffer -------------------------- */
+#if APP_ENABLE_TOUCH
+/* ---- pointer input: CST812T touch panel ----------------------------------
+   LVGL calls this from lv_timer_handler() on the LVGL thread, so the I2C
+   transfer runs in thread context (bsp_touch_read blocks on a semaphore that
+   the FSP completion callback posts).  When the read fails the last known
+   position is kept and the state is released, so a glitch cannot leave the
+   UI stuck in a press. */
+static void touch_read_cb (lv_indev_t * indev, lv_indev_data_t * data)
+{
+    static uint16_t last_x;
+    static uint16_t last_y;
+    bsp_touch_point_t point;
+
+    LV_UNUSED(indev);
+
+    if (FSP_SUCCESS != bsp_touch_read(&point))
+    {
+        data->point.x = last_x;
+        data->point.y = last_y;
+        data->state   = LV_INDEV_STATE_REL;
+        return;
+    }
+
+    if (point.pressed)
+    {
+        /* Clamp to the display: a stray sample must not push the cursor
+           off-screen (and the panel reports 480x360, same as the display). */
+        if (point.x >= BSP_LCD_WIDTH)
+        {
+            point.x = BSP_LCD_WIDTH - 1U;
+        }
+        if (point.y >= BSP_LCD_HEIGHT)
+        {
+            point.y = BSP_LCD_HEIGHT - 1U;
+        }
+        last_x = point.x;
+        last_y = point.y;
+    }
+
+    data->point.x = last_x;
+    data->point.y = last_y;
+    data->state   = point.pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+}
+#endif /* APP_ENABLE_TOUCH */
+
+/* ---- frame-boundary gate -------------------------------------------------
+   Signalled from the GLCDC line-detect ISR (bsp_lcd.c).  Only waited on once
+   the LVGL driver is up, mirroring the official port. */
+static void vsync_wait_cb (lv_display_t * display)
+{
+    if (!lv_display_flush_is_last(display))
+    {
+        return;
+    }
+
+    if (g_vsync_sem != NULL)
+    {
+        (void) rt_sem_take(g_vsync_sem, RT_WAITING_FOREVER);
+    }
+}
+
+/* ---- flush: publish the freshly rendered page ---------------------------- */
 static void flush_cb (lv_display_t * disp, const lv_area_t * area,
                       uint8_t * px_map)
 {
-    uint16_t *      fb  = bsp_lcd_framebuffer();
-    int32_t         w   = area->x2 - area->x1 + 1;
-    int32_t         h   = area->y2 - area->y1 + 1;
-    const uint8_t * src = px_map;
+    LV_UNUSED(area);
 
-    for (int32_t row = 0; row < h; row++)
+    /* The wait callback only blocks on the last flush of a frame, so a
+       non-last call is a no-op here: DIRECT mode renders the whole screen
+       into one buffer and the GLCDC reads it from SDRAM. */
+    if (!lv_display_flush_is_last(disp))
     {
-        uint32_t dst_off = (uint32_t) ((area->y1 + row) * BSP_LCD_WIDTH +
-                                       area->x1);
-        (void) rt_memcpy(&fb[dst_off], src, (size_t) w * 2U);
-        src += (size_t) w * 2U;
+        return;
     }
+
+    /* BSP_CFG_DCACHE_ENABLED is 0 in this project, so this is a no-op today;
+       it is kept because it becomes load-bearing the moment the D-cache is
+       turned on (the GLCDC is a second bus master on the same SDRAM). */
+    SCB_CleanInvalidateDCache_by_Addr((void *) px_map, (int32_t) BSP_LCD_FB_BYTES);
+
+    (void) bsp_lcd_set_framebuffer(px_map);
 
     lv_display_flush_ready(disp);
     g_flush_count++;
-}
-
-/* ---- anim exec wrappers (LVGL calls these as void(*)(void*, int32_t)) ----- */
-static void bar_anim_cb (void * var, int32_t v)
-{
-    lv_bar_set_value((lv_obj_t *) var, v, LV_ANIM_OFF);
-}
-
-static void arc_anim_cb (void * var, int32_t v)
-{
-    lv_arc_set_value((lv_obj_t *) var, v);
 }
 
 /* ---- tick source: v9 has no LV_TICK_CUSTOM, register a callback instead --- */
@@ -68,102 +133,37 @@ static uint32_t lv_port_tick_ms (void)
     return (uint32_t) rt_tick_get_millisecond();
 }
 
-/* ---- one-second housekeeping: uptime, fps -------------------------------- */
+/* ---- one-second housekeeping: fps counter -------------------------------- */
 static void sec_timer_cb (lv_timer_t * timer)
 {
     static uint32_t last_flush;
-    static uint32_t start_sec;
 
-    uint32_t now = (uint32_t) rt_tick_get_millisecond() / 1000U;
-    uint32_t up  = now - start_sec;
-    uint32_t fc  = g_flush_count;
+    uint32_t fc = g_flush_count;
 
     g_fps = fc - last_flush;
     last_flush = fc;
 
-    if (g_lbl_uptime != NULL)
-    {
-        lv_label_set_text_fmt(g_lbl_uptime, "uptime %u.%02u s   fps %u",
-                              (unsigned int) up,
-                              (unsigned int) (up * 100U % 100U),
-                              (unsigned int) g_fps);
-    }
-
     LV_UNUSED(timer);
 }
 
-/* ---- demo screen (minimal dark, ASCII text: Montserrat has no CJK) ------- */
+/* ---- demo screen (minimal dark) -----------------------------------------
+   Phase 5 moved the UI into applications/ui/ (ui_common + ui_page_* +
+   app_ui), 1:1 with the reference project 003.stm32h743_lvgl_oled.  The
+   ad-hoc 480x360 demo drawn here in Phase 4 is gone; lv_port now owns only
+   the display driver, the tick, the flush path and the thread, and delegates
+   all screen content to app_ui. */
 static void build_demo_screen (void)
 {
-    lv_obj_t * scr = lv_screen_active();
-
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
-
-    lv_obj_t * title = lv_label_create(scr);
-    lv_label_set_text(title, "RA8D1 Vision Board - LVGL 9.1.0");
-    lv_obj_set_style_text_color(title, lv_color_hex(0xE8EAED), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
-
-    lv_obj_t * sub = lv_label_create(scr);
-    lv_label_set_text(sub, "Cortex-M85 480MHz - GLCDC RGB565 800x480");
-    lv_obj_set_style_text_color(sub, lv_color_hex(0x9AA0A6), 0);
-    lv_obj_align(sub, LV_ALIGN_TOP_MID, 0, 38);
-
-    g_lbl_uptime = lv_label_create(scr);
-    lv_obj_set_style_text_color(g_lbl_uptime, lv_color_hex(0xE8EAED), 0);
-    lv_obj_align(g_lbl_uptime, LV_ALIGN_TOP_MID, 0, 64);
-    lv_label_set_text(g_lbl_uptime, "uptime 0.00 s   fps 0");
-
-    /* animated bar: 0 -> 100 -> 0 loop */
-    lv_obj_t * bar = lv_bar_create(scr);
-    lv_obj_set_size(bar, 400, 16);
-    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 100);
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, bar);
-    lv_anim_set_exec_cb(&a, bar_anim_cb);
-    lv_anim_set_values(&a, 0, 100);
-    lv_anim_set_duration(&a, 2000);
-    lv_anim_set_playback_duration(&a, 2000);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_start(&a);
-
-    /* spinning arc */
-    lv_obj_t * arc = lv_arc_create(scr);
-    lv_obj_set_size(arc, 120, 120);
-    lv_obj_align(arc, LV_ALIGN_BOTTOM_MID, 0, -40);
-    lv_arc_set_bg_angles(arc, 0, 360);
-    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_anim_t b;
-    lv_anim_init(&b);
-    lv_anim_set_var(&b, arc);
-    lv_anim_set_exec_cb(&b, arc_anim_cb);
-    lv_anim_set_values(&b, 0, 359);
-    lv_anim_set_duration(&b, 3000);
-    lv_anim_set_repeat_count(&b, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_start(&b);
-
-    /* RGBW chips: prove all four 565 channel extremes reach the panel.
-       NOTE: lv_color_hex() takes RGB888 (0xRRGGBB) - LVGL converts to the
-       565 framebuffer format itself. Passing 565 values here renders the
-       wrong hue (e.g. 0xF800 becomes bright green). */
-    static const uint32_t chip_col[4] = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF };
-
-    for (uint32_t i = 0; i < 4U; i++)
-    {
-        lv_obj_t * chip = lv_obj_create(scr);
-        lv_obj_set_size(chip, 60, 24);
-        lv_obj_align(chip, LV_ALIGN_TOP_LEFT, (int32_t) (16 + i * 80), 400);
-        lv_obj_set_style_bg_color(chip, lv_color_hex(chip_col[i]), 0);
-        lv_obj_set_style_radius(chip, 0, 0);
-        lv_obj_set_style_border_width(chip, 0, 0);
-        lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
-    }
+    app_ui_create();
 }
 
 /* ---- deterministic test screen for SWD pixel asserts ----------------------
-   Solid rects, no radius/border/shadow. Center pixels are pure colors. */
+   Solid rects, no radius/border/shadow. Center pixels are pure colors.
+   Row 10..70 / cols spread across 480: four 100 px rects starting at
+   10 / 130 / 250 / 370.  Built once and kept as a hidden page so the menu
+   page is never destroyed (returning to it is then allocation-free). */
+static lv_obj_t * g_test_scr;
+
 static void build_test_screen (void)
 {
     static const struct
@@ -171,18 +171,26 @@ static void build_test_screen (void)
         uint32_t x, y, w, h, col;      /* col is RGB888 for lv_color_hex() */
     } rects[] =
     {
-        { 10,  10, 100, 60, 0xFF0000 },   /* red   -> fb 0xF800 */
-        {120,  10, 100, 60, 0x00FF00 },   /* green -> fb 0x07E0 */
-        {230,  10, 100, 60, 0x0000FF },   /* blue  -> fb 0x001F */
-        {340,  10, 100, 60, 0xFFFFFF },   /* white -> fb 0xFFFF */
+        {  10, 10, 100, 60, 0xFF0000 },   /* red   -> fb 0xF800 */
+        { 130, 10, 100, 60, 0x00FF00 },   /* green -> fb 0x07E0 */
+        { 250, 10, 100, 60, 0x0000FF },   /* blue  -> fb 0x001F */
+        { 370, 10, 100, 60, 0xFFFFFF },   /* white -> fb 0xFFFF */
     };
 
-    lv_obj_t * scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
+    if (g_test_scr == NULL)
+    {
+        g_test_scr = lv_obj_create(NULL);
+        lv_obj_clear_flag(g_test_scr, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_pad_all(g_test_scr, 0, 0);
+    }
+
+    lv_obj_clean(g_test_scr);
+    lv_obj_set_style_bg_color(g_test_scr, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(g_test_scr, LV_OPA_COVER, 0);
 
     for (uint32_t i = 0; i < 4U; i++)
     {
-        lv_obj_t * r = lv_obj_create(scr);
+        lv_obj_t * r = lv_obj_create(g_test_scr);
         lv_obj_set_pos(r, (int32_t) rects[i].x, (int32_t) rects[i].y);
         lv_obj_set_size(r, (int32_t) rects[i].w, (int32_t) rects[i].h);
         lv_obj_set_style_bg_color(r, lv_color_hex(rects[i].col), 0);
@@ -193,8 +201,7 @@ static void build_test_screen (void)
         lv_obj_set_scrollbar_mode(r, LV_SCROLLBAR_MODE_OFF);
     }
 
-    /* labels live on the demo screen only */
-    g_lbl_uptime = NULL;
+    lv_screen_load(g_test_scr);
 }
 
 /* ---- screen-mode requests, served inside the LVGL thread ----------------- */
@@ -203,14 +210,12 @@ static void mode_timer_cb (lv_timer_t * timer)
     if (g_test_req)
     {
         g_test_req = false;
-        lv_obj_clean(lv_screen_active());
         build_test_screen();
     }
     else if (g_demo_req)
     {
         g_demo_req = false;
-        lv_obj_clean(lv_screen_active());
-        build_demo_screen();
+        app_ui_show(APP_UI_MENU);   /* "demo" = back to the menu */
     }
 
     LV_UNUSED(timer);
@@ -222,17 +227,53 @@ static void lvgl_thread_entry (void * param)
     lv_init();
     lv_tick_set_cb(lv_port_tick_ms);
 
+    /* Initial value 1, matching the official MIPI reference port: the first
+       frame must not block waiting for a boundary that may already have
+       passed (GLCDC is started in bsp_lcd_init(), before this thread exists). */
+    g_vsync_sem = rt_sem_create("lvvsync", 1, RT_IPC_FLAG_PRIO);
+    if (g_vsync_sem == NULL)
+    {
+        rt_kprintf("lv start: vsync sem FAILED\n");
+    }
+
     g_disp = lv_display_create(BSP_LCD_WIDTH, BSP_LCD_HEIGHT);
     lv_display_set_flush_cb(g_disp, flush_cb);
-    lv_display_set_buffers(g_disp, g_draw_buf, NULL, DRAW_BUF_BYTES,
-                           LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_wait_cb(g_disp, vsync_wait_cb);
+
+    /* DIRECT mode: two full-screen pages owned by bsp_lcd.  LVGL renders into
+       one while the GLCDC scans the other; the flush swaps them. */
+    lv_display_set_buffers(g_disp,
+                           bsp_lcd_framebuffer_page(0),
+                           bsp_lcd_framebuffer_page(1),
+                           (uint32_t) BSP_LCD_FB_BYTES,
+                           LV_DISPLAY_RENDER_MODE_DIRECT);
 
     /* dark theme matches the project's minimal dark UI style */
     (void) lv_theme_default_init(g_disp,
                                  lv_color_hex(0x4C8DFF), lv_color_hex(0x3DDC84),
                                  true, &lv_font_montserrat_14);
 
+#if APP_ENABLE_TOUCH
+    /* Pointer input.  The panel is on SCI3 I2C; when it does not answer the
+       indev is simply not registered and the msh cursor commands remain the
+       only way to drive the menu. */
+    if (FSP_SUCCESS == bsp_touch_init())
+    {
+        g_touch_indev = lv_indev_create();
+        lv_indev_set_type(g_touch_indev, LV_INDEV_TYPE_POINTER);
+        lv_indev_set_read_cb(g_touch_indev, touch_read_cb);
+        lv_indev_set_display(g_touch_indev, g_disp);
+    }
+    else
+    {
+        rt_kprintf("[lv] touch unavailable: use 'menu up/down/enter' over msh\n");
+    }
+#endif
+
     build_demo_screen();
+
+    /* Let the menu rows react to taps as well as to the msh cursor. */
+    ui_page_menu_set_input(g_touch_indev);
 
     lv_timer_create(sec_timer_cb, 1000, NULL);
     lv_timer_create(mode_timer_cb, 50, NULL);
@@ -241,7 +282,15 @@ static void lvgl_thread_entry (void * param)
 
     while (1)
     {
+        /* Drain msh-posted navigation requests here so every LVGL call
+           stays on this thread. */
+        app_ui_service();
+
+        g_loop_count++;
+
         uint32_t next = lv_timer_handler();
+
+        g_handler_count++;
 
         if (next > LV_DEF_REFR_PERIOD)
         {
@@ -304,6 +353,21 @@ uint32_t lv_port_mem_used_pct (void)
     return (uint32_t) mon.used_pct;
 }
 
+uint32_t lv_port_loop_count (void)
+{
+    return g_loop_count;
+}
+
+uint32_t lv_port_handler_count (void)
+{
+    return g_handler_count;
+}
+
+bool lv_port_touch_active (void)
+{
+    return (g_touch_indev != NULL);
+}
+
 void lv_port_test_screen (void)
 {
     if (g_running)
@@ -317,5 +381,14 @@ void lv_port_demo_screen (void)
     if (g_running)
     {
         g_demo_req = true;
+    }
+}
+
+/* ---- vsync plumbing ------------------------------------------------------ */
+void lv_port_vsync_notify (void)
+{
+    if (g_vsync_sem != NULL)
+    {
+        (void) rt_sem_release(g_vsync_sem);
     }
 }

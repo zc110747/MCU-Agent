@@ -11,6 +11,7 @@ set(PROJ_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 # ---------------------------------------------------------------- self code
 file(GLOB SELF_SOURCES
     "${PROJ_ROOT}/applications/*.c"
+    "${PROJ_ROOT}/applications/ui/*.c"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board/*.c"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board/gen/*.c"
 )
@@ -28,8 +29,10 @@ file(GLOB FSP_MODULE_SOURCES
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_ioport/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_sci_b_uart/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_glcdc/*.c"
-    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_ceu/*.c"
     "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_gpt/*.c"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_mipi_phy/*.c"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_mipi_dsi/*.c"
+    "${PROJ_ROOT}/Drivers/renesas/fsp/src/r_sci_b_i2c/*.c"
 )
 
 # Renesas EK board support (SDRAM controller init sequence), upstream as-is.
@@ -80,6 +83,7 @@ target_compile_options(lvgl_core PRIVATE $<$<COMPILE_LANGUAGE:C>:-w>)
 
 set(COMMON_INCLUDES
     "${PROJ_ROOT}/applications"
+    "${PROJ_ROOT}/applications/ui"
     "${PROJ_ROOT}/bsp"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board"
     "${PROJ_ROOT}/bsp/ra8d1-vision-board/gen"

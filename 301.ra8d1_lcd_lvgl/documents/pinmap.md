@@ -6,12 +6,14 @@
 
 | Signal | Pin | Function | Source |
 |---|---|---|---|
+| Touch INT | P010 | CST812T 中断（本板 MIPI 2.0" 为 CST812T，非 GT9147） | mipi 2.0" 工程 `cst812t.h`（`TOUCH_IRQ_PIN "p010"`）+ 本机 SWD 实测 |
+| Touch RST | P000 | CST812T 复位，输出，空闲高 | mipi 2.0" 工程 `cst812t.h`（`TOUCH_RST_PIN "p000"`）+ 本机 SWD 实测 PFS |
+| Touch I2C SCL | P408 | SCI3 simple-I2C SCL（组 SCI1_3_5_7_9），100 kHz | 原理图 p3/p9（SCL0 网络 → P408 B14）+ 官方 `ra_gen/pin_data.c` |
+| Touch I2C SDA | P409 | SCI3 simple-I2C SDA（组 SCI1_3_5_7_9），100 kHz | 原理图 p3/p9（SDA0 网络 → P409 E10）+ 官方 `ra_gen/pin_data.c` |
+| Touch I2C 设备名 | sci3i | 官方 cst812t 使用 SCI3 I2C，从机地址 0x15 | mipi 2.0" 工程 `cst812t.h`（`TOUCH_SLAVE_ADDRESS 0x15`） |
 | Debug UART TX | P208 | UART9 (SCI9) TXD，115200 8N1 | blink_led `ra_gen/pin_data.c`（IOPORT_PERIPHERAL_SCI1_3_5_7_9）+ `hal_data.c`（channel=9） |
 | Debug UART RX | P209 | UART9 (SCI9) RXD | 同上 |
 | LED | P102 | 板载 LED，GPIO 输出 | blink_led `src/hal_entry.c`（`LED_PIN = BSP_IO_PORT_01_PIN_02`） |
-| Touch INT | P010 | GT9147 中断，输入 | rgb 工程 `src/hal_entry.c`（`INT_PIN "p010"`） |
-| Touch RST | P000 | GT9147 复位，输出 | rgb 工程 `src/hal_entry.c`（`RST_PIN "p000"`） |
-| Touch/SCCB I2C | P512（组） | IOPORT_PERIPHERAL_IIC | rgb 工程 `pin_data.c` |
 | LCD Backlight | P1011 | PWM/GPIO 背光 | `libraries/HAL_Drivers/config/ra8/lcd_config.h` |
 | LCD Reset | P1104 | 屏复位 | 同上 |
 | LCD RGB 总线（组） | P3xx 多脚 | IOPORT_PERIPHERAL_BUS（高驱动），RGB 数据/DE/HSYNC/VSYNC/PCLK | rgb 工程 `pin_data.c`（逐脚功能表待 Phase 2 原理图确认） |

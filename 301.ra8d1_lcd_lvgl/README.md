@@ -42,6 +42,7 @@ R7FA8D1BH.svd   外设寄存器视图（从 Renesas RA DFP pack 提取）
 | Phase 2 | LCD（GLCDC，无 LVGL） | ✅ |
 | Phase 3 | Camera（CEU） | ✅ |
 | Phase 4 | LVGL v9.1.0 | ✅ |
+| Phase 5 | MIPI DSI 显示通路重做 + LVGL 菜单 + 触摸（CST812T） | ⚠️ 显示/菜单 ✅，触摸未连通（硬件层，见 `documents/phase5-touch-report.md`） |
 
 ## VSCode 在线仿真（pyOCD + cortex-debug）
 
@@ -214,3 +215,17 @@ SDRAM framebuffer；tick 用 `lv_tick_set_cb()` 挂 `rt_tick_get_millisecond()`
 
 官方 BSP（只读参考，不参与构建）：`E:/cnb/git/sdk-bsp-ra8d1-vision-board-master`
 （https://github.com/RT-Thread-Studio/sdk-bsp-ra8d1-vision-board）
+
+## Phase 5：MIPI DSI 显示通路重做 + LVGL 菜单 + 触摸
+
+- **显示**：Phase 2/3/4 的 RGB666 并口路径与实物 MIPI DSI 2.0"（480×360）面板不匹配，
+  Phase 5 改为 GLCDC → DSI 桥接（`r_mipi_dsi` + `r_mipi_phy`）+ DCS 初始化序列，屏点亮。
+- **菜单**：LVGL 菜单外壳，无触摸时可用 msh 命令 `menu up/down/enter/back/select N/list` 驱动。
+- **触摸（CST812T）**：驱动链路已实现并**逐项 SWD 取证验证正确**
+  （引脚复用 P408/P409→SCI3、IELSR[8/9]=0x13A/0x13B、NVIC 使能、BRR/MDDR、从机 0x15、总线空闲两线均高），
+  但控制器**不响应任何 I2C 事务**（SCI3 与手工位翻转 I2C 均 NACK，全地址扫描 0 设备），
+  判定为**硬件/面板层问题**，详见 `documents/phase5-touch-report.md`。
+- 触摸相关控制台命令：`touch info / init / read / scan / id`；失败时打印总线实际电平辅助定位。
+
+> ⚠️ `tools/dbg/` 曾因仓库根 `.gitignore` 的 `**/Debug/*`（Windows 大小写不敏感）被整体忽略，
+> 目录已从 `tools/debug/` 更名为 `tools/dbg/` 以避开黑名单。

@@ -1,5 +1,7 @@
 # build output (anchored: tools/build/ must stay tracked)
 /build/
+/build_dbg/
+/build_rel/
 
 # toolchain artifacts
 *.elf

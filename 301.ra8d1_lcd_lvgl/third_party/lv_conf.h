@@ -45,8 +45,16 @@
 #define LV_USE_MEM_MONITOR          0
 
 /* -------------------------------------------------------------------- themes
- * Default theme only (dark), Montserrat 14 as the base font. */
+ * Default theme only (dark).  The panel is 480x360, roughly 1.5x the 240x240
+ * reference project, so the same type scale is used but not scaled up: the
+ * added width goes into longer strings, not bigger glyphs.
+ * Only the sizes the UI actually asks for are enabled - every extra Montserrat
+ * size is ~4-8 KB of glyph bitmaps in flash. */
 #define LV_USE_THEME_DEFAULT        1
+#define LV_FONT_MONTSERRAT_12       1
 #define LV_FONT_MONTSERRAT_14       1
+#define LV_FONT_MONTSERRAT_16       1
+#define LV_FONT_MONTSERRAT_20       1
+#define LV_FONT_MONTSERRAT_28       1
 
 #endif /* LV_CONF_H */
