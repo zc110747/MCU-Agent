@@ -1,0 +1,14 @@
+# pyocd.yaml - RA8D1 Vision Board session options (auto-discovered from project root).
+#
+# Target: generic "cortex_m" (the DFP pack target fails to init on ART-Link);
+# the RA8D1 memory map + FLM flash algorithm is injected by pyocd_user.py.
+target_override: cortex_m
+
+# SWD clock, matches tools/flash/flash.py default.
+frequency: 1000000
+
+# Flash algo timeouts. gdb "load" drives erase/program through the RSP flash
+# commands, which need more headroom than the 10 s defaults on RA8D1.
+flash.timeout.init: 30
+flash.timeout.erase_sector: 60
+flash.timeout.program: 60
