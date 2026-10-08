@@ -174,12 +174,17 @@ void sw_uart_timer_start(void)
     __HAL_TIM_SET_COUNTER(&g_rx_timer, 0U);
     __HAL_TIM_CLEAR_FLAG(&g_tx_timer, TIM_FLAG_UPDATE);
     __HAL_TIM_CLEAR_FLAG(&g_rx_timer, TIM_FLAG_UPDATE);
+    /* UDE gates the update DMA request on H7: without it the timer still
+     * rolls over and sets UIF, but no request reaches the stream and NDTR
+     * never decrements - the stream stays armed forever. */
+    __HAL_TIM_ENABLE_IT(&g_tx_timer, TIM_DIER_UDE);
     __HAL_TIM_ENABLE(&g_tx_timer);
 }
 
 void sw_uart_timer_stop(void)
 {
     __HAL_TIM_DISABLE(&g_tx_timer);
+    __HAL_TIM_DISABLE_IT(&g_tx_timer, TIM_DIER_UDE);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -191,4 +196,40 @@ uint32_t sw_uart_timer_get_tick_hz(void)
 const sw_uart_timer_info_t *sw_uart_timer_get_info(void)
 {
     return &g_timer_info;
+}
+
+/* ---------------------------------------------------------------------------
+ * RX sampling clock.
+ *
+ * The period register is reloaded between slots, which is why the ARR
+ * prescaler is always 0: the bit time has to be expressible as a plain tick
+ * count so 1.5 bits and 1 bit share the same counter clock.
+ * -------------------------------------------------------------------------*/
+void sw_uart_timer_rx_start_half_bit(void)
+{
+    uint32_t ticks = (g_timer_info.bit_ticks * 3U) / 2U;
+
+    __HAL_TIM_SET_COUNTER(&g_rx_timer, 0U);
+    __HAL_TIM_SET_AUTORELOAD(&g_rx_timer, ticks - 1U);
+    __HAL_TIM_SET_COUNTER(&g_rx_timer, 0U);
+    __HAL_TIM_CLEAR_FLAG(&g_rx_timer, TIM_FLAG_UPDATE);
+    __HAL_TIM_ENABLE(&g_rx_timer);
+}
+
+void sw_uart_timer_rx_reload_one_bit(void)
+{
+    /* ARR is preloaded, so the new period takes effect at the next update;
+     * clearing UIF first keeps the pending event from firing twice. */
+    __HAL_TIM_SET_AUTORELOAD(&g_rx_timer, g_timer_info.bit_ticks - 1U);
+    __HAL_TIM_CLEAR_FLAG(&g_rx_timer, TIM_FLAG_UPDATE);
+}
+
+void sw_uart_timer_rx_stop(void)
+{
+    __HAL_TIM_DISABLE(&g_rx_timer);
+}
+
+TIM_HandleTypeDef *sw_uart_timer_rx_handle(void)
+{
+    return &g_rx_timer;
 }

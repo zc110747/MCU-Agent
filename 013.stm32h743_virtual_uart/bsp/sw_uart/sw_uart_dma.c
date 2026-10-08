@@ -4,24 +4,37 @@
 
 #include "sw_uart_dma.h"
 #include "sw_uart_gpio.h"
+#include "sw_uart_tx.h"
 #include "stm32h7xx_hal.h"
 
 static DMA_HandleTypeDef g_tx_dma = {0};
 
-/* BSRR words currently owned by the stream. HAL_DMA_Start_IT reads both
- * addresses out of Init, so the memory side has to be re-armed on every
- * start - the stream is not given a permanent memory pointer. */
+/* BSRR words owned by the stream. HAL_DMA_Start_IT takes both addresses as
+ * arguments, so the memory side is re-armed on every launch. */
 static const uint32_t *g_tx_words;
 
+/* Invoked from the transfer-complete interrupt. */
+static void (*g_tx_done_cb)(void);
+
 /* ------------------------------------------------------------------------ */
-int sw_uart_dma_init(const uint32_t *bsrr_words, uint16_t item_count)
+int sw_uart_dma_set_buffer(const uint32_t *bsrr_words)
 {
-    if ((bsrr_words == NULL) || (item_count == 0U))
+    if (bsrr_words == NULL)
     {
         return -1;
     }
 
     g_tx_words = bsrr_words;
+    return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+int sw_uart_dma_init(void)
+{
+    if (g_tx_words == NULL)
+    {
+        return -1;
+    }
 
     SW_UART_TX_DMA_CLK_ENABLE();
 
@@ -34,8 +47,11 @@ int sw_uart_dma_init(const uint32_t *bsrr_words, uint16_t item_count)
     g_tx_dma.Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
     g_tx_dma.Init.Mode                = DMA_NORMAL;
     g_tx_dma.Init.Priority            = DMA_PRIORITY_VERY_HIGH;
-    g_tx_dma.Init.FIFOMode            = DMA_FIFOMODE_ENABLE;
-    g_tx_dma.Init.FIFOThreshold       = DMA_FIFO_THRESHOLD_FULL;
+    /* Direct mode, not FIFO. In FIFO mode the controller waits for the
+     * threshold before touching the peripheral, delaying the start bit
+     * relative to the timer edge that requested it - exactly the jitter a
+     * bit-banged UART cannot tolerate. */
+    g_tx_dma.Init.FIFOMode            = DMA_FIFOMODE_DISABLE;
     g_tx_dma.Init.MemBurst            = DMA_MBURST_SINGLE;
     g_tx_dma.Init.PeriphBurst         = DMA_PBURST_SINGLE;
     if (HAL_DMA_Init(&g_tx_dma) != HAL_OK)
@@ -47,7 +63,8 @@ int sw_uart_dma_init(const uint32_t *bsrr_words, uint16_t item_count)
                          SW_UART_IRQ_PRIORITY, SW_UART_IRQ_SUBPRIORITY);
     HAL_NVIC_EnableIRQ(SW_UART_TX_DMA_IRQn);
 
-    return sw_uart_dma_start(item_count);
+    g_tx_done_cb = sw_uart_tx_on_dma_done;
+    return 0;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -87,4 +104,9 @@ bool sw_uart_dma_is_busy(void)
 void DMA1_Stream0_IRQHandler(void)
 {
     HAL_DMA_IRQHandler(&g_tx_dma);
+
+    if (g_tx_done_cb != NULL)
+    {
+        g_tx_done_cb();
+    }
 }

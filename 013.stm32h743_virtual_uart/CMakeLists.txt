@@ -41,6 +41,8 @@ set(SW_UART_SOURCES
   ${SW_UART_DIR}/sw_uart_gpio.c
   ${SW_UART_DIR}/sw_uart_timer.c
   ${SW_UART_DIR}/sw_uart_dma.c
+  ${SW_UART_DIR}/sw_uart_tx.c
+  ${SW_UART_DIR}/sw_uart_rx.c
 )
 
 # Only the HAL modules this project actually uses.

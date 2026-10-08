@@ -43,6 +43,15 @@ uint32_t sw_uart_timer_get_tick_hz(void);
 /* Resolved timing of the currently configured baud rate. */
 const sw_uart_timer_info_t *sw_uart_timer_get_info(void);
 
+/* RX sampling clock. The first delay is one and a half bit times so the start
+ * bit is sampled in its middle; every later slot is one bit time. */
+void sw_uart_timer_rx_start_half_bit(void);
+void sw_uart_timer_rx_reload_one_bit(void);
+void sw_uart_timer_rx_stop(void);
+
+/* The RX timer handle, for HAL_TIM_IRQHandler. */
+TIM_HandleTypeDef *sw_uart_timer_rx_handle(void);
+
 #ifdef __cplusplus
 }
 #endif
