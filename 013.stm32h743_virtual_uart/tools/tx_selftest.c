@@ -3,8 +3,8 @@
  *
  * No logic analyser is available and the ST-Link VCP proved unreliable during
  * bring-up, so the TX waveform is measured where it actually exists: on the
- * pin. PA10 is sampled in a tight polling loop and every edge is timestamped
- * with the DWT cycle counter.
+ * pin. PA9 (the TX pin) is sampled in a tight polling loop and every edge is
+ * timestamped with the DWT cycle counter.
  *
  * The firmware streams 0x55, which is 1 0101 0101, so every bit boundary
  * produces an edge and the interval between consecutive edges *is* the bit

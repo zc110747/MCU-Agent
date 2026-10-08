@@ -3,15 +3,20 @@
  *
  * Concurrency
  * -----------
- * Two contexts touch this file:
- *   - application context: sw_uart_tx_write() appends to the FIFO
- *   - DMA interrupt:      on_dma_done() refills and relaunches
+ * Two contexts drive this file:
+ *   - application:   sw_uart_tx_write() appends, and on the idle -> active
+ *                    edge encodes the first chunk itself
+ *   - DMA interrupt: on_dma_done() chains the next chunk
  *
- * The FIFO is single-producer / single-consumer: only the writer advances
- * head, only the interrupt advances tail. That is what makes the ring safe
- * lock-free - not the volatile qualifier, which only stops the compiler from
- * caching a value in a register. Only this module launches the DMA, from one
- * place (pump), so the stream can never be started twice.
+ * Only the writer moves head; tail is moved by whoever runs the encoder, so
+ * the ring is not strictly single-consumer. What keeps it safe is that the
+ * encoder runs only when the state says no chunk is in flight, and the DMA
+ * interrupt has the highest priority, so the writer is never mid-encode when
+ * it fires. Only this module launches the DMA, from one place (pump), so the
+ * stream can never be started twice.
+ *
+ * tail therefore trails the wire by up to one chunk: pending() and space()
+ * describe what is left in the ring, not what is left to transmit.
  * -------------------------------------------------------------------------*/
 #ifndef SW_UART_TX_H
 #define SW_UART_TX_H

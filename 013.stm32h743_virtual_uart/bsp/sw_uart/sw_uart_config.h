@@ -16,15 +16,19 @@
 
 /* ---------------------------------------------------------------------------
  * Pin assignment - pure GPIO, no USART alternate function is ever configured.
+ *
+ * Wiring (matches the USART1 pinout of the MCU side):
+ *   PA9  = MCU TX -> host RX
+ *   PA10 = MCU RX <- host TX
  * -------------------------------------------------------------------------*/
 #define SW_UART_TX_PORT           GPIOA
-#define SW_UART_TX_PIN            GPIO_PIN_10
-#define SW_UART_TX_PIN_NUM        10U
+#define SW_UART_TX_PIN            GPIO_PIN_9
+#define SW_UART_TX_PIN_NUM        9U
 #define SW_UART_TX_CLK_ENABLE()   __HAL_RCC_GPIOA_CLK_ENABLE()
 
 #define SW_UART_RX_PORT           GPIOA
-#define SW_UART_RX_PIN            GPIO_PIN_9
-#define SW_UART_RX_PIN_NUM        9U
+#define SW_UART_RX_PIN            GPIO_PIN_10
+#define SW_UART_RX_PIN_NUM        10U
 #define SW_UART_RX_CLK_ENABLE()   __HAL_RCC_GPIOA_CLK_ENABLE()
 
 /* BSRR atomic set/reset words derived from the pin number - these are what the

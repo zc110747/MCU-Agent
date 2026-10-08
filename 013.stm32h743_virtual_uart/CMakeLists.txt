@@ -10,7 +10,7 @@ project(h743_virtual_uart
 set(DRIVERS_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/Drivers)
 set(HAL_DIR      ${DRIVERS_DIR}/STM32H7xx_HAL_Driver)
 set(CMSIS_CORE   ${DRIVERS_DIR}/CMSIS/Core/Include)
-set(CMSIS_DEVICE sys_startup)          # local startup/device headers/linker
+set(CMSIS_DEVICE ${CMAKE_CURRENT_SOURCE_DIR}/sys_startup)  # local startup/device headers/linker
 set(SW_UART_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/bsp/sw_uart)
 
 foreach(_d ${CMSIS_CORE} ${CMSIS_DEVICE} ${HAL_DIR} ${SW_UART_DIR})
@@ -27,6 +27,7 @@ set(TARGET ${PROJECT_NAME})
 set(APP_SOURCES
   app/main.c
   tools/tx_selftest.c
+  tools/phase3_test.c
 )
 
 set(BSP_SOURCES
@@ -75,6 +76,7 @@ target_include_directories(${TARGET} PRIVATE
   app
   bsp
   bsp/sw_uart
+  tools
   ${CMSIS_CORE}
   ${CMSIS_DEVICE}
   ${HAL_DIR}/Inc

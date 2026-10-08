@@ -71,9 +71,9 @@ int sw_uart_rx_init(void)
 {
     g_rx = (rx_info_t){0};
 
-    HAL_NVIC_SetPriority(EXTI9_5_IRQn,
+    HAL_NVIC_SetPriority(EXTI15_10_IRQn,
                          SW_UART_IRQ_PRIORITY, SW_UART_IRQ_SUBPRIORITY);
-    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
     /* The update interrupt is what actually samples the line; EXTI only
      * arms it, so this one must stay enabled for RX to work at all. */
@@ -85,7 +85,7 @@ int sw_uart_rx_init(void)
 /* ------------------------------------------------------------------------ */
 void sw_uart_rx_deinit(void)
 {
-    HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+    HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
     g_rx.state = SW_UART_RX_IDLE;
 }
 
@@ -143,13 +143,13 @@ sw_uart_rx_state_t sw_uart_rx_get_state(void)
 }
 
 /* ---------------------------------------------------------------------------
- * EXTI9_5 - PA9 falling edge.
+ * EXTI15_10 - PA10 falling edge.
  *
  * A falling edge is a candidate start bit. The line is re-checked here
  * because a glitch or a previous frame's stop edge can also produce one; the
  * sampling timer is only started once the idle level was genuinely high.
  * -------------------------------------------------------------------------*/
-void EXTI9_5_IRQHandler(void)
+void EXTI15_10_IRQHandler(void)
 {
     HAL_GPIO_EXTI_IRQHandler(SW_UART_RX_PIN);
 

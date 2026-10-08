@@ -35,8 +35,8 @@ static volatile uint32_t g_tx_words[SW_UART_TX_CHUNK_WORDS]
 typedef struct
 {
     uint8_t  fifo[SW_UART_TX_BUFFER_SIZE];
-    volatile uint16_t head;    /* advanced by the producer only        */
-    volatile uint16_t tail;    /* advanced by the DMA interrupt only   */
+    volatile uint16_t head;    /* advanced by the writer only           */
+    volatile uint16_t tail;    /* advanced by the encoder, either ctx   */
     volatile sw_uart_tx_state_t state;
     uint32_t tx_bytes;
     uint32_t tx_dropped;
