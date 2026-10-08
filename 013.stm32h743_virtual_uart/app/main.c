@@ -1,15 +1,14 @@
 /* ---------------------------------------------------------------------------
- * STM32H743 software UART - Phase 4/5 entry point.
+ * STM32H743 software UART - Phase 6/7 entry point.
  *
- * Receives a fixed-length burst from the host and hands back a checksum
- * record, so the RX path can be judged from the same port that carried the
- * stimulus - no logic analyser, and no dependency on SWD reading cache-coherent
- * memory while the capture is still running.
+ * Full-duplex echo: everything the host sends comes back, in order, at the
+ * same baud. Nothing is buffered beyond the two FIFOs, so a byte that fails to
+ * make the round trip is a byte the RX path lost.
  * -------------------------------------------------------------------------*/
 
 #include "bsp.h"
 #include "sw_uart.h"
-#include "rx_test.h"
+#include "echo_test.h"
 
 int main(void)
 {
@@ -23,16 +22,10 @@ int main(void)
         }
     }
 
-    rx_test_start(RX_TEST_EXPECTED);
-    while (rx_test_step() == 0U)
-    {
-    }
+    echo_test_start();
 
-    /* Capture done and the record is queued; heartbeat so the end state is
-     * visible on the board. */
     while (1)
     {
-        board_led_toggle();
-        board_delay_ms(250U);
+        echo_test_step();
     }
 }

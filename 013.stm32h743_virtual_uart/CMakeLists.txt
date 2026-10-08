@@ -29,6 +29,7 @@ set(APP_SOURCES
   tools/tx_selftest.c
   tools/phase3_test.c
   tools/rx_test.c
+  tools/echo_test.c
 )
 
 set(BSP_SOURCES
