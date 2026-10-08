@@ -148,6 +148,28 @@ UV4 -f MDK-ARM/stm32h743.uvprojx -t debug -j0 -o MDK-ARM/flash.log   # 烧录
    关掉后 `Erase Done / Programming Done / Verify OK` 干净通过。
 2. `Utilities` 选 ST-Link 驱动 `STLink\ST-LINKIII-KEIL_SWO.dll`，算法 `STM32H7x_2048.FLM`。
 
+**栈大小：两条工具链各存一份，且语义不同（曾致 Keil 侧 HardFault）**
+
+| | 定义位置 | 值 | 语义 |
+|---|---|---|---|
+| GCC | `sys_startup/stm32h743zi_flash.ld` → `_Min_Stack_Size` | 4 KB | **仅守卫预留**：`_estack` 钉在 DTCM 顶部（`0x20020000`），栈从顶向低长，实际可用量远大于此值 ⇒ **栈偏小不会报错** |
+| Keil | `sys_startup/arm/startup_stm32h743xx.s` → `Stack_Size` | 原 `0x400`(1 KB) → **`0x2000`(8 KB)** | `AREA STACK` 是 **固定尺寸的实体块**，紧邻 `.bss`/`HEAP`（map: `Stack_Mem@0x20001858`、`__initial_sp=0x20003858`）⇒ 越界直接踩坏相邻静态数据 |
+
+⇒ 只把 Keil 侧"对齐到 GCC 的 4 KB"是不够的：GCC 那个数是**名义守卫**而非**需求实测值**。
+本工程在 Keil 的 1 KB 栈下**确定进 `HardFault_Handler`**（GCC 侧 4 KB 完全正常，因此极易误判为
+"Keil 工具链有问题"）。修法是把 Keil 侧抬到带余量的 8 KB。
+
+判据：
+
+```bash
+grep -nE "Stack_Size|Heap_Size" sys_startup/arm/*.s      # Keil: Stack_Size / Heap_Size
+grep -nE "_Min_Stack_Size|_Min_Heap_Size" sys_startup/*.ld # GCC
+grep -nE "STACK|__initial_sp" MDK-ARM/Listings/debug/stm32h743.map   # 实际尺寸与落点
+```
+
+两条工具链的初始 SP 天然不同（GCC `_estack=DTCM 顶`；Keil `__initial_sp` 在 `RW_IRAM1` 已用区之上），
+调试时看到不同 SP 值属正常。
+
 ### 环境验证结果（真机）
 
 | 环境 | 检查 | 实测 |
@@ -156,6 +178,7 @@ UV4 -f MDK-ARM/stm32h743.uvprojx -t debug -j0 -o MDK-ARM/flash.log   # 烧录
 | Keil | `UV4 -b -t release` | **0 Error / 0 Warning**，Code 16 048 B |
 | Keil | `UV4 -f -t debug` | `Erase Done. Programming Done. Verify OK.` |
 | Keil | map 中 `.dma_buf` | `0x24000000`（AXI SRAM，DMA 可达，32 B 对齐） |
+| Keil | map 中栈 | `STACK` **8192 B** @ `Stack_Mem 0x20001858`，`__initial_sp = 0x20003858` |
 | VSCode | OpenOCD 连接 | SWD `DPIDR 0x6ba02477`、`Cortex-M7 r1p1` |
 | VSCode | 加载 + 断点 | 命中 `main.c:15`，`pc=0x80006d2 <main+2>`、`sp=0x2001fff8` |
 | VSCode | 目标内存读 | `0xE000ED00 = 0x411FC271`（Cortex-M7 CPUID） |

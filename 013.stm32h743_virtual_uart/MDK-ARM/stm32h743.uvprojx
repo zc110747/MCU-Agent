@@ -46,7 +46,7 @@
             <ExitCodeStop>0</ExitCodeStop>
             <ButtonStop>0</ButtonStop>
             <NotGenerated>0</NotGenerated>
-            <InvalidFlash>0</InvalidFlash>
+            <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
           <OutputDirectory>Objects\debug\</OutputDirectory>
           <OutputName>stm32h743</OutputName>
@@ -597,7 +597,7 @@
             <ExitCodeStop>0</ExitCodeStop>
             <ButtonStop>0</ButtonStop>
             <NotGenerated>0</NotGenerated>
-            <InvalidFlash>0</InvalidFlash>
+            <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
           <OutputDirectory>Objects\release\</OutputDirectory>
           <OutputName>stm32h743</OutputName>
@@ -1115,5 +1115,20 @@
     <components/>
     <files/>
   </RTE>
+
+  <LayerInfo>
+    <Layers>
+      <Layer>
+        <LayName>&lt;Project Info&gt;</LayName>
+        <LayDesc></LayDesc>
+        <LayUrl></LayUrl>
+        <LayKeys></LayKeys>
+        <LayCat></LayCat>
+        <LayLic></LayLic>
+        <LayTarg>0</LayTarg>
+        <LayPrjMark>1</LayPrjMark>
+      </Layer>
+    </Layers>
+  </LayerInfo>
 
 </Project>
