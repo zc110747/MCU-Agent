@@ -1,0 +1,64 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (OpenOCD + ST-Link, CMake build)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/h743_virtual_uart.elf",
+      "device": "STM32H743ZI",
+      "configFiles": [
+        "${workspaceFolder}/openocd/stm32h743_stlink.cfg"
+      ],
+      "svdFile": "${env:USERPROFILE}/AppData/Local/Arm/Packs/Keil/STM32H7xx_DFP/4.1.3/CMSIS/SVD/STM32H743.svd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "Build: Debug (CMake)",
+      "armToolchainPath": "D:/Software/tools/arm-none-eabi/bin",
+      "gdbPath": "D:/Software/tools/arm-none-eabi/bin/arm-none-eabi-gdb.exe",
+      "openocdPath": "D:/Software/openocd/bin/openocd.exe",
+      "showDevDebugOutput": "none"
+    },
+    {
+      "name": "Debug (OpenOCD + ST-Link, Keil build)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/MDK-ARM/Objects/debug/stm32h743.axf",
+      "device": "STM32H743ZI",
+      "configFiles": [
+        "${workspaceFolder}/openocd/stm32h743_stlink.cfg"
+      ],
+      "svdFile": "${env:USERPROFILE}/AppData/Local/Arm/Packs/Keil/STM32H7xx_DFP/4.1.3/CMSIS/SVD/STM32H743.svd",
+      "preLaunchTask": "Keil: Build+Flash (debug)",
+      "overrideLaunchCommands": [
+        "monitor reset halt",
+        "break main",
+        "continue"
+      ],
+      "armToolchainPath": "D:/Software/tools/arm-none-eabi/bin",
+      "gdbPath": "D:/Software/tools/arm-none-eabi/bin/arm-none-eabi-gdb.exe",
+      "openocdPath": "D:/Software/openocd/bin/openocd.exe",
+      "showDevDebugOutput": "none"
+    },
+    {
+      "name": "Attach (OpenOCD + ST-Link)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/h743_virtual_uart.elf",
+      "device": "STM32H743ZI",
+      "configFiles": [
+        "${workspaceFolder}/openocd/stm32h743_stlink.cfg"
+      ],
+      "svdFile": "${env:USERPROFILE}/AppData/Local/Arm/Packs/Keil/STM32H7xx_DFP/4.1.3/CMSIS/SVD/STM32H743.svd",
+      "armToolchainPath": "D:/Software/tools/arm-none-eabi/bin",
+      "gdbPath": "D:/Software/tools/arm-none-eabi/bin/arm-none-eabi-gdb.exe",
+      "openocdPath": "D:/Software/openocd/bin/openocd.exe",
+      "showDevDebugOutput": "none"
+    }
+  ]
+}

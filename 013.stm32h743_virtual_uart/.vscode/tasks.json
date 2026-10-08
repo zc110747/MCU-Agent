@@ -1,0 +1,97 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: Configure (debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "debug"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: Debug (CMake)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "debug"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Build: Release (CMake)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "release"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Flash: OpenOCD + ST-Link",
+      "type": "shell",
+      "command": "openocd",
+      "args": [
+        "-f", "${workspaceFolder}/openocd/stm32h743_stlink.cfg",
+        "-c", "program ${workspaceFolder}/build/debug/h743_virtual_uart.elf verify reset exit"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Build (debug)",
+      "type": "shell",
+      "command": "C:\\Keil_v5\\UV4\\UV4.exe",
+      "args": [
+        "-b", "${workspaceFolder}\\MDK-ARM\\stm32h743.uvprojx",
+        "-t", "debug", "-j0",
+        "-o", "${workspaceFolder}\\MDK-ARM\\build.log"
+      ],
+      "options": { "cwd": "${workspaceFolder}/MDK-ARM" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Build (release)",
+      "type": "shell",
+      "command": "C:\\Keil_v5\\UV4\\UV4.exe",
+      "args": [
+        "-b", "${workspaceFolder}\\MDK-ARM\\stm32h743.uvprojx",
+        "-t", "release", "-j0",
+        "-o", "${workspaceFolder}\\MDK-ARM\\release.log"
+      ],
+      "options": { "cwd": "${workspaceFolder}/MDK-ARM" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Flash (debug)",
+      "type": "shell",
+      "command": "C:\\Keil_v5\\UV4\\UV4.exe",
+      "args": [
+        "-f", "${workspaceFolder}\\MDK-ARM\\stm32h743.uvprojx",
+        "-t", "debug", "-j0",
+        "-o", "${workspaceFolder}\\MDK-ARM\\flash.log"
+      ],
+      "options": { "cwd": "${workspaceFolder}/MDK-ARM" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Flash hex via OpenOCD (debug)",
+      "type": "shell",
+      "command": "openocd",
+      "args": [
+        "-f", "${workspaceFolder}/openocd/stm32h743_stlink.cfg",
+        "-c", "init", "-c", "reset halt",
+        "-c", "program ${workspaceFolder}/MDK-ARM/Objects/debug/stm32h743.hex verify",
+        "-c", "reset run", "-c", "exit"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Build+Flash (debug)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Keil: Build (debug)", "Keil: Flash hex via OpenOCD (debug)"],
+      "problemMatcher": []
+    }
+  ]
+}

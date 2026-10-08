@@ -1,0 +1,50 @@
+; ---------------------------------------------------------------------------
+; stm32h743.sct - scatter file for 013.stm32h743_virtual_uart (software UART)
+;
+; Mirrors sys_startup/stm32h743zi_flash.ld section by section, so the Keil and
+; the GCC builds describe the same memory map:
+;
+;   FLASH    0x08000000   2 MB : vector table + .text + .rodata
+;   DTCMRAM  0x20000000 128 KB : .data / .bss / HEAP / STACK (zero wait state)
+;   RAM_D1   0x24000000 512 KB : .dma_buf (UNINIT) + general scratch
+;   RAM_D2   0x30000000 288 KB : optional scratch
+;
+; Bus-master reachability is the whole point of the .dma_buf region:
+;   DTCMRAM (0x20000000) is NOT reachable by DMA1/DMA2, so every buffer handed
+;   to the DMA must live in AXI SRAM. The section is UNINIT so the C startup
+;   never dirties a cache line before the first transfer - a plain
+;   Invalidate-by-address can then never drop data.
+; ---------------------------------------------------------------------------
+
+LR_IROM1 0x08000000 0x00200000
+{
+  ER_IROM1 0x08000000 0x00200000
+  {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+
+  RW_IRAM1 0x20000000 0x00020000        ; DTCMRAM 128 KB
+  {
+    .ANY (+RW +ZI)
+  }
+
+  RW_DMA_BUF 0x24000000 UNINIT          ; AXI SRAM, DMA-reachable
+  {
+    *(.dma_buf)
+    *(.dma_buf*)
+  }
+
+  RW_RAM_D1 0x24010000 UNINIT           ; optional AXI SRAM scratch
+  {
+    *(.ram_d1)
+    *(.ram_d1*)
+  }
+
+  RW_RAM_D2 0x30000000 UNINIT           ; D2 SRAM scratch
+  {
+    *(.ram_d2)
+    *(.ram_d2*)
+  }
+}

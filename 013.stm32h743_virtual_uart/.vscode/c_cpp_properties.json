@@ -1,0 +1,25 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "STM32H743 (CMake)",
+      "compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+      "cStandard": "c11",
+      "intelliSenseMode": "gcc-arm",
+      "defines": [
+        "STM32H743xx",
+        "USE_HAL_DRIVER"
+      ],
+      "includePath": [
+        "${workspaceFolder}/app",
+        "${workspaceFolder}/bsp",
+        "${workspaceFolder}/bsp/sw_uart",
+        "${workspaceFolder}/tools",
+        "${workspaceFolder}/sys_startup",
+        "${workspaceFolder}/Drivers/CMSIS/Core/Include",
+        "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
+        "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy"
+      ]
+    }
+  ]
+}

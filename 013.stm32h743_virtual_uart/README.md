@@ -4,7 +4,9 @@ STM32H743ZIT6 上的**软件 UART**：只用 GPIO + Timer + DMA + EXTI 产生和
 不使用任何硬件 USART 外设。接线与 USART1 引脚一致——`PA9 = MCU TX → 主机 RX`、
 `PA10 = MCU RX ← 主机 TX`，二者仅作普通 GPIO。
 
-硬件：H743ZIT6 + 25 MHz 晶振 · arm-none-eabi-gcc 15.3.1 · CMake + Ninja · OpenOCD + ST-Link
+硬件：H743ZIT6 + 25 MHz 晶振 · 调试器 ST-Link（SWD）
+两套构建工具链：**GCC**（arm-none-eabi 15.3.1 + CMake + Ninja）· **Keil MDK**（ARMCLANG 6.14 / AC6）
+两套调试环境：**VSCode Cortex-Debug + OpenOCD** · **µVision / UV4**（均见下文「IDE 调试环境」）
 
 ---
 
@@ -84,6 +86,82 @@ cmake --preset release && cmake --build --preset release   # -Os
 ```bash
 cmake --build --preset debug --target flash    # 或 erase / reset
 ```
+
+产物：`build/<cfg>/h743_virtual_uart.{elf,hex,bin,map}`
+
+---
+
+## IDE 调试环境
+
+> STM32H743 没有可用的**纯软件**仿真模型：GPIO + TIM + DMA + EXTI 的时序行为在
+> Keil Simulator / QEMU 里无法复现，本项目又恰恰全靠这些时序工作（软件 UART）。
+> 因此两套环境都配置为 **ST-Link 硬件调试会话**：编译 → 烧录 → 断点/单步/外设寄存器视图。
+
+### VSCode（Cortex-Debug + OpenOCD）
+
+`.vscode/` 随仓库提供，按 `F5` 即可调试：
+
+| 文件 | 作用 |
+|---|---|
+| `launch.json` | 3 个配置：**Debug（CMake 构建）** / **Debug（Keil 构建）** / **Attach** |
+| `tasks.json` | CMake 构建、OpenOCD 烧录、Keil 构建/烧录（命令与下文一一对应） |
+| `settings.json` | Cortex-Debug 工具链路径、`compile_commands.json` 索引、搜索排除 |
+| `c_cpp_properties.json` | IntelliSense 头文件/宏 |
+| `extensions.json` | 推荐扩展 |
+
+- `preLaunchTask` 会先跑对应构建，再拉起 OpenOCD + `arm-none-eabi-gdb`，复位后停在 `main`。
+- 已引用 SVD `STM32H743.svd`，可在调试侧栏（Cortex Peripherals / XPERIPHERALS）查看 SW_UART 的 TIM/DMA/GPIO 寄存器。
+- 依赖扩展：`marus25.cortex-debug`、`ms-vscode.cpptools`。
+- 工具路径（`D:/Software/tools/arm-none-eabi/bin`、`D:/Software/openocd/bin`）写在 `settings.json` 与 `launch.json`
+  里，换机器时改这两处即可。
+- **「Keil build」那条配置刻意不走 `load`**：armlink 的 scatter-load 语义把 `RW_IRAM1` / `.dma_buf` 的
+  LMA 直接写成 RAM 地址（`0x20000000` / `0x24000000`），gdb 会照 LMA 往 RAM 写而不是写 flash，
+  加载必然失真（实测该路径会让固件跑进 `HardFault_Handler`）。正确做法是
+  **`preLaunchTask` 先用 OpenOCD 烧 `stm32h743.hex`，gdb 只加载 `.axf` 取符号**
+  （用 `overrideLaunchCommands` 顶掉默认的 `load`）——实测断点能正常命中 `main`。
+
+### Keil MDK-ARM（µVision）
+
+`MDK-ARM/` 是一个完整的 AC6 工程：
+
+| 文件 | 说明 |
+|---|---|
+| `stm32h743.uvprojx` | 两个 Target：`debug`（`-O0`）/ `release`（`-Os`），源文件/头文件/宏与 CMake 一致 |
+| `stm32h743.uvoptx` | 调试器 = **ST-Link（SWD）**，下载算法 `STM32H7x_2048.FLM` |
+| `stm32h743.sct` | 分散加载，与 `sys_startup/stm32h743zi_flash.ld` 逐段对应 |
+| `mdk_target.c` | 关闭半主机（`__use_no_semihosting`），替代 GCC 的 `syscalls.c` |
+
+打开 `MDK-ARM/stm32h743.uvprojx`：`F7` 构建、`F8` 下载、`Ctrl+F5` 进入调试。
+命令行（无需 GUI）：
+
+```bash
+UV4 -b MDK-ARM/stm32h743.uvprojx -t debug -j0 -o MDK-ARM/build.log   # 构建
+UV4 -f MDK-ARM/stm32h743.uvprojx -t debug -j0 -o MDK-ARM/flash.log   # 烧录
+```
+
+**两处关键配置**（否则调试会话会报错）：
+
+1. `DebugDescription` 关闭（`<Enable>0</Enable>` + `<EnableFlashSeq>0</EnableFlashSeq>`）。
+   DFP 4.1.3 的 `DebugDeviceUnlock → CheckID` 会经 APB-AP 读 CoreSight ROM table 的
+   `PIDR1`：先 `ReadAP(0xF8)` 取基址，再读 `基址 + 0x0FE4`（即 `0xE00E0FE4`）。
+   ST-Link 上这条访问失败并抛 `E310: Debug access failed`。它只用于器件识别、与烧录无关；
+   关掉后 `Erase Done / Programming Done / Verify OK` 干净通过。
+2. `Utilities` 选 ST-Link 驱动 `STLink\ST-LINKIII-KEIL_SWO.dll`，算法 `STM32H7x_2048.FLM`。
+
+### 环境验证结果（真机）
+
+| 环境 | 检查 | 实测 |
+|---|---|---|
+| Keil | `UV4 -b -t debug` | **0 Error / 0 Warning**，Code 27 876 B |
+| Keil | `UV4 -b -t release` | **0 Error / 0 Warning**，Code 16 048 B |
+| Keil | `UV4 -f -t debug` | `Erase Done. Programming Done. Verify OK.` |
+| Keil | map 中 `.dma_buf` | `0x24000000`（AXI SRAM，DMA 可达，32 B 对齐） |
+| VSCode | OpenOCD 连接 | SWD `DPIDR 0x6ba02477`、`Cortex-M7 r1p1` |
+| VSCode | 加载 + 断点 | 命中 `main.c:15`，`pc=0x80006d2 <main+2>`、`sp=0x2001fff8` |
+| VSCode | 目标内存读 | `0xE000ED00 = 0x411FC271`（Cortex-M7 CPUID） |
+| VSCode | Keil `.hex` + `.axf` 符号 | 命中 `main.c:15`，`sp=0x20001c48 <Stack_Mem+1008>` |
+| 板级 | 复位后自由运行 8 s | `CFSR = 0x00000000`（无故障），PC 处于回显主循环 |
+| 端到端 | echo 1024 B | `PASS`，0 mismatch，无溢出/帧错误 |
 
 ---
 

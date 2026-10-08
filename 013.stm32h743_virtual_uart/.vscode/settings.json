@@ -1,0 +1,28 @@
+{
+  "files.associations": {
+    "*.h": "c",
+    "*.sct": "arm",
+    "*.uvprojx": "xml",
+    "*.uvoptx": "xml"
+  },
+  "search.exclude": {
+    "**/build": true,
+    "**/MDK-ARM/Objects": true,
+    "**/MDK-ARM/Listings": true,
+    "**/MDK-ARM/DebugConfig": true,
+    "**/Drivers": true
+  },
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/MDK-ARM/Objects/**": true
+  },
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.defines": [
+    "STM32H743xx",
+    "USE_HAL_DRIVER"
+  ],
+  "cortex-debug.armToolchainPath": "D:/Software/tools/arm-none-eabi/bin",
+  "cortex-debug.openocdPath": "D:/Software/openocd/bin/openocd.exe",
+  "cortex-debug.gdbPath": "D:/Software/tools/arm-none-eabi/bin/arm-none-eabi-gdb.exe"
+}

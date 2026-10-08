@@ -1,5 +1,17 @@
+# Local agent memory (never tracked)
+.workbuddy/
+
+# CMake / Ninja
 build/
-.vscode/
+
+# Keil MDK-ARM build artifacts (the project files themselves ARE tracked)
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/DebugConfig/
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.scvd
+MDK-ARM/*.dep
+
+# Logs
 *.log
 final.log
-.workbuddy/
