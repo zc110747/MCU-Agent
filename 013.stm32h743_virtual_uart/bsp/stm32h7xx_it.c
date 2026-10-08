@@ -60,6 +60,11 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
     HAL_IncTick();
+    /* Required as well as HAL_IncTick(): this is what calls
+     * HAL_SYSTICK_Callback(), which the TX bit-period self-test uses to
+     * sample the pin. With only HAL_IncTick() the callback never runs and
+     * HAL_SYSTICK_IRQHandler is dropped from the link by --gc-sections. */
+    HAL_SYSTICK_IRQHandler();
 }
 
 /* Default_Handler is provided by the startup file (weak aliases). */

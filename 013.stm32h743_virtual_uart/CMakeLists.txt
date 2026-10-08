@@ -26,6 +26,7 @@ set(TARGET ${PROJECT_NAME})
 # ---------------------------------------------------------------------------
 set(APP_SOURCES
   app/main.c
+  tools/tx_selftest.c
 )
 
 set(BSP_SOURCES

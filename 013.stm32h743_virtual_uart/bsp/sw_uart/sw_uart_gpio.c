@@ -48,3 +48,10 @@ uint8_t sw_uart_gpio_rx_read(void)
 {
     return (uint8_t)(SW_UART_RX_PORT->IDR & SW_UART_RX_PIN);
 }
+
+uint8_t sw_uart_gpio_tx_read(void)
+{
+    /* IDR reads the pad, not the output latch, so this reflects whatever the
+     * DMA has actually driven onto the pin. */
+    return (uint8_t)((SW_UART_TX_PORT->IDR & SW_UART_TX_PIN) ? 1U : 0U);
+}

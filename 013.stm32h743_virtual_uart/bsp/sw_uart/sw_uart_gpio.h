@@ -31,6 +31,13 @@ void sw_uart_gpio_tx_reset(void);
 /* Read the live level of the RX pin. */
 uint8_t sw_uart_gpio_rx_read(void);
 
+/* Read the live level of the TX pin.
+ *
+ * Only meaningful for the TX self-test: the pad is an output, and IDR reports
+ * what the pin actually carries, so sampling it in a loop measures the real
+ * waveform rather than the intended one. */
+uint8_t sw_uart_gpio_tx_read(void);
+
 #ifdef __cplusplus
 }
 #endif
