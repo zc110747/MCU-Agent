@@ -46,7 +46,12 @@ void sw_uart_gpio_tx_reset(void)
 /* ------------------------------------------------------------------------ */
 uint8_t sw_uart_gpio_rx_read(void)
 {
-    return (uint8_t)(SW_UART_RX_PORT->IDR & SW_UART_RX_PIN);
+    /* Normalised to 0/1 on purpose. Returning the masked IDR value truncates:
+     * GPIO_PIN_9 is 0x0200 and GPIO_PIN_10 is 0x0400, both of which cast to
+     * uint8_t as 0, so the level would read low forever - the start bit would
+     * always be accepted, every data bit would shift in as 0, and the stop bit
+     * would always fail. */
+    return (uint8_t)((SW_UART_RX_PORT->IDR & SW_UART_RX_PIN) ? 1U : 0U);
 }
 
 uint8_t sw_uart_gpio_tx_read(void)

@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-/* Drive TX low (start bit) and park RX as an input with EXTI on both edges. */
+/* Bring up TX as an output and RX as an input with falling-edge EXTI. */
 void sw_uart_gpio_init(void);
 
 /* Set or reset the TX pin through BSRR. */

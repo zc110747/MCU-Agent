@@ -43,8 +43,9 @@ uint32_t sw_uart_timer_get_tick_hz(void);
 /* Resolved timing of the currently configured baud rate. */
 const sw_uart_timer_info_t *sw_uart_timer_get_info(void);
 
-/* RX sampling clock. The first delay is one and a half bit times so the start
- * bit is sampled in its middle; every later slot is one bit time. */
+/* RX sampling clock. The first delay is half a bit time so the start bit is
+ * sampled at its centre; every later slot is one bit time, landing on the
+ * centre of each following bit. */
 void sw_uart_timer_rx_start_half_bit(void);
 void sw_uart_timer_rx_reload_one_bit(void);
 void sw_uart_timer_rx_stop(void);

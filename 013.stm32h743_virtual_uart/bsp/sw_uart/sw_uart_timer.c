@@ -90,7 +90,7 @@ static int timer_calc_prescaler(uint32_t baudrate, sw_uart_timer_info_t *info)
 
 /* ------------------------------------------------------------------------ */
 static int timer_base_init(TIM_TypeDef *tim, TIM_HandleTypeDef *h_out,
-                           uint32_t psc, uint32_t arr)
+                           uint32_t psc, uint32_t arr, bool preload)
 {
     TIM_HandleTypeDef       h   = {0};
     TIM_MasterConfigTypeDef msk = {0};
@@ -101,7 +101,12 @@ static int timer_base_init(TIM_TypeDef *tim, TIM_HandleTypeDef *h_out,
     h.Init.Period            = arr;
     h.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
     h.Init.RepetitionCounter = 0U;
-    h.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    /* The TX bit clock never changes its period, so the preload is optional
+     * there. The RX sampling clock rewrites ARR between slots and needs the
+     * write to land immediately - with ARPE set it would only take effect at
+     * the *following* update event, shifting the whole sample schedule. */
+    h.Init.AutoReloadPreload = preload ? TIM_AUTORELOAD_PRELOAD_ENABLE
+                                       : TIM_AUTORELOAD_PRELOAD_DISABLE;
     if (HAL_TIM_Base_Init(&h) != HAL_OK)
     {
         return -1;
@@ -136,12 +141,12 @@ int sw_uart_timer_init(uint32_t baudrate)
     SW_UART_RX_TIMER_CLK_ENABLE();
 
     if (timer_base_init(SW_UART_TX_TIMER, &g_tx_timer,
-                        g_timer_info.psc, g_timer_info.arr) != 0)
+                        g_timer_info.psc, g_timer_info.arr, true) != 0)
     {
         return -1;
     }
     if (timer_base_init(SW_UART_RX_TIMER, &g_rx_timer,
-                        g_timer_info.psc, g_timer_info.arr) != 0)
+                        g_timer_info.psc, g_timer_info.arr, false) != 0)
     {
         return -1;
     }
@@ -205,23 +210,38 @@ const sw_uart_timer_info_t *sw_uart_timer_get_info(void)
  * prescaler is always 0: the bit time has to be expressible as a plain tick
  * count so 1.5 bits and 1 bit share the same counter clock.
  * -------------------------------------------------------------------------*/
-void sw_uart_timer_rx_start_half_bit(void)
+/* ---------------------------------------------------------------------------
+ * Arm the RX sampling timer for exactly `ticks` counter ticks from now.
+ *
+ * The RX timer is initialised with ARPE cleared, so the ARR write lands in the
+ * active register immediately and the slot really does start here.
+ *
+ * Forcing the reload with an update generation event (EGR = UG) looks like the
+ * tidier way to do this and is a trap: UG sets UIF while the interrupt is
+ * active, which latches a pending request in the NVIC that clearing UIF cannot
+ * undo. The ISR then re-enters the moment it returns, consuming all ten slots
+ * back to back with no delay, and every falling edge ends as a frame error.
+ * -------------------------------------------------------------------------*/
+static void rx_timer_arm(uint32_t ticks)
 {
-    uint32_t ticks = (g_timer_info.bit_ticks * 3U) / 2U;
-
     __HAL_TIM_SET_COUNTER(&g_rx_timer, 0U);
     __HAL_TIM_SET_AUTORELOAD(&g_rx_timer, ticks - 1U);
-    __HAL_TIM_SET_COUNTER(&g_rx_timer, 0U);
     __HAL_TIM_CLEAR_FLAG(&g_rx_timer, TIM_FLAG_UPDATE);
+}
+
+void sw_uart_timer_rx_start_half_bit(void)
+{
+    /* Half a bit, not one and a half: the falling edge sits at t = 0, so the
+     * *centre* of the start bit is at 0.5 bit. Arming 1.5 would land in the
+     * middle of D0 instead - the whole schedule shifts by one bit and the
+     * stop-bit sample falls into the next frame's start bit. */
+    rx_timer_arm(g_timer_info.bit_ticks / 2U);
     __HAL_TIM_ENABLE(&g_rx_timer);
 }
 
 void sw_uart_timer_rx_reload_one_bit(void)
 {
-    /* ARR is preloaded, so the new period takes effect at the next update;
-     * clearing UIF first keeps the pending event from firing twice. */
-    __HAL_TIM_SET_AUTORELOAD(&g_rx_timer, g_timer_info.bit_ticks - 1U);
-    __HAL_TIM_CLEAR_FLAG(&g_rx_timer, TIM_FLAG_UPDATE);
+    rx_timer_arm(g_timer_info.bit_ticks);
 }
 
 void sw_uart_timer_rx_stop(void)

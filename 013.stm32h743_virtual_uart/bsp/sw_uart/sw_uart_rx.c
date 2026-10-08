@@ -10,16 +10,19 @@
  * samples the line at 1.5, 2.5 ... 9.5 bit times, which is immune to the data
  * pattern entirely.
  *
- * Sampling instants, measured from the falling edge at t=0:
- *   t = 0.0 bit  start bit begins
- *   t = 1.5 bit  centre of the start bit  -> must read 0
- *   t = 2.5 bit  D0
+ * Sampling instants, measured from the falling edge at t=0. The start bit
+ * spans [0,1), D0 spans [1,2) ... D7 spans [8,9), the stop bit spans [9,10),
+ * so every sample must land at the *centre* of its own bit:
+ *   t = 0.0 bit  falling edge, start bit begins
+ *   t = 0.5 bit  centre of the start bit -> must read 0
+ *   t = 1.5 bit  D0
  *   ...
- *   t = 9.5 bit  D7
- *   t = 10.5 bit centre of the stop bit   -> must read 1
+ *   t = 8.5 bit  D7
+ *   t = 9.5 bit  centre of the stop bit -> must read 1
  *
- * The first delay is one and a half bit times so the start bit is sampled in
- * its middle rather than at the edge it just crossed.
+ * The first delay is therefore half a bit time, not one and a half: a plain
+ * "wait 1.5 bits then sample" schedule puts the start-bit check on D0 and
+ * drifts the stop-bit check into the next frame.
  * -------------------------------------------------------------------------*/
 
 #include "sw_uart_rx.h"
@@ -192,7 +195,10 @@ void TIM3_IRQHandler(void)
     case SW_UART_RX_START:
         if (level != 0U)
         {
-            /* Not a real start bit: false trigger, so no frame error. */
+            /* Not a real start bit: false trigger, so no frame error - but the
+             * sampling timer must be parked, otherwise it keeps firing every
+             * 1.5 bit times for the rest of the session. */
+            sw_uart_timer_rx_stop();
             g_rx.state = SW_UART_RX_IDLE;
             return;
         }
@@ -231,6 +237,7 @@ void TIM3_IRQHandler(void)
         return;
 
     default:
+        sw_uart_timer_rx_stop();
         g_rx.state = SW_UART_RX_IDLE;
         return;
     }
