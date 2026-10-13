@@ -126,6 +126,19 @@ uint32_t board_millis(void)          { return HAL_GetTick(); }
 void     board_delay_ms(uint32_t ms) { HAL_Delay(ms); }
 
 /* ---------------------------------------------------------------------------
+ * TinyUSB application hook (required by CFG_TUSB_OS=OPT_OS_NONE).
+ *
+ * tusb.c defines tusb_time_delay_ms_api() as a weak function that busy-waits
+ * on this API, and with no OS there is no library default for it. The GCC
+ * build never notices: --gc-sections drops the weak referrer, so the symbol
+ * never reaches the undefined list. armlink (Keil) performs no such garbage
+ * collection, so without this definition the Keil link fails with
+ *   L6218E: Undefined symbol tusb_time_millis_api (referred from tusb.o)
+ * Same time source as board_millis(): the HAL tick.
+ * -------------------------------------------------------------------------*/
+uint32_t tusb_time_millis_api(void)  { return HAL_GetTick(); }
+
+/* ---------------------------------------------------------------------------
  * 96-bit unique device ID -> 24 hex characters.
  * Used as the USB iSerialNumber so several probes can coexist on one host and
  * OpenOCD's `cmsis-dap serial ...` can pick between them.

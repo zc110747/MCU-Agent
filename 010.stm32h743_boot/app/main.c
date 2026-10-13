@@ -33,12 +33,15 @@ static void Error_Handler(void);
 
 int main(void)
 {
-    HAL_Init();
-    SystemClock_Config();
-
     /* All bootloader-visible memory is non-cacheable (see bsp/mpu.c) so flash
-       writes and QSPI/USB DMA never see stale cache lines. */
+   writes and QSPI/USB DMA never see stale cache lines. */
     BSP_MPU_Init();
+    
+    /* 2. HAL / SysTick -------------------------------------------------------*/
+    HAL_Init();
+
+    /* 3. 480 MHz system clock ------------------------------------------------*/
+    SystemClock_Config();
 
     BSP_UART_Init();
 

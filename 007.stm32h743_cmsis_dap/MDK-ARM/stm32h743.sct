@@ -1,24 +1,29 @@
-; *****************************************************************************
-; * stm32h743.sct - scatter for 006.stm32h743_face_detect (Keil MDK-ARM)
-; *
-; * Mirrors sys_startup/STM32H743ZITX_FLASH.ld:
-; *   DTCM    (0x20000000, 128K): .data / .bss / heap / stack
-; *   RAM_DMA (0x24000000, 256K): .dma_buffer  (DCMI DMA, MPU non-cacheable)
-; *   RAM     (0x24040000, 256K): .axi_ram     (NN arena / LCD compose,
-; *                                          cacheable AXI SRAM)
-; *   SRAM_D3 (0x38000000,  64K): overflow
-; *
-; * Heap/stack use the one-region model: __HeapBase/__HeapLimit are derived by
-; * the linker from the DTCM ZI region, matching the GCC linker layout.
-; *****************************************************************************
+; ---------------------------------------------------------------------------
+; stm32h743.sct - scatter file for 007.stm32h743_cmsis_dap (Keil MDK-ARM)
+;
+; Mirrors sys_startup/stm32h743zi_flash.ld one-for-one:
+;   FLASH   (0x08000000, 2 MB)  : .isr_vector / .text / .rodata / .data image
+;   DTCMRAM (0x20000000, 128 KB): .data / .bss / heap / stack
+;
+; The GCC script additionally declares an empty (NOLOAD) .ram_d1 region for
+; optional DMA buffers. This firmware runs the DWC2 core in FIFO (slave)
+; mode and places nothing there, so the scatter has no counterpart for it.
+; If a future change adds .ram_d1 sections, add a second top-level load
+; region for them (armlink does not allow nested load regions).
+;
+; Stack/heap: startup_stm32h743xx.s exports the two-region model
+; (__user_initial_stackheap -> Heap_Mem / Stack_Mem). Both AREA sections are
+; NOINIT, i.e. ZI-class, and are caught by ".ANY (+RW, +ZI)" below - same
+; trick the reference Keil projects use.
+; ---------------------------------------------------------------------------
 LR_IROM1 0x08000000 0x00200000
 {
-  ER_IROM1 0x08000000 0x00200000  { *.o (RESET, +First) * (InRoot$$Sections) .ANY (+RO) }
+  ER_IROM1 0x08000000 0x00200000
+  {
+    *.o (RESET, +First)          ; vector table must land at 0x08000000
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
 
-  RW_IRAM_DMA 0x24000000 0x00040000  { *.o (.dma_buffer) }  ; RAM_DMA (non-cacheable)
-  RW_IRAM_AXI 0x24040000 0x00040000  { *.o (.axi_ram) }     ; RAM (cacheable NN/LCD)
-
-  RW_DTCM 0x20000000 0x00020000  { .ANY (+RW +ZI) }         ; DTCM (data/bss/heap/stack)
-
-  RW_D3 0x38000000 0x00010000  { .ANY (+RW +ZI) }           ; SRAM_D3 (overflow)
+  RW_IRAM1 0x20000000 0x00020000 { .ANY (+RW, +ZI) }   ; DTCM: data/bss/heap/stack
 }

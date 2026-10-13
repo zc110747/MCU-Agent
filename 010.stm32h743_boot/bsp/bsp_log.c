@@ -39,7 +39,7 @@
  * ------------------------------------------------------------------------- */
 #define UART_TX_BUF_SIZE 1024U
 
-static UART_HandleTypeDef huart1;                 /* USART1 logging handle     */
+static UART_HandleTypeDef huart1 = {0};                 /* USART1 logging handle     */
 
 static uint8_t  uart_tx_buf[UART_TX_BUF_SIZE];
 static volatile uint16_t uart_tx_w = 0U;   /* next write slot (uart_write) */
@@ -171,7 +171,7 @@ void bsp_log_init(void)
     g.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
     g.Alternate = GPIO_AF7_USART1;
     HAL_GPIO_Init(GPIOA, &g);
-
+    
     huart1.Instance          = USART1;
     huart1.Init.BaudRate     = 115200;
     huart1.Init.WordLength   = UART_WORDLENGTH_8B;
@@ -180,6 +180,9 @@ void bsp_log_init(void)
     huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
     huart1.Init.Mode         = UART_MODE_TX_RX;
     huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+    huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+    huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+    
     if (HAL_UART_Init(&huart1) != HAL_OK)
     {
         return;   /* logging is best-effort; do not trap the boot */
