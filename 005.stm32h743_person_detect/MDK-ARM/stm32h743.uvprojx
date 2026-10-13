@@ -384,14 +384,14 @@
           <GroupName>Application/Startup</GroupName>
           <Files>
             <File>
-              <FileName>startup_stm32h743xx.s</FileName>
-              <FileType>2</FileType>
-              <FilePath>..\sys_startup\arm\startup_stm32h743xx.s</FilePath>
-            </File>
-            <File>
               <FileName>system_stm32h7xx.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\sys_startup\system_stm32h7xx.c</FilePath>
+            </File>
+            <File>
+              <FileName>startup_stm32h743xx.s</FileName>
+              <FileType>2</FileType>
+              <FilePath>.\startup_stm32h743xx.s</FilePath>
             </File>
           </Files>
         </Group>

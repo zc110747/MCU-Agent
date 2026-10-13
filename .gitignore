@@ -92,3 +92,4 @@ Objects
 assert
 components
 managed_components
+*.BAT

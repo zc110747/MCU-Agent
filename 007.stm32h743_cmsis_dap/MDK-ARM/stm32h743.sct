@@ -1,0 +1,24 @@
+; *****************************************************************************
+; * stm32h743.sct - scatter for 006.stm32h743_face_detect (Keil MDK-ARM)
+; *
+; * Mirrors sys_startup/STM32H743ZITX_FLASH.ld:
+; *   DTCM    (0x20000000, 128K): .data / .bss / heap / stack
+; *   RAM_DMA (0x24000000, 256K): .dma_buffer  (DCMI DMA, MPU non-cacheable)
+; *   RAM     (0x24040000, 256K): .axi_ram     (NN arena / LCD compose,
+; *                                          cacheable AXI SRAM)
+; *   SRAM_D3 (0x38000000,  64K): overflow
+; *
+; * Heap/stack use the one-region model: __HeapBase/__HeapLimit are derived by
+; * the linker from the DTCM ZI region, matching the GCC linker layout.
+; *****************************************************************************
+LR_IROM1 0x08000000 0x00200000
+{
+  ER_IROM1 0x08000000 0x00200000  { *.o (RESET, +First) * (InRoot$$Sections) .ANY (+RO) }
+
+  RW_IRAM_DMA 0x24000000 0x00040000  { *.o (.dma_buffer) }  ; RAM_DMA (non-cacheable)
+  RW_IRAM_AXI 0x24040000 0x00040000  { *.o (.axi_ram) }     ; RAM (cacheable NN/LCD)
+
+  RW_DTCM 0x20000000 0x00020000  { .ANY (+RW +ZI) }         ; DTCM (data/bss/heap/stack)
+
+  RW_D3 0x38000000 0x00010000  { .ANY (+RW +ZI) }           ; SRAM_D3 (overflow)
+}
