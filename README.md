@@ -1,405 +1,718 @@
+<div align="right">
+
+**English** · [简体中文](./README.zh-CN.md)
+
+</div>
+
 # MCU-Agent
 
-AI Agent for real-world MCU firmware development, simulation, debugging, and testing.
+> **AI Agent for real-world MCU firmware development** — build, flash, debug and self-iterate on
+> bare-metal targets with `arm-none-eabi-gcc + CMake + Ninja + OpenOCD`, then verify on hardware.
+
+<p>
+  <img alt="projects" src="https://img.shields.io/badge/projects-22-2b6cb0">
+  <img alt="skills" src="https://img.shields.io/badge/curated%20skills-25-2f855a">
+  <img alt="platform" src="https://img.shields.io/badge/platform-STM32%20%7C%20ESP32%20%7C%20RA8D1%20%7C%20Zephyr-c05621">
+  <img alt="toolchain" src="https://img.shields.io/badge/toolchain-arm--none--eabi--gcc%20%7C%20CMake%20%7C%20Ninja%20%7C%20OpenOCD-4a5568">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-718096">
+</p>
+
+Front-end and desktop applications were the first to be taken over by AI coding agents.
+Embedded used to look protected by its barrier — cross-compilation, hardware bring-up, real-time
+constraints. In practice that knowledge is **fixed**, and once it is written down as an agent's
+operating procedure, the barrier stops being a barrier.
+
+This repository is the working proof: **22 complete MCU projects**, all driven by an AI agent
+through the full loop — scaffold → implement → dual-configuration zero-warning build → flash →
+on-target verification → regression script.
+
+---
+
+## What problem this solves
+
+Code generation is not the hard part. The hard part is that an MCU target is **not** a container
+you can just restart:
+
+| Question | Where it is answered |
+|---|---|
+| ❓ How does the agent compile, flash, simulate and debug **by itself**, then close the self-iteration loop? | [Development environment](./document/support.md) · [`embedded-verification-acceptance`](https://github.com/zc110747/EmbedSkills) |
+| ❓ How should prompts be written so the agent plans MCU work instead of guessing? | [Prompt four-element rule](#the-prompt-four-element-rule) · per-project `prompter.md` |
+| ❓ How do you **accept** an AI-built project, and what do you do when it stalls? | [Verification-first workflow](#verification-first-workflow) · `tools/verify_*.py` |
+
+---
+
+## Table of contents
+
+- [Hardware](#hardware)
+- [Project matrix](#project-matrix)
+- [Quick start](#quick-start)
+- [Project gallery](#project-gallery)
+  - [STM32H743ZIT6](#stm32h743zit6)
+  - [STM32F429IGT6](#stm32f429igt6)
+  - [ESP32-S3](#esp32-s3)
+  - [Renesas RA8D1](#renesas-ra8d1)
+- [Curated skills](#curated-skills)
+- [Verification-first workflow](#verification-first-workflow)
+- [The prompt four-element rule](#the-prompt-four-element-rule)
+- [Lessons learned the hard way](#lessons-learned-the-hard-way)
+- [Repository layout](#repository-layout)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+---
+
+## Hardware
+
+| Board | MCU | Debug probe | Notes |
+|---|---|---|---|
+| **Luxiaoban H743 core board** | STM32H743ZIT6 (Cortex-M7 @480 MHz) | ST-Link / self-made CMSIS-DAP | Main development platform — 13 projects |
+| **ALIENTEK Apollo** | STM32F429IGT6 (Cortex-M4 @180 MHz) | ST-Link | LAN8720A PHY, SDRAM, USB Host |
+| **ESP32-S3-DevKitC-1** | ESP32-S3 N16R8 | built-in USB-Serial/JTAG | Arduino CLI + ESP-IDF |
+| **ESP32-S3-Touch-LCD-4.3B** | ESP32-S3 N16R8 | built-in USB-Serial/JTAG | Waveshare 800×480 RGB + capacitive touch |
+| **RA8D1 Vision Board** | R7FA8D1BH (Cortex-M85 @480 MHz) | ART-Link (CMSIS-DAP) | Renesas, pyOCD + OpenOCD |
+
+---
+
+## Project matrix
+
+Legend: ✅ complete and hardware-verified · 🚧 in progress
+
+### STM32H743ZIT6
+
+| # | Project | Stack | Highlights |
+|---|---|---|---|
+| 001 | [USB composite device (CDC + MSC)](./001.stm32h743_tinyusb_cdc_msc/README.md) | TinyUSB | One device, two classes, shared endpoints |
+| 002 | [UVC camera (OV5640)](./002.stm32h743_tinyusb_uvc_ov5640/README.md) | TinyUSB + DCMI | Multi-buffer capture submitted over USB ISO |
+| 003 | [LVGL OLED (SD-card CJK fonts)](./003.stm32h743_lvgl_oled/docs/README.md) | LVGL + FatFs | SD card font loading, Chinese rendering |
+| 004 | [SD-card image carousel](./004.stm32h743_sd_oled_img/README.md) | FatFs + JPEG | decode-on-the-fly, direct framebuffer write |
+| 005 | [Person detection](./005.stm32h743_person_detect/README.md) | CMSIS-NN | OV5640 + int8 model on Cortex-M7 |
+| 006 | [Face detection + display](./006.stm32h743_face_detect/README.md) | CMSIS-NN + PyTorch | Model trained and quantized locally, then deployed |
+| 007 | [CMSIS-DAP debug probe](./007.stm32h743_cmsis_dap/README.md) | TinyUSB + SWD/JTAG | Turns the board into a real debugger |
+| 008 | [LVGL smart-watch suite](./008.stm32h743_lvgl_mos/README.md) | LVGL + NES | Clock, camera, image viewer, text reader, NES emulator |
+| 009 | [Zephyr + LVGL](./009.stm32h743_zephyr/README.md) | Zephyr 3.7 + LVGL 8.4 | Device-tree overlay, FatFs, Zephyr shell |
+| 010 | [QSPI virtual USB drive + secure bootloader](./010.stm32h743_boot/README.md) | TinyUSB MSC + HMAC-SHA256 | QSPI FatFs, signed upgrade, app jump |
+| 011 | [emWin + FreeRTOS information panel](./011.stm32h743_freertos_emwin/README.md) | STemWin + FreeRTOS | ST7789 SPI6, GBK dot-matrix fonts |
+| 012 | [USB CDC ↔ UART4 high-reliability bridge](./012.stm32h743_usb_serial/README.md) | TinyUSB + DMA | Ring buffer, hardware flow control, no RTOS |
+| 013 | [Software UART (GPIO + Timer + DMA)](./013.stm32h743_virtual_uart/README.md) | TIM + DMA + EXTI | No USART peripheral used at all; 3-hour soak test |
 
-在AI Agent快速发展的当下，前端和桌面端程序已经可以大幅度被AI取代，嵌入式看起来有壁垒，其实作为固定的知识，也已经没有壁垒，使用AI Agent进行单片机开发其实也成为了现实。
+### STM32F429IGT6
 
-开发硬件:
+| # | Project | Stack | Highlights |
+|---|---|---|---|
+| 101 | [LAN management system](./101.stm32f429_net/README.md) | lwIP + FreeRTOS | HTTP/HTTPS, UART shell, telnet shell, SNMP agent |
+| 102 | [USB Host + exFAT + LVGL + touch panel](./102.stm32f429_tinyusb_ui/README.md) | TinyUSB Host + LVGL | Real exFAT (not FAT32 in disguise), GT911 over software I²C |
 
-- **STM32H743ZIT6：鹿小班STM32H743ZIT6核心板**
-- **STM32F429IGT6: 正点原子阿波罗STM32F429IGT开发板**
-- **esp32s3: ESP32-S3-DevKitC-1开发板 N16R8**
+### ESP32-S3
 
-对于AI来说，生成代码不困难，不过单片机交叉编译的特性也有其难点，需要解决如下问题。
+| # | Project | Stack | Highlights |
+|---|---|---|---|
+| 201 | [FreeRTOS multi-task device monitor](./201.esp32s3_rtos/README.md) | Arduino + FreeRTOS | 4 tasks + software timer, UART command console |
+| 202 | [Remote hardware debugger](./202.esp32s3_hw_detect/README.md) | ESP-IDF | UART / ADC / GPIO over WebSocket + MQTT, OTA |
+| 203 | [CMSIS-DAP wireless debug probe](./203.esp32s3_wireless_debug/README.md) | TinyUSB HID | SWD + JTAG, 8 MHz clock, Wi-Fi fallback transport |
+| 204 | [Touch e-book / utility device](./204.esp32s3_touch_ebook/README.md) | ESP-IDF + LVGL 9 | 800×480 RGB panel, 10 product pages, GBK reader |
 
-❓ **如何让AI自动编译、调试、下载和仿真，然后走通自我迭代流程**  
-❓ **提示词如何实现，才能让AI更好的规划单片机任务处理**  
-❓ **AI完成的项目，如何进行验收测试，遇到问题如何解决**  
+### Renesas RA8D1
 
-带着这些疑问，我使用主流的Vibe Coding产品，完成本系列的项目。
+| # | Project | Stack | Highlights |
+|---|---|---|---|
+| 301 | [RA8D1 Vision Board + LVGL](./301.ra8d1_lcd_lvgl/README.md) | RT-Thread Nano + LVGL 9.1 | GLCDC/MIPI-DSI bring-up, RTC, boot splash |
+| 302 | [RA8D1 NES emulator + DRW2D + USB MSC](./302.ra8d1_lcd_nes/) | RT-Thread Nano + Dave2D | GPU-accelerated blit, W25Q64 FatFs, USB MSC |
 
-⚠️注意：**项目编译需要支持编译下载环境，python、vscode(Cortex-Debug)、arm-none-eabi-gcc、cmake、ninja、openocd，且需要添加到系统环境中，可让agent安装，使用stlink连接，使用其它硬件如jlink、dap-link，需要修改cfg文件**
+---
 
-⚠️注意：**项目中使用的Drivers、third_party目录为重复且占用空间较大，因此将共同内容打包保存在support_tools/中，需要解压后放在具体工程项目中使用，另外zephyr有关项目也需要解压，否则编译会报缺少环境**  
+## Quick start
 
-⚠️注意：**项目中使用SD卡需要包含一些文件，需要从support_tools/sd_card目录下拷贝到内存卡内访问**
+### 1. Prepare the environment
 
-⚠️注意：**项目 `.workbuddy/skills/` 整理提炼了开发这些项目过程中的技能，是本项目最重要的成果，现已沉淀 18 个 skill（含能力表索引）。覆盖 STM32 / ESP32 / Zephyr 三域：总方法论、环境工具链、工程结构与内存架构、外设驱动与显示、调试取证与验收、ESP32 平台。可直接同步到 `~/.workbuddy/skills/` 全局复用：索引见 [STM32_skills_能力表.md](./.workbuddy/skills/STM32_skills_能力表.md)**
+The toolchain an AI agent is most comfortable with is the **CLI cross-compile + hardware debug**
+path — no IDE required:
 
-## 项目说明
+```
+arm-none-eabi-gcc + cmake + ninja + openocd + pyocd  →  added to the system PATH
+python                                                →  for generation / test / verification scripts
+vscode + Cortex-Debug                                 →  interactive online simulation
+```
 
-在项目说明前，这里提供我验证过的单片机支持ai agent的环境。
+Full setup guide and download links: **[document/support.md](./document/support.md)**
 
-- [单片机支持ai agent开发环境](./document/support.md)  
+> ⚠️ Every tool **must be on the system PATH** and invocable from a bare shell —
+> the agent will call it that way.
+> ⚠️ ST-Link / J-Link / USB-serial drivers must be installed manually.
+> ⚠️ Using a probe other than ST-Link (J-Link, DAP-Link) requires editing the `.cfg` file.
 
-项目编译方法：
+Paste this prompt into your agent to bootstrap everything:
 
-1. 根据上述文档(提示词)，安装开发环境，支持编译
-2. 将support_tools目录下*.zip文件直接解压到相应项目目录中(Driver/third_part直接在目录下)
-3. 进入具体项目，使用vscode打开，执行Terminal->Run Task下命令，执行Configure、build、flash
+```text
+Add an embedded online simulation and debug environment to this project:
 
-本系列下项目如下所示。
+1. Tools: python, vscode (Cortex-Debug), arm-none-eabi-gcc, cmake, ninja, openocd —
+   all must be added to the system environment.
+2. Probe the current environment via CLI first. If a tool is missing, install it under
+   D:/software/embed-tools; if present, leave it alone.
+3. When finished, verify everything from the command line and report all results.
+```
 
-🚀 **STM32H743ZIT6项目**
+### 2. Unpack the shared dependencies
 
-✅ 001.基于tinyusb实现USB混合设备(CDC+MSC)  
-✅ 002.基于tinyusb实现UVC摄像头(基于ov5640)  
-✅ 003.使用lvgl实现oled显示(支持通过sd卡使用中文字库)  
-✅ 004.基于SD卡和OLED实现图片轮播功能  
-✅ 005.实现基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)  
-✅ 006.实现基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)  
-✅ 007.基于tinyusb实现CMSIS-DAP协议的调试器  
-✅ 008.基于lvgl实现有菜单的综合应用(时钟、相机、nes模拟器、图片查看、文本阅读器)  
-✅ 009.基于zephyr系统实现lvgl显示功能  
-✅ 010.基于QSPI虚拟U盘与安全升级的Bootloader  
-✅ 011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)  
-✅ 012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)  
+`Drivers/` and `third_party/` are large and duplicated across projects, so they are **not**
+committed. Extract the matching archive into the project root before building:
 
-🚀 **STM32F429IGT6项目**
+```text
+support_tools/env_support_for_stm32h743.zip   →  each H743 project
+support_tools/env_support_for_stm32f429.zip   →  each F429 project
+support_tools/env_support_for_esp32s3.zip     →  each ESP32-S3 project
+support_tools/env_support_for_zephyr.zip      →  009.stm32h743_zephyr
+support_tools/sd_card.zip                     →  the root of the microSD card (fonts, images, ROMs)
+```
 
-✅ 101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)  
-✅ 102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板  
+Extract **directly into the project directory** so that `Drivers/` and `third_party/` end up at
+the project root.
 
-🚀 **esp32s3项目**
+### 3. Build, flash and debug
 
-✅ 201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)  
-✅ 202.ESP32-S3 USB 远程硬件仿真器
-✅ 203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)  
+Open the project in VS Code, then `Terminal → Run Task`:
 
-具体项目效果和提示词说明如下。
+| Task | Action |
+|---|---|
+| `configure` | CMake configure (respects `CMakePresets.json` when present) |
+| `build` | build (default build task) |
+| `clean` | clean |
+| `flash` | `dependsOn: build` — always builds before flashing |
 
-### STM32H743ZIT6项目
+Press **F5** for `cortex-debug`: it runs `build` as `preLaunchTask`, loads the ELF via GDB,
+resets to `entry()` and stops with the SVD peripheral view already loaded.
 
-#### 基于tinyusb实现USB混合设备(CDC+MSC)
+> Zephyr (009) uses a different path: `python -m west build -b <board>/<soc> -d build -s .`
+> A `build_oneclick.bat` is provided in most projects for a one-shot configure + build + flash.
 
-🚀 [001.基于tinyusb实现USB混合设备(CDC+MSC)](./001.stm32h743_tinyusb_cdc_msc/README.md)
+---
 
-![image](./document/image/001-01.jpg)
+## Project gallery
 
-提示词内容：[项目提示词](./001.stm32h743_tinyusb_cdc_msc/doc/prompter.md)  
+### STM32H743ZIT6
 
-**AI开发**：项目框架、tinyusb移植、复合设备  
-**个人参与**: 仿真环境、提示词
+#### 001 · USB composite device (CDC + MSC)
 
-工作量：
+🚀 [001.stm32h743_tinyusb_cdc_msc](./001.stm32h743_tinyusb_cdc_msc/README.md)
 
-1. 实现USB底层驱动
-2. 移植tinyusb库，实现CDC、MSC应用
-3. 实现混合设备，完善相关接口
+![001](./document/image/001-01.jpg)
 
-#### 基于tinyusb实现UVC摄像头(ov5640)
+**Agent-built:** project scaffold, TinyUSB port, composite device descriptor
 
-🚀 [002.基于tinyusb实现UVC摄像头(ov5640)](./002.stm32h743_tinyusb_uvc_ov5640/README.md)
+**Human input:** simulation environment, prompt
 
-![image](./document/image/002-01.jpg)
+**Work:** USB low-level driver → TinyUSB port with CDC and MSC classes → composite device and interface completion
 
-提示词内容：[项目提示词](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
+Prompt: [prompter.md](./001.stm32h743_tinyusb_cdc_msc/docs/prompter.md)
 
-**AI开发**：项目框架、tinyusb移植、UVC驱动实现  
-**个人参与**: 仿真环境、提示词、OV5640驱动  
+#### 002 · UVC camera (OV5640)
 
-工作量：
+🚀 [002.stm32h743_tinyusb_uvc_ov5640](./002.stm32h743_tinyusb_uvc_ov5640/README.md)
 
-1. 集成ov5640驱动
-2. 移植tinyusb库，实现UVC应用
-3. 摄像头采集实现多缓冲机制，通过usb接口提交
+![002](./document/image/002-01.jpg)
 
-#### 使用lvgl实现oled显示(支持通过sd卡使用中文字库)
+**Agent-built:** project scaffold, TinyUSB port, UVC implementation
 
-🚀 [003.使用lvgl实现oled显示(支持通过sd卡使用中文字库)](./003.stm32h743_lvgl_oled/README.md)
+**Human input:** simulation environment, prompt, OV5640 driver
 
-![image](./document/image/003-01.jpg)
+**Work:** integrate the OV5640 driver → port TinyUSB with the UVC class → multi-buffer capture submitted over USB
 
-提示词内容：[项目提示词](./003.stm32h743_lvgl_oled/prompter.md)
+Prompt: [prompter.md](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
 
-**AI开发**：项目框架、lvgl移植、sd卡/fatfs移植  
-**个人参与**: 仿真环境、提示词、OLED驱动
+#### 003 · LVGL OLED with SD-card CJK fonts
 
-工作量：
+🚀 [003.stm32h743_lvgl_oled](./003.stm32h743_lvgl_oled/docs/README.md)
 
-1. 实现sd卡驱动、fatfs移植、中文字库支持
-2. 移植lvgl，实现和sd卡字库联动
-3. 实现lvgl界面，包含中文显示
+![003](./document/image/003-01.jpg)
 
-#### 基于SD卡和OLED实现图片轮播功能
+**Agent-built:** project scaffold, LVGL port, SD card / FatFs port
 
-🚀 [004.基于SD卡和OLED实现图片轮播功能](./004.stm32h743_sd_oled_img/README.md)
+**Human input:** simulation environment, prompt, OLED driver
 
-![image](./document/image/004-01.jpg)
+**Work:** SD card driver + FatFs + Chinese font support → LVGL wired to the SD font → UI with real Chinese text
 
-提示词内容：[项目提示词](./004.stm32h743_sd_oled_img/prompter.md)
+Prompt: [prompter.md](./003.stm32h743_lvgl_oled/docs/prompter.md)
 
-**AI开发**：项目框架、sd卡/fatfs移植、图片解析库支持  
-**个人参与**: 仿真环境、提示词、OLED驱动
+#### 004 · SD-card image carousel
 
-工作量：
+🚀 [004.stm32h743_sd_oled_img](./004.stm32h743_sd_oled_img/README.md)
 
-1. 实现sd卡驱动、fatfs移植、图片读取
-2. 移植jpg解析库，获得图像数据
-3. 将图像数据显示到界面上
+![004](./document/image/004-01.jpg)
 
-#### 基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)
+**Agent-built:** project scaffold, SD/FatFs port, JPEG decoding library
 
-🚀 [005.基于CMSIS-NN的人存在检测功能(ov5640+CMSIS-NN+人检测)](./005.stm32h743_person_detect/README.md)
+**Human input:** simulation environment, prompt, OLED driver
 
-![image](./document/image/005-01.jpg)
+**Work:** SD card + FatFs + image reading → JPEG decode → blit to the panel
 
-提示词内容：[项目提示词](./005.stm32h743_person_detect/prompter.md)
+Prompt: [prompter.md](./004.stm32h743_sd_oled_img/docs/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人检测模型、输出显示  
-**个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
+#### 005 · Person detection (OV5640 + CMSIS-NN)
 
-工作量：
+🚀 [005.stm32h743_person_detect](./005.stm32h743_person_detect/README.md)
 
-1. 集成ov5640驱动、oled驱动
-2. 移植CMSIS-NN框架支持，并获取人检测模型
-3. 多缓冲图像采集，经过模型框架处理，将整合数据输入到屏幕上
+![005](./document/image/005-01.jpg)
 
-#### 基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)
+**Agent-built:** project scaffold, CMSIS-NN port, detection model, output rendering
 
-🚀 [006.基于CMSIS-NN的人脸检测和显示的功能(ov5640+CMSIS-NN+人脸模型)](./006.stm32h743_face_detect/README.md)
+**Human input:** simulation environment, prompt, OV5640 + OLED drivers
 
-![image](./document/image/006-01.jpg)
+**Work:** camera + display drivers → CMSIS-NN framework and an int8 model → multi-buffer capture through the inference pipeline onto the screen
 
-提示词内容：[项目提示词](./006.stm32h743_face_detect/prompter.md)
+Prompt: [prompter.md](./005.stm32h743_person_detect/docs/prompter.md)
 
-**AI开发**：项目框架、CMSIS-NN移植，人脸检测模型训练和转换、输出显示    
-**个人参与**: 仿真环境、提示词、OV5640驱动、OLED驱动
+#### 006 · Face detection and display
 
-工作量：
+🚀 [006.stm32h743_face_detect](./006.stm32h743_face_detect/README.md)
 
-1. 集成ov5640驱动、oled驱动
-2. 移植CMSIS-NN框架支持，并在本地通过python训练人脸检测模型
-3. 多缓冲图像采集，经过模型框架处理，将整合数据输入到屏幕上
+![006](./document/image/006-01.jpg)
 
-#### 基于tinyusb实现CMSIS-DAP协议的调试器
+**Agent-built:** project scaffold, CMSIS-NN port, **local model training and conversion**, output rendering
 
-🚀 [007.基于tinyusb实现CMSIS-DAP协议的调试器](./007.stm32h743_cmsis_dap/README.md)
+**Human input:** simulation environment, prompt, camera + display drivers
 
-![image](./document/image/007-01.jpg)
+**Work:** drivers → CMSIS-NN + a face model trained locally with Python → multi-buffer capture through inference onto the screen
 
-提示词内容：[项目提示词](./007.stm32h743_cmsis_dap/prompter.md)
+> This one took about three hours end to end. The agent downloaded image datasets, wrote its own  
+> Python training script, produced the model, converted it to int8 and deployed it. That single
+> loop is what changed my mind about Vibe Coding.
 
-**AI开发**：项目框架、tinyusb移植、cmsis-dap协议支持  
-**个人参与**: 仿真环境、提示词、jtag/swd接口处理(找到arm官方例程) 
+Prompt: [prompter.md](./006.stm32h743_face_detect/docs/prompter.md)
 
-工作量：
+#### 007 · CMSIS-DAP debug probe
 
-1. tinyusb移植
-2. cmsis-dap协议移植支持
-3. 整合jtap/swd操作时序，实现完整功能并测试
+🚀 [007.stm32h743_cmsis_dap](./007.stm32h743_cmsis_dap/README.md)
 
-#### 基于lvgl实现的智能手表应用(nes模拟器、图片查看、文本阅读器)
+![007](./document/image/007-01.jpg)
 
-🚀 [008.基于lvgl实现的智能手表应用(nes模拟器、图片查看、文本阅读器)](./008.stm32h743_lvgl_mos/README.md)
+**Agent-built:** project scaffold, TinyUSB port, CMSIS-DAP protocol
 
-- **时钟**
+**Human input:** simulation environment, prompt, JTAG/SWD timing (located the official Arm reference)
 
-![image](./document/image/008-01.jpg)
+**Work:** TinyUSB port → CMSIS-DAP protocol → JTAG/SWD bit-banging timing integrated and validated
 
-- **相机**
+Prompt: [prompter.md](./007.stm32h743_cmsis_dap/docs/prompter.md)
 
-![image](./document/image/008-02.jpg)
+#### 008 · LVGL smart-watch suite
 
-- **文本阅读器**
+🚀 [008.stm32h743_lvgl_mos](./008.stm32h743_lvgl_mos/README.md)
 
-![image](./document/image/008-03.jpg)
+| Clock | Camera |
+|---|---|
+| ![008-1](./document/image/008-01.jpg) | ![008-2](./document/image/008-02.jpg) |
 
-![image](./document/image/008-04.jpg)
+| Text reader | NES emulator |
+|---|---|
+| ![008-3](./document/image/008-03.jpg) ![008-4](./document/image/008-04.jpg) | ![008-5](./document/image/008-05.jpg) |
 
-- **nes模拟器**
+**Agent-built:** scaffold, TinyUSB, LVGL, image library, NES emulator, menu shell, virtual serial input
 
-![image](./document/image/008-05.jpg)
+**Human input:** simulation environment, prompt, OLED + OV5640 drivers
 
-提示词内容：[项目提示词](./008.stm32h743_lvgl_mos/prompter.md)
+**Work:** camera / display / USB / SD drivers → LVGL UI → NES emulator with a host-side virtual keyboard → camera, image viewer, text reader
 
-**AI开发**：项目框架、tinyusb移植、lvgl移植、图像库移植、nes模拟器移植、菜单实现、串口虚拟输入实现  
-**个人参与**: 仿真环境、提示词、oled驱动、ov5640驱动
+Prompt: [prompter.md](./008.stm32h743_lvgl_mos/docs/prompter.md)
 
-工作量：
+#### 009 · Zephyr + LVGL
 
-1. ov5640、oled、usb、sd卡底层驱动
-2. lvgl ui功能移植
-3. nes模拟器功能，上位机虚拟键盘
-4. 相机功能，摄像头多缓冲、oled显示
-5. 图片查看器，sd卡读取、解析图片
-6. 文本查看器，sd卡读取、字库解析，文本显示
+🚀 [009.stm32h743_zephyr](./009.stm32h743_zephyr/README.md)
 
-#### 基于zephyr实现lvgl功能界面
+| LVGL UI | Zephyr shell |
+|---|---|
+| ![009-1](./document/image/009-01.jpg) | ![009-02](./document/image/009-02.jpg) |
 
-🚀 [009.基于zephyr实现lvgl界面](./009.stm32h743_zephyr/README.md)
+**Agent-built:** scaffold, Zephyr port, LVGL display binding, FatFs binding, UI, shell commands
 
-**AI开发**：项目框架、zephyr移植、zephyr兼容lvgl显示、zephyr兼容fatfs功能、ui开发、串口指令支持  
-**个人参与**: 仿真环境、提示词、oled驱动、功能引导
+**Human input:** simulation environment, prompt, OLED driver, feature guidance
 
-- **lvgl界面**
+**Work:** `nucleo_h743zi` board target, device-tree overlay for ST7789/SPI6, SD-card font path
 
-![image](./document/image/009-01.jpg)
+Prompt: [prompter.md](./009.stm32h743_zephyr/doc/prompter.md)
 
-- **zephry命令行**
+#### 010 · QSPI virtual USB drive + secure bootloader
 
-![image](./document/image/009-02.jpg)
+🚀 [010.stm32h743_boot](./010.stm32h743_boot/README.md)
 
-提示词内容：[项目提示词](./009.stm32h743_zephyr/prompter.md)
+| Boot → app jump | Post-upgrade jump | QSPI exposed as a USB drive |
+|---|---|---|
+| ![010-1](./document/image/010-01.jpg) | ![010-2](./document/image/010-02.jpg) | ![010-3](./document/image/010-03.jpg) |
 
-#### 基于QSPI虚拟U盘与安全升级的Bootloader
+**Agent-built:** scaffold, QSPI FatFs, TinyUSB MSC, HMAC-SHA256 secure upgrade, firmware jump, OpenOCD + GDB function-level verification
 
-🚀 [010.基于QSPI虚拟U盘与安全升级的Bootloader](./010.stm32h743_boot/README.md)
+**Human input:** simulation environment, prompt, on-target acceptance
 
-**AI开发**：工程骨架、QSPI FatFs、TinyUSB MSC、HMAC-SHA256 安全升级、固件跳转、openocd+gdb函数级验证
-**个人参与**: 仿真环境、提示词、真机验收
+**Work:** bootloader that verifies an HMAC-SHA256 signature over the image, writes QSPI via FatFs and jumps to the app
 
-- **boot跳转app执行**
+Prompt: [prompter.md](./010.stm32h743_boot/docs/prompter.md)
 
-![image](./document/image/010-01.jpg)
+#### 011 · emWin + FreeRTOS information panel
 
-- **boot升级后跳转执行**
+🚀 [011.stm32h743_freertos_emwin](./011.stm32h743_freertos_emwin/README.md)
 
-![image](./document/image/010-02.jpg)
+**Agent-built:** scaffold, STemWin GUI stack port, ST7789 SPI6 driver, SD-card GBK fonts, FreeRTOS
 
-- **将qspi flash虚拟成带升级的u盘**
+**Human input:** simulation environment, prompt, on-target acceptance
 
-![image](./document/image/010-03.jpg)
+**Work:**
 
-提示词内容：[项目提示词](./010.stm32h743_boot/prompter.md)
+1. Rebuilt the whole OLED information panel from 003 with emWin (UI and features aligned 1:1)
+2. Resolved STemWin prebuilt-library incompatibility with binutils 2.44 (pinned GNU Arm Embedded 14.2.rel1)
+3. Fixed a `GUI_Init` hang (CRC clock not enabled), ARGB channel-order mismatch, `LCD_*` symbol collisions
 
-#### 基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)
+#### 012 · USB CDC ↔ UART4 high-reliability bridge
 
-🚀 [011.基于emWin+FreeRTOS的OLED信息面板(ST7789+STemWin+GBK字库)](./011.stm32h743_freertos_emwin/README.md)
+🚀 [012.stm32h743_usb_serial](./012.stm32h743_usb_serial/README.md)
 
-**AI开发**：工程骨架、emWin(STemWin) GUI栈移植、ST7789 SPI6 驱动、SD卡GBK字库、FreeRTOS
-**个人参与**: 仿真环境、提示词、真机验收
+**Agent-built:** bridge architecture, ring buffers, USB CDC descriptors and scheduling, flow control, PC-side stress/latency tools
+**Human input:** simulation environment, prompt, on-target stress acceptance
+**Work:**
+1. Transparent bidirectional CDC ACM ↔ UART4 forwarding with **no RTOS**, D-Cache **left enabled**, no MPU carve-out
+2. Fixed ring-buffer full/empty ambiguity that silently overwrote data (one byte kept unused)
+3. Fixed the parity bit polluting the data byte in 7-bit + parity mode (masked in place)
+4. Fixed RTS configured as alternate function but `HwFlowCtl` never enabled → floating pin, dead flow control
+5. Traced a 34 ms "phantom latency" to the host-side read pattern (`read(in_waiting or 4096)`)
+6. PA0/PA1 loopback plus a one-shot Python regression covering stress, latency, flow control and 7-bit parity
 
-工作量：
+#### 013 · Software UART (GPIO + Timer + DMA)
 
-1. 在 003 LVGL 版基础上用 emWin 重做整套 OLED 信息面板（界面/功能 1:1 对齐）
-2. 解决 STemWin 预编译库与 binutils 2.44 不兼容（锁定 GNU Arm Embedded 14.2.rel1 工具链）
-3. 修复 GUI_Init 死循环（CRC 时钟未使能）、ARGB 色序差异、LCD_* 符号冲突
+🚀 [013.stm32h743_virtual_uart](./013.stm32h743_virtual_uart/README.md)
 
-#### 基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)
+**Agent-built:** software UART TX/RX stack, DMA chaining, RX start-bit detection and frame validation, echo loop, stress harness
+**Human input:** simulation environment, prompt, pin-level measurement
+**Work:**
+1. Generates and parses real UART waveforms using **only** GPIO + Timer + DMA + EXTI — **no USART peripheral at all**
+2. TX via timer-triggered DMA into `GPIOx->BSRR`, verified bit period on the pin
+3. RX start-bit detection, mid-bit sampling and frame validation (start/stop/parity error counters)
+4. Two build back-ends kept in sync: **GCC** (arm-none-eabi 15.3.1 + CMake + Ninja) and **Keil MDK** (ARMCLANG 6.14)
+5. Acceptance: 100 kB round-trip, all buffer-boundary sizes, a **1800 s continuous full-duplex soak**
+   (1,728,000 / 1,728,000 bytes, 0 mismatches, exactly 960 B/s = 9600/10), plus baud-rate fault injection
+   → **24/24 cases passed**
 
-🚀 [012.基于USB CDC与UART4的高可靠双向串口桥接(TinyUSB+DMA+环形缓冲)](./012.stm32h743_usb_serial/README.md)
+### STM32F429IGT6
 
-**AI开发**：桥接架构、环形缓冲、USB CDC 描述符与调度、流控自管理、PC 侧压测/延迟工具  
-**个人参与**: 仿真环境、提示词、真机压测验收
+#### 101 · LAN management system
 
-工作量：
+🚀 [101.stm32f429_net](./101.stm32f429_net/README.md)
 
-1. 无 RTOS 下实现 USB CDC ACM ↔ UART4 双方向透明转发（D-Cache 开启、不使用 MPU 划区）
-2. 修复环形缓冲满/空二义性导致的数据覆盖（保留 1 字节不用）
-3. 修复 7 数据位+校验时校验位污染数据字节（按数据位掩码就地掩蔽）
-4. 修复 RTS 配成复用模式却未启用 HwFlowCtl 导致的引脚悬空、流控失效
-5. 定位并排除主机侧读数方式造成的 34 ms "假延迟"（`read(in_waiting or 4096)`）
-6. PA0/PA1 短接自回环 + Python 一键自动化压测/延迟/流控/7bit 校验回归
+| HTTP | HTTPS |
+|---|---|
+| ![101-1](./document/image/101-01.jpg) | ![101-2](./document/image/101-02.jpg) |
 
-### STM32F429IGT6项目
+| UART shell | Telnet shell | SNMP agent + client |
+|---|---|---|
+| ![101-3](./document/image/101-03.jpg) | ![101-4](./document/image/101-04.jpg) | ![101-5](./document/image/101-05.jpg) |
 
-#### 基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)
+**Agent-built:** scaffold, Ethernet driver, FreeRTOS port, lwIP port, HTTP/HTTPS services, web UI, UART shell, telnet service, SNMP agent and client
 
-🚀 [101.基于lwip实现局域网管理系统(http/https/uart-shell/telnet-shell/snmp)](./101.stm32f429_net/README.md)
+**Human input:** simulation environment, prompt, base drivers, feature guidance
 
-**AI开发**：项目框架、网口驱动、FreeRTOS移植、lwip移植、http/https服务、web网页、串口shell命令行、telnet服务、snmp服务、snmp代理服务器、snmp客户端  
-**个人参与**: 仿真环境、提示词、基础驱动、功能引导
+**Work:** LAN8720A (RMII, PHY addr 0) + `ETH_RESET` gated through a PCF8574T expander (P7), SDRAM-backed
+FreeRTOS + lwIP, dual-stack HTTP/HTTPS with a self-signed certificate, and four independent management
+interfaces. HAL timebase moved from SysTick to TIM7 to avoid the FreeRTOS conflict.
 
-- **web访问http**
+Prompt: [prompter.md](./101.stm32f429_net/prompter.md)
 
-![image](./document/image/101-01.jpg)
+#### 102 · USB Host + exFAT + LVGL + touch panel
 
-- **web访问https**
+🚀 [102.stm32f429_tinyusb_ui](./102.stm32f429_tinyusb_ui/README.md)
 
-![image](./document/image/101-02.jpg)
+**Agent-built:** scaffold, TinyUSB Host (MSC), FatFs exFAT, LVGL, GT911/GT9147 software-I²C touch, FreeRTOS + SDRAM, `PRINT_LOG` logging
 
-- **串口shell命令行**
+**Human input:** simulation environment, prompt, on-target acceptance
 
-![image](./document/image/101-03.jpg)
+**Work:**
+1. TinyUSB host stack reading a USB flash drive on F429 — **real exFAT support**, not FAT32 in disguise
+2. LVGL on an 800×480 FMC 8080 LCD with GBK fonts from both SD card and USB drive, with a startup loader fallback
+3. GT911 touch interrupt path plus three layers of interrupt-storm protection and I²C bus recovery
 
-- **telnet接口shell命令行**
+### ESP32-S3
 
-![image](./document/image/101-04.jpg)
+#### 201 · FreeRTOS multi-task device monitor
 
-- **snmp代理服务器和客户端**
+🚀 [201.esp32s3_rtos](./201.esp32s3_rtos/README.md)
 
-![image](./document/image/101-05.jpg)
+**Agent-built:** FreeRTOS multi-task scaffold (tasks / queues / semaphores / mutexes / software timers), ESP32-S3 Arduino core
 
-提示词内容：[项目提示词](./101.stm32f429_net/prompter.md)
+**Human input:** simulation environment, prompt
 
-#### 基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板
+**Work:** a reusable FreeRTOS base project with all GPIO/pins centralized in `config.h` (never guessed),
+4 tasks + 1 software timer forming the monitor, and a UART command console. Zero-warning build,
+CH343 download, dual-core info and task-table acceptance.
 
-🚀 [102.基于USB Host(U盘)+exFAT+LVGL+GT911触摸的综合面板](./102.stm32f429_tinyusb_ui/README.md)
+#### 202 · Remote hardware debugger
 
-**AI开发**：工程骨架、TinyUSB USB Host(MSC)、FatFs exFAT、LVGL、GT911/GT9147 软件I2C触摸、FreeRTOS+SDRAM、PRINT_LOG 日志系统  
-**个人参与**: 仿真环境、提示词、真机验收
+🚀 [202.esp32s3_hw_detect](./202.esp32s3_hw_detect/README.md)
 
-工作量：
+**Agent-built:** modular event bus, UART/ADC/GPIO monitors, Wi-Fi STA+AP, MQTT, Web + WebSocket UI, OTA, config persistence
 
-1. F429 上跑 TinyUSB 主机栈读 U 盘（exFAT 真实支持，非 FAT32 伪装）
-2. LVGL + 800x480 FMC 8080 LCD + GBK 字库（SD/U盘双来源，启动加载器回退）
-3. GT911 触摸中断链路 + 中断风暴三层防护 + I2C 总线恢复
+**Human input:** simulation environment, prompt, hardware constraints
 
-### esp32s3项目
+**Work:** turns an ESP32-S3 into a **networked hardware debug gateway** exposing the target's UART log,
+external ADC voltage (ADS1115, with fallback to the internal ADC) and GPIO state to a browser,
+a host application, or a future AI agent. GPIO48 (on-board WS2812B) is reserved for a dedicated LED
+controller and GPIO19/20 (USB D-/D+) are permanently excluded from general GPIO use.
 
-#### ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)
+See also: [`user_document.md`](./202.esp32s3_hw_detect/user_document.md) · [`DELIVERY.md`](./202.esp32s3_hw_detect/DELIVERY.md) · [prompter.md](./202.esp32s3_hw_detect/prompter.md)
 
-🚀 [201.ESP32-S3 N16R8 FreeRTOS多任务设备监控器(Arduino、FreeRTOS)](./201.esp32s3_rtos/README.md)
+#### 203 · CMSIS-DAP wireless debug probe
 
-**AI开发**：FreeRTOS 多任务骨架（任务/队列/信号量/互斥量/软件定时器）、ESP32-S3 Arduino Core  
-**个人参与**: 仿真环境、提示词
+🚀 [203.esp32s3_wireless_debug](./203.esp32s3_wireless_debug/README.md)
 
-工作量：
+**Agent-built:** CMSIS-DAP v1 command handling, SWD/JTAG bit-bang engine, debug engine, Wi-Fi transport, OpenOCD probe configuration
 
-1. 建立可复用的 FreeRTOS 基础工程（config.h 集中 GPIO/参数，不猜测引脚）
-2. 4 任务 + 1 软件定时器构成设备监控器，UART 命令查看/控制
-3. 零警告构建 + CH343 串口下载 + 双核信息/任务表验收
+**Human input:** simulation environment, prompt, on-target bring-up against a real target board
 
-#### 202.ESP32-S3 USB 远程硬件仿真器
+**Work:**
+1. CMSIS-DAP v1 over TinyUSB HID (single HID channel, fixed VID/PID), supporting both SWD and JTAG
+2. Performance: CPU at 240 MHz, hot paths in `IRAM_ATTR`, maximum GPIO drive strength, hot-path logging
+   downgraded, clock ceiling raised to 8 MHz
+3. USB / Wi-Fi transport arbitration with `tud_mounted()` as the host-present test; begins a SoftAP fallback
+   when no USB host is attached
+4. Fixed a JTAG `Invalid ACK (4)` FAULT (a `bool` parameter promotion kept TDI high) and corrected the
+   last-bit timing of Shift-IR
+5. Statically reserved PSRAM pool plus tightened Wi-Fi buffers, leaving room for DAP-over-WiFi
 
-🚀 [202.202.ESP32-S3 USB 远程硬件仿真器](./202.esp32s3_hw_detect/README.md)
+#### 204 · Touch e-book / utility device
 
-#### ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)
+🚀 [204.esp32s3_touch_ebook](./204.esp32s3_touch_ebook/README.md)
 
-🚀 [203.ESP32-S3 CMSIS-DAP无线调试探针(SWD/JTAG + Wi-Fi兜底)](./203.esp32s3_wireless_debug/README.md)
+**Agent-built:** full LVGL 9 application, ten product pages, GBK dot-matrix reader, panel and touch bring-up
 
-**AI开发**：CMSIS-DAP v1 命令处理、SWD/JTAG 位带引擎、调试引擎、Wi-Fi 传输层、OpenOCD 体检配置
-**个人参与**: 仿真环境、提示词、真机对接目标板验收
+**Human input:** simulation environment, prompt, panel schematic analysis, on-target acceptance
 
-工作量：
+**Work:** an e-book / utility UI on the Waveshare ESP32-S3-Touch-LCD-4.3B (800×480 RGB, capacitive touch).
+Pages: Home, Reader, File Manager, Photos, Notes, Drawing, Clock, Calendar, Weather, Settings, plus the Display Test and Touch Test acceptance screens. 
 
-1. TinyUSB HID 实现 CMSIS-DAP v1（HID 单通道，固化 ID/PID），支持 SWD 与 JTAG 双模
-2. 性能优化：CPU 240 MHz + 热点代码 IRAM_ATTR + GPIO 驱动强度拉满 + 热路径日志降级，时钟上限 8 MHz
-3. USB / Wi-Fi 传输仲裁（互斥），用 `tud_mounted()` 判定主机存在；无 USB 主机时启动 SoftAP 兜底
-4. 修复 JTAG `Invalid ACK (4)` FAULT（bool 形参提升导致 TDI 恒高）+ 校正 Shift-IR 末位时序
-5. PSRAM 静态保留池与 Wi-Fi 缓冲收紧，为 DAP-over-WiFi 预留内存
+The page set is **closed** — anything outside it is a regression. 
 
-## 开发经验总结
+The reader uses the classic HZK-style GBK dot-matrix fonts from the SD card (12/16/24/32),
+whose 23940-code-point index differs from the older `gbk_table`.
 
-完成所有这些项目，加上调试整理，单个项目大概1-2天完成。
+Prompts: [prompter-step1.md](./204.esp32s3_touch_ebook/doc/prompter-step1.md) · Plan: [plan-4reqs.md](./204.esp32s3_touch_ebook/doc/plan-4reqs.md)
 
-其中让我印像最深的是人脸检测项目，大概花了3个小时就搞定了，在执行过程中，它还下载了图像库，自己编写python用自己训练了个模型，这颠覆了我对Vibe Coding的认知。
+### Renesas RA8D1
 
-AI的上限是在太高了，这种项目如果让我来做、对于单个项目从可行性、驱动移植编写、模型训练、嵌入式端移植、再整合输出，调试完整，整个需求至少几周时间。
+#### 301 · RA8D1 Vision Board + LVGL
 
-但是于此同时，其实AI的下限也很低，调试CMOS、OLED模块，因为生成的参数配置错误，卡住一个小时也没有解决；有个cmake的文件链接遗漏，导致未链接到正常的中的入口，也是启动卡在循环，花费半小时也没解决。不过这些在提供我已经完善的驱动后，以及手动参与部分修改后，就顺利了实现了项目。
+🚀 [301.ra8d1_lcd_lvgl](./301.ra8d1_lcd_lvgl/README.md)
 
-在开发这些项目的时候，总结的经验如下所示。
+**Stack:** RT-Thread Nano 5.0.2 + LVGL v9.1.0 + Arm GNU GCC 15.3.1 + CMake/Ninja + OpenOCD/pyOCD
 
-🏷️ **在提需求时，要对项目有清晰的认知**
+**Agent-built:** board bring-up, FSP integration, GLCDC/MIPI-DSI path, LVGL port, RTC driver, boot splash, phase verification scripts
 
-包括功能需求、硬件信息、开发步骤和验证手段，不要让AI直接开发一个结果，而是给出建议、步骤和目标，让AI有步骤可行。
+**Human input:** simulation environment, prompt, probe configuration
 
-🏷️ **已有硬件、驱动资源，可以尽可能的提供**
+**Work (phases 0 → 8, all ✅):**
 
-对于简单的驱动，如rtc、gpio、i2c内部模块完全没有难度；但是对于外部器件(如LCD、CMOS等)，如果直接成功还可以，不成功则重复调试很久都不会成功。调试过的硬件，提供源码比直接生成稳定的多，效率会更高。
+- Phase 0.5/0.6 — bare-metal GCC minimum project and a working OpenOCD + pyOCD debug chain
+  (DFP pack target fails on ART-Link; `target_override: cortex_m` + FLM injection works)
+- Phase 1 — RT-Thread Nano + LED + SCI9 console shell (`led on|off|blink`), 15/15 verify
+- Phase 2–4 — GLCDC LCD, CEU camera, LVGL v9.1.0 on the framebuffer, 7/7 verify
+- Phase 5–6 — RGB666 parallel path replaced with GLCDC → DSI bridge for the real 480×360 MIPI panel;
+  CST812T touch proven correct at the register level via SWD but **the controller NACKs every I²C
+  transaction** → judged a panel/hardware fault
+- Phase 7 — touch removed, converged to a single-page telemetry view with a hardware RTC.
+  Trap found: `RCR4.RCKSEL` is **inverted** relative to its name (`0 = subclock`, `1 = LOCO`);
+  the wrong value ran the clock **10.63× fast**
+- Phase 8 — replaced the frozen reset colour-bar with a real boot splash; captured the transient
+  startup frame by resetting and halting after 0.55 s over SWD
 
-🏷️ **提供完整的单片机开发仿真环境**
+#### 302 · RA8D1 NES emulator
 
-实现代码才是第一步，无法验证的代码生成后，再去开发调试还要去理解，花费精力并不少，让AI跑通流程是能够迭代的基础。
+🚀 [302.ra8d1_lcd_nes](./302.ra8d1_lcd_nes/)
 
-🏷️ **需要及时的人工干预**
+**Stack:** RT-Thread Nano + Dave2D (DRW2D GPU) + W25Q64 FatFs + TinyUSB MSC
 
-嵌入式需要交叉编译和远程仿真，如果断开或者设备异常，就完全堵塞执行流程，在实现USB项目时，就因为未重新枚举，卡住执行半个小时，这就需要及时的外部干预。
+**Work:** NES emulator on the RA8D1 Vision Board with GPU-accelerated blitting, ROMs served from an
+on-board W25Q64 QSPI flash exposed as a FAT volume, and a USB MSC endpoint so the drive appears on a host.
+Verification tooling covers the GPU blit path, per-frame output, ROM integrity and state-arena behaviour.
 
-## 使用Vibe Coding感触
+> ⚠️ Known issue documented in `CMakeLists.txt`: `-O1`/`-O2` break the serial console (formatted output
+> truncated mid-line). The project pins the optimisation level accordingly.
 
-Vibe Coding真的颠覆了我的认知，点亮个LED、调试电机、读取传感器，这种实现对于我这种熟练工作并没有吸引力。
+---
 
-不过实现这种我个人能力边界外，知道怎么做，但是苦于没有精力去补足知识点，需要大量时间精力的项目，吸引力就太大了；虽然不想承认，掌握AI开发流程，其能力上限远超过去的我，抗拒只能被淘汰，我也只能努力接受，迭代自身能力，加入到日常的工作流程中。
+## Curated skills
+
+Everything learned across these 22 projects is distilled into a separate, reusable repository:
+
+### 👉 [zc110747/EmbedSkills](https://github.com/zc110747/EmbedSkills)
+
+> **25 skills · 91 reference documents** — written as `agent_created: true` Agent Skills, so the agent
+> **auto-loads** the relevant one when it hits the corresponding problem.
+
+This is the most valuable output of the whole effort. Instead of writing lessons into a README nobody
+reads, each one becomes a rule the agent can act on. Three admission criteria apply:
+
+| Gate | Meaning |
+|---|---|
+| **Decidable** | Expresses as "if X then Y", not a war story |
+| **Reproducible** | Still true on another board, or explicitly scoped to a chip |
+| **Sourced** | Pins, registers, clocks and part numbers are verified — anything unchecked is labelled |
+
+The three-tier loading model is what keeps it cheap: only `name` + `description` are resident every
+session (~3 KB total); the `SKILL.md` body loads on trigger-word match; `references/*.md` load only
+when the body points at them.
+
+| Domain | Skills |
+|---|---|
+| **MCU / Embedded (10)** | `mcu-ai-agent-workflow` · `embedded-windows-toolchain` · `stm32-build-and-scaffold` · `stm32-peripherals-and-memory` · `mcu-debug-forensics` · `embedded-verification-acceptance` · `mcu-logging` · `mcu-code-style` · `mcu-cpp-development` · `embedded-config-portal` |
+| **Display / GUI (1)** | `lvgl-font-and-render` |
+| **Platform porting (2)** | `zephyr-stm32-porting` · `esp32-platform-notes` |
+| **Robotics / Multi-physics (3)** | `truth-source-and-model-vendoring` · `robotics-mechanism-and-sim` · `robotics-link-diagnostics` |
+| **SOC / Video / Edge AI (1)** | `soc-video-and-edge-ai` |
+| **Front-end forensics (1)** | `web-headless-verification` |
+| **Tooling (2)** | `schematic-pdf-netlist` · `mail-weekly-digest` |
+| **Reverse-engineering (4)** | `replica-recon` · `replica-memory-engine` · `replica-ui-fidelity` · `replica-mock-harness` |
+| **Coding standard (1)** | `mcu-code-style-apply` |
+
+### Install
+
+```bash
+git clone https://github.com/zc110747/EmbedSkills.git
+cd EmbedSkills
+
+# single skill
+cp -r stm32-build-and-scaffold ~/.workbuddy/skills/
+
+# all of them
+for d in */; do
+  [ -f "$d/SKILL.md" ] && cp -r "$d" ~/.workbuddy/skills/
+done
+```
+
+Skills take effect in a **new session**. Copy the whole directory (including `references/` and
+`scripts/`) — copying only `SKILL.md` leaves every "see references/…" pointer dangling.
+
+> The global `~/.workbuddy/skills/` directory is the single authoritative copy; every project uses it
+> directly. The mirror is kept in sync with `EmbedSkills/sync_skills.sh` (`--check` / `--prune` / `--restore` / `--list`).
+
+---
+
+## Verification-first workflow
+
+An AI-built project is only done when it has been **proven on hardware**. The rhythm used throughout:
+
+```text
+plan  →  confirm  →  implement  →  Debug + Release zero-warning build
+      →  flash  →  serial / on-target verification
+      →  extend a one-shot tools/verify_*.py  (prints PASS / FAIL counts)
+      →  delivery checklist
+```
+
+Every project ships a `tools/verify_*.py` harness that runs the whole suite in one shot and prints a
+pass/fail tally. It is *not* a formality — it catches the cases where a build succeeds but the hardware
+quietly does nothing:
+
+| Project | Harness | Result |
+|---|---|---|
+| 013 | `tools/verify_stress.py` | 24/24 passed — 1800 s full-duplex soak at exactly 960 B/s |
+| 301 | `tools/verify/verify_phase8.py` | 10 passed / 0 failed / 2 manual — SWD framebuffer pixel assertions |
+| 302 | `tools/verify/verify_nes_frame.py` | per-frame NES output and GPU blit path |
+| 012 | PC-side stress + latency + flow control + 7-bit parity | one-shot Python regression |
+
+Three rules that make it work:
+
+1. **Assert on the physical result, not the API's return value.** "The LED driver returned `HAL_OK`"
+   proves nothing; reading back `PODR` over SWD proves something.
+2. **Distinguish environment failures from regression failures.** A missing `third_party/` (gitignored)
+   is reported separately so a genuine break never hides behind it.
+3. **Never let a probe write into the shipped firmware.** Instrumentation that feeds synthetic data must
+   be removed before delivery.
+
+---
+
+## The prompt four-element rule
+
+Every project carries the exact prompt that produced it (`prompter.md`). The working structure:
+
+| Element | Content |
+|---|---|
+| **Functional requirements** | What the thing does, in observable behaviour |
+| **Hardware information** | MCU, pins, peripherals, clocks, part numbers — stated, never left to be guessed |
+| **Development steps** | Phased and ordered, so the agent always has a next concrete action |
+| **Verification means** | How each phase proves itself (serial output, SWD readback, measurement) |
+
+> Do not ask the agent to "build a result". Give it a **suggestion, a sequence and a target** —
+> then it can walk the path itself.
+
+---
+
+## Lessons learned the hard way
+
+🏷️ **Have a precise picture of the project before writing the prompt.**
+Functional requirements, hardware details, development steps and verification methods. Asking for an
+outcome produces a plausible-looking outcome; giving steps and a target produces working firmware.
+
+🏷️ **Hand over every driver you already have.**
+Internal peripherals (RTC, GPIO, I²C) are no trouble for the agent. External parts (LCD, CMOS sensor)
+are a different story — when they fail, the agent can loop for hours. A known-good driver source beats
+generation every time.
+
+🏷️ **Provide a complete simulation environment.**
+Writing code is only step one. Unverifiable code still has to be understood later before it can be
+debugged — and that cost is not small. A closed loop is the precondition for iteration.
+
+🏷️ **Intervene early and by hand.**
+Embedded work needs cross-compilation and remote debugging. If the probe disconnects or the device
+misbehaves, the whole flow blocks. During the USB projects it stalled for half an hour simply because
+the device was never re-enumerated.
+
+Counter-examples worth remembering: an incorrect CMOS/OLED register configuration cost an hour with no
+progress, and a missing link in a CMake file left the entry point unlinked so startup hung in a loop —
+another half hour. Both resolved instantly once a known-good driver was supplied and a human stepped in.
+
+---
+
+## Repository layout
+
+```text
+MCU-Agent/
+├── 001..013.*/              STM32H743ZIT6 projects
+├── 101..102.*/              STM32F429IGT6 projects
+├── 201..204.*/              ESP32-S3 projects
+├── 301..302.*/              Renesas RA8D1 projects
+│   ├── app|applications/    application layer
+│   ├── bsp/                 board support layer
+│   ├── Drivers/             vendor HAL (gitignored, from support_tools/)
+│   ├── third_party/         upstream libraries (gitignored, from support_tools/)
+│   ├── tools/verify/        one-shot acceptance scripts
+│   ├── .vscode/             configure / build / clean / flash + cortex-debug
+│   └── README.md            per-project details
+├── document/
+│   ├── support.md           environment setup guide
+│   ├── image/               screenshots used in this README
+│   ├── stm32h743/            schematic + hardware notes
+│   ├── stm32f429/            schematic + hardware notes
+│   └── esp32s3/              schematic + hardware notes
+├── support_tools/           shared drivers/third_party archives + SD card content
+├── project.list             project index
+├── vscode_unify_convention.md   unified .vscode rules across all projects
+└── LICENSE                  MIT
+```
+
+Per-project dependency direction is strict: `applications → bsp → {Drivers, third_party}`.
+Reversed dependencies are not allowed.
+
+**Unified `.vscode` convention** (three hard rules, see [vscode_unify_convention.md](./vscode_unify_convention.md)):
+
+1. Tools are invoked by **bare name** — they must be on the system PATH; never hardcode an install path.
+2. `tasks.json` keeps **exactly four tasks**: `configure` / `build` / `clean` / `flash`.
+3. `openocd.cfg` and `*.svd` live at the **project root**, not in an `openocd/` subdirectory.
+
+---
+
+## Roadmap
+
+- [x] 001–013, 101–102, 201–204, 301–302 — 22 projects complete and hardware-verified
+- [x] 25 curated skills published in [EmbedSkills](https://github.com/zc110747/EmbedSkills)
+- [x] Bilingual README — English (default) + Simplified Chinese
+- [ ] CI consistency check across the skill repository
+
+---
+
+## License
+
+[MIT](./LICENSE) © 2026 听心跳的声音
+
+<sub>Projects in this repository were built in collaboration with an AI agent; each project directory documents which parts were agent-generated and which required human input.</sub>

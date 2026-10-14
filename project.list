@@ -8,8 +8,14 @@
 008.stm32h743_lvgl_mos
 009.stm32h743_zephyr
 010.stm32h743_boot
+011.stm32h743_freertos_emwin
+012.stm32h743_usb_serial
+013.stm32h743_virtual_uart
 101.stm32f429_net
 102.stm32f429_tinyusb_ui
 201.esp32s3_rtos
 202.esp32s3_hw_detect
 203.esp32s3_wireless_debug
+204.esp32s3_touch_ebook
+301.ra8d1_lcd_lvgl
+302.ra8d1_lcd_nes
