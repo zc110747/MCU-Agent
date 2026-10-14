@@ -54,21 +54,21 @@ static int sda_read(void)
 
 void bsp_sw_i2c_init(void)
 {
-    GPIO_InitTypeDef gpio;
+    GPIO_InitTypeDef GPIO_InitStruct;
 
     __HAL_RCC_GPIOH_CLK_ENABLE();
     __HAL_RCC_GPIOI_CLK_ENABLE();
 
-    gpio.Mode  = GPIO_MODE_OUTPUT_OD;   /* open drain: SET == released */
-    gpio.Pull  = GPIO_PULLUP;
-    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
-    gpio.Alternate = 0U;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;   /* open drain: SET == released */
+    GPIO_InitStruct.Pull  = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = 0U;
 
-    gpio.Pin = SWI2C_SCL_PIN;
-    HAL_GPIO_Init(SWI2C_SCL_PORT, &gpio);
+    GPIO_InitStruct.Pin = SWI2C_SCL_PIN;
+    HAL_GPIO_Init(SWI2C_SCL_PORT, &GPIO_InitStruct);
 
-    gpio.Pin = SWI2C_SDA_PIN;
-    HAL_GPIO_Init(SWI2C_SDA_PORT, &gpio);
+    GPIO_InitStruct.Pin = SWI2C_SDA_PIN;
+    HAL_GPIO_Init(SWI2C_SDA_PORT, &GPIO_InitStruct);
 
     /* Park the bus in the idle state: both lines released. */
     HAL_GPIO_WritePin(SWI2C_SCL_PORT, SWI2C_SCL_PIN, GPIO_PIN_SET);

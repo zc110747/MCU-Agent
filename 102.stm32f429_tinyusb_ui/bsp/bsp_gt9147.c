@@ -170,7 +170,7 @@ static int gt_send_cfg(int save)
 /* -------------------------------------------------------------------------- */
 int bsp_gt9147_init(void)
 {
-    GPIO_InitTypeDef gpio;
+    GPIO_InitTypeDef GPIO_InitStruct;
     uint8_t id[GT9147_ID_LEN];
     uint8_t tmp;
     static const uint8_t addr_candidates[2] = { GT_ADDR_LO, GT_ADDR_HI };
@@ -187,17 +187,17 @@ int bsp_gt9147_init(void)
 
     /* RST is a push-pull output; INT is an input - during the reset pulse the
      * chip samples it to pick its slave address, so it must never be driven. */
-    gpio.Mode      = GPIO_MODE_OUTPUT_PP;
-    gpio.Pull      = GPIO_PULLUP;
-    gpio.Speed     = GPIO_SPEED_FREQ_HIGH;
-    gpio.Alternate = 0U;
-    gpio.Pin       = GT_RST_PIN;
-    HAL_GPIO_Init(GT_RST_PORT, &gpio);
+    GPIO_InitStruct.Mode      = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = 0U;
+    GPIO_InitStruct.Pin       = GT_RST_PIN;
+    HAL_GPIO_Init(GT_RST_PORT, &GPIO_InitStruct);
 
-    gpio.Mode = GPIO_MODE_INPUT;
-    gpio.Pull = GPIO_PULLUP;
-    gpio.Pin  = GT_INT_PIN;
-    HAL_GPIO_Init(GT_INT_PORT, &gpio);
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Pin  = GT_INT_PIN;
+    HAL_GPIO_Init(GT_INT_PORT, &GPIO_InitStruct);
 
     bsp_sw_i2c_init();
 
@@ -209,10 +209,10 @@ int bsp_gt9147_init(void)
 
     /* Float INT: the address latch is sampled from it, and after boot it
      * becomes the interrupt output. */
-    gpio.Mode = GPIO_MODE_INPUT;
-    gpio.Pull = GPIO_NOPULL;
-    gpio.Pin  = GT_INT_PIN;
-    HAL_GPIO_Init(GT_INT_PORT, &gpio);
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pin  = GT_INT_PIN;
+    HAL_GPIO_Init(GT_INT_PORT, &GPIO_InitStruct);
     bsp_delay_ms(100U);
 
     /* ---- re-enable the pull-up on INT ------------------------------------ *
@@ -229,10 +229,10 @@ int bsp_gt9147_init(void)
      *
      * The controller idles INT high and pulls it low to report, so a pull-up
      * is the correct termination for the interrupt use. */
-    gpio.Mode = GPIO_MODE_INPUT;
-    gpio.Pull = GPIO_PULLUP;
-    gpio.Pin  = GT_INT_PIN;
-    HAL_GPIO_Init(GT_INT_PORT, &gpio);
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Pin  = GT_INT_PIN;
+    HAL_GPIO_Init(GT_INT_PORT, &GPIO_InitStruct);
     bsp_delay_ms(2U);
 
     /* ---- find the chip and read its product ID -------------------------- */
