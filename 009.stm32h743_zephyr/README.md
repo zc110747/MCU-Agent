@@ -64,19 +64,23 @@
 ## 3. 软件架构 / 模块化
 
 ```
-stm32_zephyr/                # 工程根目录（west 应用即根目录）
+009.stm32h743_zephyr/        # 工程根目录（west 应用即根目录）
 ├── west.yml                 # west manifest（zephyr 3.7.0 + 模块）
 ├── CMakeLists.txt           # 应用构建（app + bsp，链接 LVGL）
-├── prj.conf                 # Zephyr / LVGL / FatFs / 显示 配置
+├── prj.conf                 # Zephyr / LVGL / FatFs / Shell / 显示 配置
 ├── boards/
 │   └── nucleo_h743zi.overlay# 设备树：SPI/MIPI-DBI/ST7789、SDMMC1、USART1、LED
+├── openocd.cfg              # ST-Link SWD 配置（工程根）
+├── build_oneclick.bat       # 单工程一键构建（west build）
+├── doc/prompter.md          # 需求 / 验收提示词
 ├── tools/
-│   ├── openocd.cfg          # ST-Link SWD 配置（adapter speed 4000）
-│   └── read_serial.py       # 复位目标并抓取串口启动日志
+│   ├── read_serial.py       # 复位目标并抓取串口启动日志
+│   └── stress_test.py       # 串口压力 / 长时间回归
 ├── app/
 │   ├── main.c               # 启动：背光、挂 SD、注册字体、LVGL 泵 + 心跳
-│   ├── ui.c / ui.h          # LVGL 界面（朴素深色卡片，16px 点阵字体）
-│   └── (ui 通过 bsp 字体渲染中文)
+│   ├── ui.c / ui.h          # LVGL 界面（深色卡片，16px 点阵字体）
+│   ├── shell_cmds.c         # Zephyr shell 自定义命令（CONFIG_SHELL + 串口后端）
+│   └── stress.c             # 压测 / 自检入口
 ├── bsp/
 │   ├── drv_oled_fonts.h     # pFONT 字体描述符类型
 │   ├── drv_oled_text.c/.h   # GBK 字库读取（FatFs）+ UNIGBK 二分查找
@@ -177,7 +181,7 @@ python -m west build -b nucleo_h743zi/stm32h743xx -d build -s .
 ### 方式一：OpenOCD 命令行烧录（已验证）
 ```bash
 openocd -s <openocd>/share/openocd/scripts \
-  -f tools/openocd.cfg \
+  -f openocd.cfg \
   -c "program build/zephyr/zephyr.elf verify reset exit"
 ```
 `openocd.cfg` 已使用 `transport select swd`（OpenOCD 0.12 新 st-link 驱动）。
@@ -190,11 +194,11 @@ openocd -s <openocd>/share/openocd/scripts \
   `ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb`、`GNUARMEMB_TOOLCHAIN_PATH` 与
   `arm-none-eabi/bin`、`openocd/bin` 的 PATH。
 - 任务：`build`（Ctrl+Shift+B 默认）/ `clean` / `flash` / `flash-openocd`；
-  调试配置：`executable = build/zephyr/zephyr.elf`，
-  `serverpath = D:/Software/openocd/bin/openocd.exe`，
-  `searchDir = D:/Software/openocd/share/openocd/scripts`，
-  `configFiles = tools/openocd.cfg`，`device = STM32H743ZI`，
-  `rtos = Zephyr`。可直接下断点单步调试。
+  调试配置：`executable = build/zephyr/zephyr.elf`，`openocdPath = openocd`、
+  `gdbPath = arm-none-eabi-gdb`（均按裸名走系统 PATH，无硬编码安装路径），
+  `configFiles = ${workspaceFolder}/openocd.cfg`，`device = STM32H743ZI`，
+  `rtos = Zephyr`。可直接下断点单步调试；另有一条 `Attach (no reflash)` 配置。
+  `searchDir` 未写死，OpenOCD 自身脚本路径由其安装位置决定。
 - 前置条件：安装 **Cortex-Debug** 扩展（ms-vscode?/marus25.cortex-debug）后
   按 F5 即可。首次会重新编译（增量）并自动连接 ST-Link。
 

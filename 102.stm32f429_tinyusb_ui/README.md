@@ -383,7 +383,7 @@ U 盘插入
   - `align = 256 sectors`（= 128 KB）— FAT / 数据区对齐
   - `au_size = 128 KB` — 分配单元（簇）大小
 - **exFAT 规范要求对齐的是「DATA REGION（簇堆）」，不是 FAT**。本工程二者均满足 128 KB。
-- 真实性证明见 `verify_exfat/harness.c`（PC 端 FatFs 验证工具）：用**与固件完全相同的
+- 真实性证明见 `tools/verify_exfat/harness.c`（PC 端 FatFs 验证工具）：用**与固件完全相同的
   FatFs R0.15 + ffconf.h** 对 RAM 盘做 `f_mkfs(FM_EXFAT, …)`，再解析原始卷证明
   VBR 引导签名、簇堆绝对 LBA 128 KB 对齐、分配单元 128 KB。`make` 后运行 `harness.exe`
   得到 `12 passed, 0 failed — VERDICT: PASS`。
@@ -394,7 +394,7 @@ U 盘插入
 
 ### 5.1 工具链（通过环境变量提供，不写死本机绝对路径）
 
-工程内所有构建/调试脚本（`CMakeLists.txt`、`openocd/stm32f429_stlink.cfg`、`.vscode/*`）
+工程内所有构建/调试脚本（`CMakeLists.txt`、`openocd.cfg`、`.vscode/*`）
 均通过**环境变量**解析工具链路径，换机器只需改环境变量、不改工程文件。推荐设置：
 
 | 环境变量 | 含义 | 本机示例 |
@@ -454,9 +454,9 @@ cmake --build build_nolog --target stm32f429_tinyusb_ui.elf
 ### 5.4 exFAT 验证工具
 
 ```bash
-cd verify_exfat
-gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
-    ../third_party/FatFs/ffunicode.c -I../third_party/FatFs -o harness.exe
+cd tools/verify_exfat
+gcc harness.c ../../third_party/FatFs/ff.c ../../third_party/FatFs/ffsystem.c \
+    ../../third_party/FatFs/ffunicode.c -I../../third_party/FatFs -o harness.exe
 ./harness.exe
 ```
 
@@ -467,7 +467,7 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 | 项目 | 结果 | 说明 |
 |------|------|------|
 | 双构建零警告（Debug/Release） | ✅ PASS | 见 §5.3 |
-| exFAT 真实性 + 128 KB 数据区对齐 + 128 KB 簇 | ✅ PASS | 见 §4 / `verify_exfat` |
+| exFAT 真实性 + 128 KB 数据区对齐 + 128 KB 簇 | ✅ PASS | 见 §4 / `tools/verify_exfat` |
 | TinyUSB USB FS Host 集成 | ✅ 编译验证通过 | 枚举/挂载回调与磁盘胶水已贯通 |
 | SDRAM 在 FreeRTOS 之前初始化 | ✅ 代码审查通过 | 见 §3.1 顺序约束 |
 | TIM11 / SysTick 独立时基 | ✅ 代码审查通过 | 见 §2 |
@@ -575,14 +575,13 @@ gcc harness.c ../third_party/FatFs/ff.c ../third_party/FatFs/ffsystem.c \
 
 | 文件 | 作用 |
 |------|------|
-| `openocd/stm32f429_stlink.cfg` | OpenOCD 调试/烧录配置，用 `[find interface/stlink.cfg]` + `[find target/stm32f4x.cfg]`，零硬编码路径 |
+| `openocd.cfg`（工程根） | OpenOCD 调试/烧录配置，用 `[find interface/stlink.cfg]` + `[find target/stm32f4x.cfg]`，零硬编码路径 |
 | `.vscode/launch.json` | Cortex-Debug 启动配置：`openOCDPath`/`searchDir`/`gdbPath` 全用 `${env:VAR}`；`executable`/`configFiles`/`svdFile` 用相对路径 |
 | `.vscode/tasks.json` | `CMake Build (Debug/Release)` / `Clean` / `Flash with OpenOCD` 任务，工具同样走环境变量 |
 | `.vscode/settings.json` | Cortex-Debug / CMake 路径解析（env 变量），`cmake.useCMakePresets=always` |
 | `.vscode/c_cpp_properties.json` | IntelliSense，`compilerPath` 走 env 变量，包含目录相对路径 |
 | `.vscode/extensions.json` | 推荐扩展：`marus25.cortex-debug` / `ms-vscode.cpptools` / `ms-vscode.cmake-tools` |
-| `.vscode/STM32F429x.svd` | 外设寄存器描述（工程内随附，相对引用，支持 SVD 视图） |
-| `debug/gdbinit` | 复用 gdb 脚本：`arm-none-eabi-gdb -x debug/gdbinit` 连常驻服务器、halt、载符号 |
+| `STM32F429x.svd`（工程根） | 外设寄存器描述，相对引用，支持 SVD 视图 |
 | `CMakePresets.json` | `debug`/`release` 预设（相对 `binaryDir`，可移植） |
 
 ### 7.2 前置：设置环境变量（示例值，按需替换）
@@ -602,13 +601,14 @@ set NINJA_BIN=C:/Software/msys2/mingw64/bin
 2. **F5 调试**：自动先 `CMake Build (Debug)` 再启动 Cortex-Debug（OpenOCD + STLink SWD + gdb），
    断点命中后可在 `main` / `OTG_FS_IRQHandler` 等下硬件断点，SVD 视图看外设寄存器。
 3. **仅烧录**：运行 `Flash with OpenOCD` 任务（等价 `program ... verify reset exit`）。
-4. **命令行 gdb**：先起常驻 OpenOCD，再 `arm-none-eabi-gdb -x debug/gdbinit`。
+4. **命令行 gdb**：先起常驻 OpenOCD，再直接用 `-ex` 连上（工程内未保留 gdbinit 文件）。
 
 ```bash
 # 常驻 OpenOCD 调试服务器（gdb :3333 / telnet :4444 / tcl :6666）
-openocd -s %OPENOCD_SCRIPTS% -f openocd/stm32f429_stlink.cfg
+openocd -s %OPENOCD_SCRIPTS% -f openocd.cfg
 # 另一终端
-arm-none-eabi-gdb -x debug/gdbinit
+arm-none-eabi-gdb build/debug/stm32f429_tinyusb_ui.elf \
+  -ex "target extended-remote :3333" -ex "monitor reset halt" -ex "load"
 ```
 
 ### 7.4 已验证（本次实测）
@@ -872,6 +872,10 @@ RESULT: 7 passed, 0 failed -> PASS
 │   ├── bsp_gt9147.c/.h  (★ GT9147/GT911 驱动：复位寻址 + ID 校验 + 配置块 + 5 点坐标)
 │   ├── bsp_touch.c/.h   (★ T_PEN EXTI + 二值信号量 + 坐标映射到 LVGL 画布)
 │   ├── lv_port_indev.c/.h (★ LVGL pointer indev，只读 bsp_touch 发布的状态)
+│   ├── bsp_lcd.c/.h / bsp_lcd_text.c/.h / lcd_ascii_font.c  (★ 800×480 FMC 8080 面板 + 文字)
+│   ├── lv_port_disp.c/.h  (★ LVGL 显示对接)
+│   ├── lv_font_gbk.c/.h / lv_gbk_map.c/.h  (★ 卡上 GBK 点阵字体)
+│   ├── bsp_rtc.c/.h  (★ 硬件 RTC + 闹钟)
 │   ├── bsp_usb_hw.c (OTG_FS 时钟/引脚/中断)
 │   └── bsp_ap3216 / bsp_mpu9250 / bsp_eeprom_24c02 / bsp_delay
 ├── Drivers/                        # CMSIS + STM32F4 HAL
@@ -879,19 +883,23 @@ RESULT: 7 passed, 0 failed -> PASS
 │   ├── FreeRTOS-Kernel/           # V11，heap_5
 │   ├── FatFs/                     # R0.15，FF_FS_EXFAT=1
 │   └── tinyusb/                   # 0.21.0 主机栈
-├── ldscript/STM32F429IGTx_FLASH.ld
-├── openocd/stm32f429_stlink.cfg  # OpenOCD 调试/烧录配置（env 变量 + [find]）
-├── .vscode/                       # VSCode 调试/IntelliSense（launch/tasks/settings/c_cpp/extensions + SVD）
-├── debug/gdbinit                  # 复用 gdb 脚本（连常驻 openocd、halt、载符号）
+├── sys_startup/                   # 启动文件（gcc/arm/iar）+ STM32F429IGTx_FLASH.ld
+├── MDK-ARM/                       # Keil 工程（ARMCLANG 后端）
+├── openocd.cfg                    # OpenOCD 调试/烧录配置（工程根）
+├── .vscode/                       # VSCode 调试/IntelliSense（launch/tasks/settings/c_cpp/extensions）
+├── STM32F429x.svd                 # SVD 在工程根
 ├── CMakePresets.json              # 可移植构建预设（debug/release）
-├── verify_exfat/                  # PC 端 exFAT 真实性验证工具
+├── tools/verify_exfat/            # PC 端 exFAT 真实性验证工具（harness.c）
 ├── tools/verify_serial/
 │   ├── verify_boot_flow.py        # ★ 启动加载流程验收（烧录 + COM5 抓 25s + pass/fail）
 │   ├── verify_touch_irq.py        # ★ T_PEN 中断链路验收（SWIER 软注入，全自动 7/7）
 │   ├── verify_touch.py            # ★ 手指触摸 + 翻页验收（烧录 + 交互式，需人工点屏）
 │   ├── verify_log_switch.py       # ★ PRINT_LOG 开关验收（串口不可用时改走 SWD 读内存）
-│   ├── capture_reset.py           # ★ 只复位不烧录，抓控制类日志（--raw 看全量）
-│   └── verify_ui_com5.py / explore_com5_test.py / ...   # 既有 U 盘遍历验收
+│   ├── capture_reset.py / capture_now.py   # 复位/即时抓取控制类日志
+│   ├── verify_alarm_eeprom.py / restore_alarm.py / verify_sensors.py
+│   ├── verify_ui_com5.py / verify_stability_com5.py / explore_com5_test.py / probe_ports.py
+│   └── flash_com5_test.py / serial_test.py
+├── ACCEPTANCE_REPORT.md           # 验收报告
 ├── CMakeLists.txt / cmake/arm-none-eabi-gcc.cmake
 ├── README.md
 └── ACCEPTANCE_REPORT.md

@@ -17,9 +17,12 @@ app/main.c              当前阶段入口（Phase 6/7 = echo 主循环）
 bsp/bsp.c|.h            时钟树 / LED / 板级
 bsp/stm32h7xx_it.c      内核异常
 bsp/sw_uart/            软件 UART 驱动（分层，见下）
-sys_startup/            启动文件 + linker script
+sys_startup/            启动文件（gcc / arm / iar）+ linker script
 cmake/                  工具链 + .dma_buf 放置检查
-tools/                  片上自测/探针 + PC 侧验收脚本（verify_*.py）
+MDK-ARM/                Keil 工程（ARMCLANG 后端，与 CMake 源集对齐）
+openocd/                ST-Link 配置（stm32h743_stlink.cfg）
+tools/                  片上自测/探针（tx_selftest / rx_test / phase3_test / echo_test）
+                        + PC 侧验收脚本（verify_tx/rx/phase3/echo/stress.py）
 ```
 
 ### 驱动分层

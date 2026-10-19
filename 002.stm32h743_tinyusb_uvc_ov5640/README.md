@@ -234,7 +234,7 @@ Y≈7↔120（17 倍差），同时抓「同步快照」与「非同步拷贝」
 ## 9. 目录结构
 
 ```
-stm32h743_uvc_camera/
+002.stm32h743_tinyusb_uvc_ov5640/
 ├── CMakeLists.txt            # 构建（含 flash target）
 ├── cmake/arm-none-eabi-gcc.cmake
 ├── openocd.cfg               # ST-Link SWD 烧录 / 调试配置
@@ -259,6 +259,8 @@ stm32h743_uvc_camera/
 ├── Drivers/                  # HAL + CMSIS
 ├── MDK-ARM/                  # Keil 工程（stm32h743.uvprojx + stm32h743.sct）
 ├── third_party/tinyusb/      # TinyUSB 子模块
+├── patches/                  # 对 tinyusb 的补丁（dwc2 FS FIFO 深度）
+├── prompter.md               # 需求 / 验收提示词记录
 └── tools/fps_test.py         # OpenOCD 帧率 / 健康度测试脚本
 ```
 

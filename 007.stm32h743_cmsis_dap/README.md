@@ -42,27 +42,35 @@ GND           ────  GND      (必须共地)
 ## 2. 工程结构
 
 ```
-app/                      应用层（USB 与 DAP 的桥接）
-  main.c                  USB HID 回调 <-> DAP 命令处理器，主循环
-  usb_descriptors.c       USB 描述符（HID IN/OUT 双端点，产品串含 "CMSIS-DAP"）
-  tusb_config.h           tinyusb 配置（仅启用 HID，64 字节报文）
-  stm32h7xx_it.c          中断向量（OTG_FS/HS -> tud_int_handler）
-  stm32h7xx_hal_conf.h    HAL 模块裁剪（仅 RCC/GPIO/PWR/CORTEX/FLASH）
-  syscalls.c             newlib 最小桩（含 _write 空实现）
-bsp/                      板级支持
-  bsp.c                   时钟树（HSE 25MHz -> PLL -> 400MHz）、USB CRS 校准、UID
-  bsp.h                   对外 API
-  DAP_config.h            CMSIS-DAP 硬件抽象（引脚映射、LED、时间戳、延迟预算）
-  dap_port.c              GPIO 端口配置 + DWT 周期计数器使能
-third_party/
-  tinyusb/src             tinyusb 设备栈（仅编译 HID + DWC2 驱动）
-  CMSIS-DAP/             ARM 官方 DAP.c / SW_DP.c / JTAG_DP.c（已移植到 GCC/M7）
-Drivers/                 CMSIS-Core / CMSIS-Device(ST) / STM32H7 HAL 驱动
-ldscript/                stm32h743zi_flash.ld
-cmake/arm-none-eabi.cmake  交叉工具链文件
-openocd/                 stm32h743_stlink.cfg（烧写本板）/ stm32f429_cmsisdap.cfg（通过本板仿真 F429）
-.vscode/                 c_cpp_properties.json / launch.json / tasks.json / settings.json / STM32H743.svd
-CMakeLists.txt, CMakePresets.json
+007.stm32h743_cmsis_dap/
+├── app/                      应用层（USB 与 DAP 的桥接）
+│   ├── main.c                USB HID 回调 <-> DAP 命令处理器，主循环
+│   ├── usb_descriptors.c     USB 描述符（HID IN/OUT 双端点，产品串含 "CMSIS-DAP"）
+│   ├── tusb_config.h         tinyusb 配置（仅启用 HID，64 字节报文）
+│   ├── stm32h7xx_it.c        中断向量（OTG_FS/HS -> tud_int_handler）
+│   ├── stm32h7xx_hal_conf.h  HAL 模块裁剪（仅 RCC/GPIO/PWR/CORTEX/FLASH）
+│   └── syscalls.c            newlib 最小桩（GCC 侧；Keil 侧排除）
+├── bsp/                      板级支持
+│   ├── bsp.c                 时钟树（HSE 25MHz -> PLL）、USB CRS 校准、UID
+│   ├── bsp.h                 对外 API
+│   ├── DAP_config.h          CMSIS-DAP 硬件抽象（引脚映射、LED、时间戳、延迟预算）
+│   └── dap_port.c            GPIO 端口配置 + DWT 周期计数器使能
+├── sys_startup/              启动文件（gcc / arm / iar）+ system_stm32h7xx.c
+│                             + stm32h743zi_flash.ld + 设备头
+├── Drivers/                  CMSIS-Core / CMSIS-Device(ST) / STM32H7 HAL（gitignore）
+├── third_party/              tinyusb 设备栈 + ARM 官方 CMSIS-DAP（DAP.c / SW_DP.c /
+│                             JTAG_DP.c，已移植到 GCC/M7）
+├── cmake/                    arm-none-eabi.cmake 交叉工具链
+├── openocd.cfg               ST-Link 烧写本板（根级）
+├── openocd_cmsisdap.cfg      通过本板 CMSIS-DAP 仿真目标（根级）
+├── openocd/flash_f429.inc    给 F429 目标烧写的 OpenOCD 片段
+├── f429_demo/                STM32F429 最小被测工程（main.c + 启动 + 链接脚本
+│                             + flash_cmsisdap.bat）
+├── MDK-ARM/                  Keil 工程（ARMCLANG 后端）
+├── docs/prompter.md          需求 / 验收提示词记录
+├── .vscode/                  c_cpp_properties / launch / tasks / settings
+├── CMakeLists.txt / CMakePresets.json
+└── STM32H743.svd             SVD 在工程根（.vscode 用相对路径引用）
 ```
 
 ### 并发模型（见 `app/main.c` 注释）
@@ -97,7 +105,8 @@ cmake --build build/debug
 > **关键时序约束**：CMSIS-DAP 的 SWD/JTAG 位操作循环必须精确，故 `DAP.c`、
 > `SW_DP.c`、`JTAG_DP.c` 在 `CMakeLists.txt` 中被强制以 `-O2` 编译（即便整体是 Debug）。
 
-构建产物体积（debug）：FLASH ≈ 37.6 KB，堆+栈 ≈ 6.8 KB（DTCM）。
+构建产物体积（2026-10-19 复核）：Debug FLASH 38,120 B ≈ **37.2 KB**（Release 37,620 B），
+`.bss` 6,848 B（堆+栈，DTCM）。
 
 ---
 
@@ -107,7 +116,7 @@ cmake --build build/debug
 # 通过 ST-Link 烧录探针固件
 cmake --build build/debug --target flash
 # 或等价地：
-openocd -f openocd/stm32h743_stlink.cfg -c "program build/debug/h743_cmsis_dap.elf verify reset exit"
+openocd -f openocd.cfg -c "program build/debug/h743_cmsis_dap.elf verify reset exit"
 
 # 其他便捷目标：erase（整片擦除）、reset（复位）
 ```
@@ -137,13 +146,13 @@ openocd -f openocd/stm32h743_stlink.cfg -c "program build/debug/h743_cmsis_dap.e
 # 快速自检（读取探针信息 + 目标列表）
 cmake --build build/debug --target dap-test
 # 等价明文：
-openocd -f openocd/stm32f429_cmsisdap.cfg -c "init" -c "dap info" -c "targets" -c "exit"
+openocd -f openocd_cmsisdap.cfg -c "init" -c "dap info" -c "targets" -c "exit"
 
 # 一键自检（IDCODE + 内存读写回环，非破坏性）
 cmake --build build/debug --target dap-verify
 
 # 启动 GDB server，然后在 VSCode 用 “Debug STM32F429 THROUGH our probe” 配置
-openocd -f openocd/stm32f429_cmsisdap.cfg
+openocd -f openocd_cmsisdap.cfg
 ```
 
 成功标志：`dap info` 打印出 `CMSIS-DAP` 固件版本、SWD 能力、包大小/数量；
@@ -286,7 +295,7 @@ while (!__HAL_PWR_GET_FLAG(PWR_FLAG_USB33RDY)) { }  // 等供电就绪
 `STM32H743 CMSIS-DAP v1`（OpenOCD/pyOCD 靠这个串匹配）。命令行自检：
 
 ```bash
-openocd -f openocd/stm32f429_cmsisdap.cfg -c "init" -c "dap info" -c "exit"
+openocd -f openocd_cmsisdap.cfg -c "init" -c "dap info" -c "exit"
 # 应能看到 CMSIS-DAP v1 探针信息，并打印目标 IDCODE 0x2BA01477
 ```
 

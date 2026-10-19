@@ -16,9 +16,33 @@
 | 显示 | ST7789 240×240（RGB565），复用 `LCD_CopyBuffer(x,y,w,h,uint16_t*)` 贴图 |
 | 调试 | ST-LINK (V2/V3) + SWD + OpenOCD 0.12 + arm-none-eabi-gdb 16.3 |
 | 调试串口 | USART1 PA9/PA10，115200-8-N-1（ST-Link VCP → COM6），用于 `PRINT_LOG` 控制台 |
-| 工程 | CMake + Ninja（arm-gnu-toolchain-15.3），输出 `build/stm32h7_tinyyolo.elf` |
+| 工程 | CMake + Ninja（arm-gnu-toolchain-15.3），输出 `build/debug/stm32h7_person_detect.elf`（另有 Keil `MDK-ARM/` 后端） |
 
 引脚与原理图（LXB743ZI-P1）已 100% 核对吻合：DCMI / I2C4(SCCB) / SPI6 + PG12=LCD_BL / PG15=LCD_DC / PG7=LED / PF13=CAMERA_PWDN。
+
+---
+
+## 1.1 工程结构
+
+```
+005.stm32h743_person_detect/
+├── app/            app_vision.c/.h        三缓冲乒乓采集 + 检测节流 + 去抖 + 绘制
+├── bsp/            drv_dcmi / drv_dcmi_ov5640     DCMI + OV5640
+│                   drv_spi_oled / drv_oled_fonts / drv_oled_text
+│                   bsp_log.c/.h            USART1 非阻塞 PRINT_LOG
+├── middleware/
+│   └── person_detect/   pd_infer.c（CMSIS-NN 推理封装）+ pd_model_data.c（int8 权重）
+├── Core/           CubeMX 骨架（Inc / Src）
+├── sys_startup/    启动文件（gcc / arm / iar）+ system_stm32h7xx.c + 链接脚本
+├── Drivers/        CMSIS + STM32H7xx HAL（gitignore）
+├── third_party/    CMSIS-NN 等（gitignore）
+├── MDK-ARM/        Keil 工程（ARMCLANG 后端）
+├── docs/           prompter.md
+├── .vscode/        tasks.json（build / flash）+ launch.json（cortex-debug）
+├── CMakeLists.txt / CMakePresets.json（debug / release / debug-hs）
+├── openocd.cfg / STM32H743.svd（均在根级）
+└── build_oneclick.bat
+```
 
 ---
 
@@ -113,17 +137,18 @@
 
 ```bash
 cd <project_root>
-cmake -B build -G Ninja           # 首次配置（已生成 build/ 可跳过）
-cmake --build build -j4           # 编译，产物 build/stm32h7_tinyyolo.elf
+cmake --preset debug && cmake --build --preset debug    # 产物 build/debug/stm32h7_person_detect.elf
+cmake --preset release && cmake --build --preset release
 ```
 ### 5.1 双构与日志开关
 ```bash
-cmake --preset debug   && cmake --build --preset debug     # build/debug
-cmake --preset release && cmake --build --preset release   # build/release
 # 一键关闭所有 PRINT_LOG（零开销、零 UART 流量）
-cmake -B build -DPRINT_LOG_ENABLE=OFF && cmake --build build
+cmake --preset debug -DPRINT_LOG_ENABLE=OFF && cmake --build --preset debug
 ```
-Debug/Release 均为 **零警告**。内存占用（当前）：RAM_DMA 144KB / 256KB (56.25%)，RAM 152320B / 256KB (58.11%)，DTCMRAM 19568B / 128KB (14.93%)，FLASH 315576B / 2MB (15.05%) — Debug 构造；Release 315952B (15.07%)。
+Debug/Release 均为 **零警告**。内存占用（2026-10-19 按 `arm-none-eabi-size` 复核）：
+FLASH **315,640 B / 2 MB (15.05%)** — Debug；**316,016 B (15.07%)** — Release；
+`.bss` 318,840 B（Debug）。RAM_DMA 144 KB / 256 KB、DTCMRAM 19,568 B / 128 KB 为链接 map
+统计的早期记录，未随本次复核重算。
 
 ### 5.2 日志子系统（USART1 非阻塞控制台）
 | 项 | 说明 |
@@ -143,30 +168,29 @@ Debug/Release 均为 **零警告**。内存占用（当前）：RAM_DMA 144KB / 
 
 ### 6.1 启动调试服务器（单个实例即可，避免端口冲突）
 ```bash
-# 后台启动 OpenOCD（ST-LINK + SWD + H743）
-/d/software/ST/OpenOCD/bin/openocd -f debug/openocd.cfg -l debug/openocd.log
-# GDB（arm-gnu-toolchain-15.3）
-/e/support_tools/arm-gnu-toolchain-15.3.rel1-mingw-w64-x86_64-arm-none-eabi/bin/arm-none-eabi-gdb
+# 后台启动 OpenOCD（ST-LINK + SWD + H743，配置在工程根级）
+openocd -f openocd.cfg
+# 另开终端连 GDB
+arm-none-eabi-gdb build/debug/stm32h7_person_detect.elf \
+    -ex "target extended-remote :3333" -ex "monitor reset halt" -ex "load"
 ```
 
-### 6.2 一键脚本
-- `debug/debug.bat`：启动 OpenOCD（后台窗口）+ 打开交互式 GDB。
-- `debug/flash.bat`：仅烧录 `build/stm32h7_tinyyolo.elf` 并复位。
-- `debug/gdbinit`：交互式 GDB 初始化（target remote + reset halt + load + break main）。
+### 6.2 VSCode 一键调试
+- `Ctrl+Shift+B` → 默认任务 **build**；任务 **flash** 直接烧录。
+- `F5` → **cortex-debug**：`preLaunchTask:"build"`，加载 `build/debug/stm32h7_person_detect.elf`，
+  复位停在 `entry()`，SVD 已挂载（`STM32H743.svd`）。
 
-### 6.3 仿真验证脚本
-| 脚本 | 断点 | 验证内容 |
+### 6.3 采样验证要点
+| 观测点 | 变量 | 判定 |
 |---|---|---|
-| `debug/verify_v4_live.gdb` | `app_vision.c:241`（每帧显示调用） | 实时预览 + 乒乓（`cap_idx` 每帧交替）+ 1Hz/2Hz 分数冻结 + 真人判定 |
-| `debug/verify_v4_debounce.gdb` | `app_vision.c:213`（1Hz 检测判定） | 去抖时序：出现立即显示、移除延时保持 |
+| 乒乓生效 | `s_cap_idx` | 在 0/1 间交替 |
+| 检测节流 | `s_last_detect_tick` | 间隔 ≈ 500 ms（2 Hz） |
+| 去抖保持 | `s_last_person_tick` / `s_present` | 出现立即置 1；移除后满 1000 ms 才置 0 |
+| 分数常显 | `s_res.score` | 非检测帧保留上次分数 |
 
-运行示例：
-```bash
-# 实时/乒乓/检测频率
-arm-none-eabi-gdb -batch -x debug/verify_v4_live.gdb build/stm32h7_tinyyolo.elf
-# 去抖
-arm-none-eabi-gdb -batch -x debug/verify_v4_debounce.gdb build/stm32h7_tinyyolo.elf
-```
+> 采样用的 `.gdb` 批处理脚本未随工程保留（属一次性验收工具）；需要复跑时按上表变量手写
+> `-ex "print ..."` 即可，或直接看串口 `PRINT_LOG` 输出。
+> ⚠️ 断点行号会随源码改动漂移，按符号名而非行号下断。
 
 ---
 

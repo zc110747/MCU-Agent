@@ -122,7 +122,7 @@ cmake --build build-rel
 | LCD 驱动 | `Bsp/emWin/LCDConf.c` | `GUIDRV_LIN_16` + `GUICC_M565` + 本地 VRAM，刷写走 `OLED_CopyBuffer` |
 | 系统层 | `Bsp/emWin/GUIConf.c` / `GUI_X.c` | No-OS 内存池 (128 KB) / 系统 tick |
 | 中文字体 | `Bsp/emWin/emwin_font_gbk.c(.h)` | 自定义 `GUI_FONT`：UTF-8 → ASCII(编译表) / 中文(lv_gbk_map → SD 点阵)，24 槽轮转缓存 |
-| 应用 | `Application/app_main.c` / `app_ui.c` | 启动先初始化面板，再 `GUI_Init()`；1s 周期刷新 |
+| 应用 | `app/app_main.c` / `app_ui.c` | 启动先初始化面板，再 `GUI_Init()`；1s 周期刷新 |
 | 字库桥 | `Bsp/lv_gbk_map.c` | Unicode → GBK 映射 |
 
 ### 颜色编码注意（必须用 GUICC_M565）
@@ -228,7 +228,7 @@ pass/fail 计数；`tools/render_framebuffer.py` 再把帧缓冲打成字符画�
 不符则陷入死循环（`b.n` 自跳）。**本工程此前从未使能 CRC 时钟**，导致该校验
 永远失败 → `GUI_Init` 死循环（表现即“卡死在 GUI_Init”）。
 
-修复：在 `Application/app_main.c` 的 `GUI_Init()` 之前加
+修复：在 `app/app_main.c` 的 `GUI_Init()` 之前加
 `__HAL_RCC_CRC_CLK_ENABLE();`（CRC 在 AHB4，`RCC->AHB4ENR` 的 `CRCEN`）。
 已通过 OpenOCD+gdb 在真机验证：使能 CRC 时钟后 `GUI_Init` 正常返回，固件进入主循环。
 
@@ -237,8 +237,8 @@ pass/fail 计数；`tools/render_framebuffer.py` 再把帧缓冲打成字符画�
 ## 7. 目录结构
 
 ```
-.
-├── Application/      # app_main.c / app_ui.c (emWin 版信息面板)
+011.stm32h743_freertos_emwin/
+├── app/              # app_main.c / app_ui.c (emWin 版信息面板)
 ├── Bsp/
 │   ├── drv_spi_oled.c/h      # ST7789 SPI6 驱动 + OLED_CopyBuffer
 │   ├── drv_oled_fonts.c/h     # 编译进固件的 ASCII 点阵表
@@ -248,7 +248,8 @@ pass/fail 计数；`tools/render_framebuffer.py` 再把帧缓冲打成字符画�
 │   └── emWin/                 # LCDConf / GUIConf / GUI_X / emwin_font_gbk
 ├── Core/  Drivers/  third_party/  (FatFs + STemWin)
 ├── cmake/  tools/  .vscode/
-├── CMakeLists.txt  build_oneclick.bat  openocd.cfg
+├── tools/                     # verify_framebuffer.py / render_framebuffer.py
+├── CMakeLists.txt  build_oneclick.bat  openocd.cfg  STM32H743.svd
 └── sys_startup/     # 启动文件 / 设备头 / 链接脚本
                      #   (STM32H743ZITX_FLASH.ld, startup_stm32h743xx.s, system_stm32h7xx.c)
 ```

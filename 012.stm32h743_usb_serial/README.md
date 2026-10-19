@@ -38,8 +38,14 @@ D-Cache 保持开启且**不使用 MPU 划区**。PA0/PA1 短接即可自回环�
 ├── third_party/             # TinyUSB
 ├── sys_startup/             # 自研启动文件 / 链接脚本 / system 文件（替代 Drivers/CMSIS/Device）
 ├── cmake/                   # 工具链 + .dma_buf 段构建期校验脚本
-├── openocd/                 # ST-Link 配置
-├── tools/stress_test.py     # PC 侧压测 / 验收工具
+├── openocd/                 # ST-Link 配置（stm32h743_stlink.cfg）
+├── MDK-ARM/                 # Keil 工程（ARMCLANG 后端）
+├── tools/                   # PC 侧压测 / 验收工具
+│   ├── stress_test.py       # 主验收脚本（stress / paced / formats / setbaud / all）
+│   ├── dtr_probe.py         # DTR/RTS 行为探测
+│   ├── flow_hw_probe.py     # 硬件流控（RTS/CTS）验证
+│   ├── latency_probe.py     # 延迟测量（复现 34 ms 幻影延迟）
+│   └── transparency_probe.py# 透明转发字节级比对
 └── .vscode/                 # 一键构建 / 下载 / 调试
 ```
 
@@ -61,8 +67,11 @@ VS Code 中：`F5` → `Debug (ST-Link / OpenOCD)`（自动先执行 build 任�
 
 | 配置 | FLASH | DTCMRAM | RAM_D1 |
 |---|---|---|---|
-| Release | 39408 B / 2 MB (**1.88%**) | 31464 B / 128 KB (**24.01%**) | 3 KB / 512 KB (**0.59%**) |
-| Debug | 47172 B / 2 MB (**2.25%**) | 31464 B / 128 KB (**24.01%**) | 3 KB / 512 KB (**0.59%**) |
+| Release | 31,968 B / 2 MB (**1.53%**) | 33,196 B / 128 KB (**25.33%**) | 3 KB / 512 KB (**0.59%**) |
+| Debug | 39,320 B / 2 MB (**1.88%**) | 33,196 B / 128 KB (**25.33%**) | 3 KB / 512 KB (**0.59%**) |
+
+<sub>2026-10-19 按 `arm-none-eabi-size` 复核（text+data = FLASH，bss = DTCMRAM）；RAM_D1 为链接期
+`.ram_d1` 段占用，取自链接 map，未随本次复核重算。</sub>
 
 编译选项 `-Wall -Wextra -Wdouble-promotion -Wshadow`；第三方库单独 `-w`。
 

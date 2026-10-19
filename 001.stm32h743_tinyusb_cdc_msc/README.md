@@ -3,7 +3,7 @@
 基于 STM32H743ZIT6 + TinyUSB 实现 **USB 复合设备**：CDC（虚拟串口）+ MSC（大容量存储，把板载 SD 卡暴露为 PC 可访问的 U 盘）。
 SD 卡同时被固件侧 FatFs 与 PC 侧 USB 访问，CDC 与 MSC 并行工作、互不干扰。
 
-> 需求与验收详见本目录 `prompter.md`。
+> 需求与验收详见 `docs/prompter.md`。
 
 ---
 
@@ -25,22 +25,25 @@ USB 控制器通过 CMake 选项切换：`-DUSB_PORT=FS`（默认）或 `-DUSB_P
 
 ```
 001.stm32h743_tinyusb_cdc_msc/
-├── src/           应用与板级：main.c / bsp.c / usb_descriptors.c / sdcard.c
-│                  msc_disk.c / sd_app.c / disk_interface.c / stm32h7xx_it.c / syscalls.c
-├── Drivers/       CMSIS-Core / CMSIS-Device / STM32H7xx HAL（ST 官方，不手改）
-├── third_party/   tinyusb / FatFs
-├── ldscript/      stm32h743zi_flash.ld
+├── app/           应用层：main.c / stm32h7xx_it.c / stm32h7xx_hal_conf.h / syscalls.c
+│   │              tusb_config.h（TinyUSB 配置）
+│   └── usb/       usb_descriptors.c（复合设备描述符）/ msc_disk.c / sd_app.c / disk_interface.c
+├── bsp/           板级：bsp.c / bsp_led.c / bsp_sdcard.c / bsp_log.c（PRINT_LOG 日志）
+├── sys_startup/   启动与链接：gcc / arm / iar 三套启动文件 + system_stm32h7xx.c
+│                  + stm32h743zi_flash.ld
+├── Drivers/       CMSIS + STM32H7xx HAL（ST 官方，gitignore，不手改）
+├── third_party/   tinyusb / FatFs（gitignore）
 ├── cmake/         arm-none-eabi.cmake 交叉工具链
-├── CMakeLists.txt
-├── CMakePresets.json      # 预设工程（debug / release）
-├── openocd.cfg            # 根级，stlink + swd
-├── STM32H743.svd
-├── build_oneclick.bat     # 单工程一键编译
-└── test_cdc.py / test_cdc_msc.py / test_roundtrip.py   # PC 端自测脚本
-    gdb_step_test.gdb / gdb_where.gdb                    # gdb 调试脚本
+├── MDK-ARM/       Keil 工程 stm32h743.uvprojx（ARMCLANG）+ mdk_target.c + stm32h743.sct
+├── docs/          prompter.md / prompter-check.md / prompter-remaster.md
+├── tools/         test_cdc.py / test_cdc_msc.py / test_roundtrip.py   PC 端自测脚本
+├── CMakeLists.txt / CMakePresets.json   # 预设：debug / release / debug-hs
+├── openocd.cfg / STM32H743.svd          # 均在根级
+└── build_oneclick.bat                   # 单工程一键编译
 ```
 
-> 模块化约定：`app/bsp` → 本工程落在 `src/`；HAL 只放 `Drivers/`；第三方库只放 `third_party/`。
+> 模块化约定：应用逻辑 `app/`、用户驱动 `bsp/`、启动与链接 `sys_startup/`、
+> HAL 只放 `Drivers/`、第三方库只放 `third_party/`。GCC（CMake）与 Keil（MDK-ARM）双构建后端并存。
 
 ---
 
@@ -59,7 +62,7 @@ USB 控制器通过 CMake 选项切换：`-DUSB_PORT=FS`（默认）或 `-DUSB_P
   - 检查工具 `cmake / ninja / openocd / arm-none-eabi-gcc`（缺失提示参考 `document/support.md`）；
   - 检查根目录 `Drivers`、`third_party`（缺失提示从 `..\support_tools\env_support_for_stm32h743.zip` 解压/拷贝）；
   - 流程 `configure → clean → build`；所有出口 `pause` 停留查看。
-- **全仓库**：在仓库根目录双击 `build_all.bat`，顺序编译全部 14 个工程；**某工程失败会暂停等你回车后继续**，末尾输出 `Passed/Failed/Skipped` 汇总。
+- **全仓库**：在仓库根目录双击 `build_all.bat`，顺序编译 `project.list` 中的全部 21 个工程；**某工程失败会暂停等你回车后继续**，末尾输出 `Passed/Failed/Skipped` 汇总。
 
 ### 手动（预设工程）
 ```bash
@@ -72,7 +75,9 @@ cmake --build build/debug
 ### 约束与实测
 - **零警告**：`-Wall -Wextra`（第三方库按 `-Wno-*` 豁免），构建应 0 warning。
 - **依赖缺失**：报 `Missing dependency: third_party/tinyusb` → 解压 `env_support_for_stm32h743.zip`。
-- **实测资源（debug）**：FLASH 65668 B / 2 MB ≈ **3.13%**；DTCMRAM 13880 B / 128 KB ≈ 10.59%。
+- **实测资源**（`arm-none-eabi-size`，2026-10-19 重新核对）：Debug FLASH 69,484 B / 2 MB ≈ **3.31%**；
+  Release FLASH 58,796 B ≈ **2.80%**；`.bss` 14,552 B（主要落在 DTCMRAM）。
+  <sub>早期记录的 65,668 B / 13,880 B 是重构前的数字，已过时。</sub>
 
 ---
 
@@ -93,9 +98,9 @@ cmake --build build/debug
 
 - ✅ CDC 串口正常通讯；PC 可正常访问 U 盘（SD 卡）。
 - ✅ CDC 与 MSC 并行工作，互不干扰。
-- PC 端脚本（需 Python）：
-  - `python test_roundtrip.py` — CDC 回环测试
-  - `python test_cdc_msc.py` — CDC + MSC 并发测试
+- PC 端脚本（需 Python，位于 `tools/`）：
+  - `python tools/test_roundtrip.py` — CDC 回环测试
+  - `python tools/test_cdc_msc.py` — CDC + MSC 并发测试
 
 ---
 

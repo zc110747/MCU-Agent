@@ -10,8 +10,8 @@
 > bare-metal targets with `arm-none-eabi-gcc + CMake + Ninja + OpenOCD`, then verify on hardware.
 
 <p>
-  <img alt="projects" src="https://img.shields.io/badge/projects-22-2b6cb0">
-  <img alt="skills" src="https://img.shields.io/badge/curated%20skills-25-2f855a">
+  <img alt="projects" src="https://img.shields.io/badge/projects-21-2b6cb0">
+  <img alt="skills" src="https://img.shields.io/badge/curated%20skills-46-2f855a">
   <img alt="platform" src="https://img.shields.io/badge/platform-STM32%20%7C%20ESP32%20%7C%20RA8D1%20%7C%20Zephyr-c05621">
   <img alt="toolchain" src="https://img.shields.io/badge/toolchain-arm--none--eabi--gcc%20%7C%20CMake%20%7C%20Ninja%20%7C%20OpenOCD-4a5568">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-718096">
@@ -22,7 +22,7 @@ Embedded used to look protected by its barrier — cross-compilation, hardware b
 constraints. In practice that knowledge is **fixed**, and once it is written down as an agent's
 operating procedure, the barrier stops being a barrier.
 
-This repository is the working proof: **22 complete MCU projects**, all driven by an AI agent
+This repository is the working proof: **21 complete MCU projects**, all driven by an AI agent
 through the full loop — scaffold → implement → dual-configuration zero-warning build → flash →
 on-target verification → regression script.
 
@@ -83,7 +83,7 @@ Legend: ✅ complete and hardware-verified · 🚧 in progress
 |---|---|---|---|
 | 001 | [USB composite device (CDC + MSC)](./001.stm32h743_tinyusb_cdc_msc/README.md) | TinyUSB | One device, two classes, shared endpoints |
 | 002 | [UVC camera (OV5640)](./002.stm32h743_tinyusb_uvc_ov5640/README.md) | TinyUSB + DCMI | Multi-buffer capture submitted over USB ISO |
-| 003 | [LVGL OLED (SD-card CJK fonts)](./003.stm32h743_lvgl_oled/docs/README.md) | LVGL + FatFs | SD card font loading, Chinese rendering |
+| 003 | [LVGL OLED (SD-card CJK fonts)](./003.stm32h743_lvgl_oled/README.md) | LVGL + FatFs | SD card font loading, Chinese rendering |
 | 004 | [SD-card image carousel](./004.stm32h743_sd_oled_img/README.md) | FatFs + JPEG | decode-on-the-fly, direct framebuffer write |
 | 005 | [Person detection](./005.stm32h743_person_detect/README.md) | CMSIS-NN | OV5640 + int8 model on Cortex-M7 |
 | 006 | [Face detection + display](./006.stm32h743_face_detect/README.md) | CMSIS-NN + PyTorch | Model trained and quantized locally, then deployed |
@@ -109,14 +109,14 @@ Legend: ✅ complete and hardware-verified · 🚧 in progress
 | 201 | [FreeRTOS multi-task device monitor](./201.esp32s3_rtos/README.md) | Arduino + FreeRTOS | 4 tasks + software timer, UART command console |
 | 202 | [Remote hardware debugger](./202.esp32s3_hw_detect/README.md) | ESP-IDF | UART / ADC / GPIO over WebSocket + MQTT, OTA |
 | 203 | [CMSIS-DAP wireless debug probe](./203.esp32s3_wireless_debug/README.md) | TinyUSB HID | SWD + JTAG, 8 MHz clock, Wi-Fi fallback transport |
-| 204 | [Touch e-book / utility device](./204.esp32s3_touch_ebook/README.md) | ESP-IDF + LVGL 9 | 800×480 RGB panel, 10 product pages, GBK reader |
+| 204 | [Touch e-book / utility device](./204.esp32s3_touch_ebook/README.md) | ESP-IDF + LVGL 9 | 800×480 RGB panel, 10 product pages + 2 acceptance pages, GBK reader |
 
 ### Renesas RA8D1
 
 | # | Project | Stack | Highlights |
 |---|---|---|---|
 | 301 | [RA8D1 Vision Board + LVGL](./301.ra8d1_lcd_lvgl/README.md) | RT-Thread Nano + LVGL 9.1 | GLCDC/MIPI-DSI bring-up, RTC, boot splash |
-| 302 | [RA8D1 NES emulator + DRW2D + USB MSC](./302.ra8d1_lcd_nes/) | RT-Thread Nano + Dave2D | GPU-accelerated blit, W25Q64 FatFs, USB MSC |
+| 302 | [RA8D1 NES emulator + DRW2D](./302.ra8d1_lcd_nes/README.md) | RT-Thread Nano + DRW2D | GPU-accelerated blit, W25Q64 OSPI, console gamepad |
 
 ---
 
@@ -221,7 +221,7 @@ Prompt: [prompter.md](./002.stm32h743_tinyusb_uvc_ov5640/prompter.md)
 
 #### 003 · LVGL OLED with SD-card CJK fonts
 
-🚀 [003.stm32h743_lvgl_oled](./003.stm32h743_lvgl_oled/docs/README.md)
+🚀 [003.stm32h743_lvgl_oled](./003.stm32h743_lvgl_oled/README.md)
 
 ![003](./document/image/003-01.jpg)
 
@@ -519,26 +519,29 @@ Prompts: [prompter-step1.md](./204.esp32s3_touch_ebook/doc/prompter-step1.md) ·
 
 #### 302 · RA8D1 NES emulator
 
-🚀 [302.ra8d1_lcd_nes](./302.ra8d1_lcd_nes/)
+🚀 [302.ra8d1_lcd_nes](./302.ra8d1_lcd_nes/README.md)
 
-**Stack:** RT-Thread Nano + Dave2D (DRW2D GPU) + W25Q64 FatFs + TinyUSB MSC
+**Stack:** RT-Thread Nano + DRW2D (D/AVE 2D) + W25Q64 over OSPI
 
-**Work:** NES emulator on the RA8D1 Vision Board with GPU-accelerated blitting, ROMs served from an
-on-board W25Q64 QSPI flash exposed as a FAT volume, and a USB MSC endpoint so the drive appears on a host.
-Verification tooling covers the GPU blit path, per-frame output, ROM integrity and state-arena behaviour.
+**Work:** NES emulator on the RA8D1 Vision Board rendering to a 480×360 MIPI-DSI panel through the
+DRW2D blitter. The 6502/PPU interpreter costs ~27 M cycles per frame (~13 fps at 480 MHz); the
+present path via `d2_blitcopy` costs 0.61 M (7% of a 60 Hz budget). No physical gamepad is wired to
+the emulator — the console is the controller, decoded into a lock-free joypad bitmask.
 
-> ⚠️ Known issue documented in `CMakeLists.txt`: `-O1`/`-O2` break the serial console (formatted output
-> truncated mid-line). The project pins the optimisation level accordingly.
+> ⚠️ Two documented deviations from the original plan: **USB MSC and the W25Q64 FatFs are not
+> implemented** — ROMs reach the emulator through an SWD staging window (`nes stage` → `nes runmem`).
+> And `-O1`/`-O2` break the RT-Thread console (lines truncate mid-format), so both presets build
+> at `-Og`. Both are recorded in the project README rather than left for the next person to discover.
 
 ---
 
 ## Curated skills
 
-Everything learned across these 22 projects is distilled into a separate, reusable repository:
+Everything learned across these 21 projects is distilled into a separate, reusable repository:
 
 ### 👉 [zc110747/EmbedSkills](https://github.com/zc110747/EmbedSkills)
 
-> **25 skills · 91 reference documents** — written as `agent_created: true` Agent Skills, so the agent
+> **46 skills · 123 reference documents** — written as `agent_created: true` Agent Skills, so the agent
 > **auto-loads** the relevant one when it hits the corresponding problem.
 
 This is the most valuable output of the whole effort. Instead of writing lessons into a README nobody
@@ -556,15 +559,17 @@ when the body points at them.
 
 | Domain | Skills |
 |---|---|
-| **MCU / Embedded (10)** | `mcu-ai-agent-workflow` · `embedded-windows-toolchain` · `stm32-build-and-scaffold` · `stm32-peripherals-and-memory` · `mcu-debug-forensics` · `embedded-verification-acceptance` · `mcu-logging` · `mcu-code-style` · `mcu-cpp-development` · `embedded-config-portal` |
-| **Display / GUI (1)** | `lvgl-font-and-render` |
-| **Platform porting (2)** | `zephyr-stm32-porting` · `esp32-platform-notes` |
-| **Robotics / Multi-physics (3)** | `truth-source-and-model-vendoring` · `robotics-mechanism-and-sim` · `robotics-link-diagnostics` |
+| **MCU / Embedded (12)** | `mcu-ai-agent-workflow` · `embedded-windows-toolchain` · `stm32-build-and-scaffold` · `stm32-peripherals-and-memory` · `mcu-debug-forensics` · `embedded-verification-acceptance` · `mcu-logging` · `mcu-code-style` · `mcu-code-style-apply` · `mcu-cpp-development` · `embedded-config-portal` · `avr-flash-ram` |
+| **Display / GUI (2)** | `lvgl-font-and-render` · `lvgl9-mcu-porting` |
+| **Platform porting (4)** | `zephyr-stm32-porting` · `esp32-platform-notes` · `ra8d1-fsp-platform-notes` · `ra8d1-vscode-pyocd-debug` |
 | **SOC / Video / Edge AI (1)** | `soc-video-and-edge-ai` |
-| **Front-end forensics (1)** | `web-headless-verification` |
-| **Tooling (2)** | `schematic-pdf-netlist` · `mail-weekly-digest` |
+| **Host app / C++20 coroutines (3)** | `app-cpp20-coroutine-runtime` · `app-select-relay-server` · `app-host-load-acceptance` |
+| **Desktop (.NET / C#) (2)** | `winforms-desktop-app` · `piper-offline-tts` |
+| **Robotics / multi-physics (5)** | `truth-source-and-model-vendoring` · `robotics-mechanism-and-sim` · `robotics-link-diagnostics` · `arm-photo-texturing` · `motor-telemetry-alias-proof` |
+| **Front-end / Windows GUI forensics (3)** | `web-headless-verification` · `win-gui-screenshot-verify` · `wpf-realtime-sim` |
+| **Static site / WebView shell (4)** | `web-static-site-pipeline` · `web-local-progress-store` · `app-webview-shell` · `android-apk-no-gradle` |
 | **Reverse-engineering (4)** | `replica-recon` · `replica-memory-engine` · `replica-ui-fidelity` · `replica-mock-harness` |
-| **Coding standard (1)** | `mcu-code-style-apply` |
+| **Tooling (6)** | `schematic-pdf-netlist` · `pyocd-flm-inject-debug` · `mail-weekly-digest` · `deterministic-clock-testing` · `git-silent-source-loss` · `win-batch-sandbox-probe` |
 
 ### Install
 
@@ -608,7 +613,7 @@ quietly does nothing:
 |---|---|---|
 | 013 | `tools/verify_stress.py` | 24/24 passed — 1800 s full-duplex soak at exactly 960 B/s |
 | 301 | `tools/verify/verify_phase8.py` | 10 passed / 0 failed / 2 manual — SWD framebuffer pixel assertions |
-| 302 | `tools/verify/verify_nes_frame.py` | per-frame NES output and GPU blit path |
+| 302 | `tools/verify/dump_fb.py` | SWD readback of the SDRAM framebuffer, then pixel comparison |
 | 012 | PC-side stress + latency + flow control + 7-bit parity | one-shot Python regression |
 
 Three rules that make it work:
@@ -704,8 +709,8 @@ Reversed dependencies are not allowed.
 
 ## Roadmap
 
-- [x] 001–013, 101–102, 201–204, 301–302 — 22 projects complete and hardware-verified
-- [x] 25 curated skills published in [EmbedSkills](https://github.com/zc110747/EmbedSkills)
+- [x] 001–013, 101–102, 201–204, 301–302 — 21 projects complete and hardware-verified
+- [x] 46 curated skills published in [EmbedSkills](https://github.com/zc110747/EmbedSkills)
 - [x] Bilingual README — English (default) + Simplified Chinese
 - [ ] CI consistency check across the skill repository
 

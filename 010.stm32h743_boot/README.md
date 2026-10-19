@@ -200,10 +200,14 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 
 ### 8.2 升级包（Test A 已完成验证）
 
-升级包位于 `test_app/dist/`：
-- `test_app/dist/stm32h7_test.bin`（46,164 B，版本槽 `[1,0,0,6]`，App banner 动态打印版本槽）
-- `test_app/dist/verify.json`（`name=stm32h7_test.bin`、`len=46164`、`HMAC-SHA256`、`version=1.0.0.6`）
-- `test_app/dist/stm32h7_boot.bin`（Bootloader 镜像，需升级 Bootloader 时烧录内部 Flash sector0）
+升级包按版本分目录放在 `test_app/dist/`（当前有 `v1.0.0.6`、`v1.0.0.7`），每个目录内含：
+
+- `stm32h7_test.bin`（46,188 B，App banner 动态打印版本槽）
+- `verify.json`（`name=stm32h7_test.bin`、`len=46188`、`HMAC-SHA256`、`version=1.0.0.7`）
+
+拷贝到 U 盘时**两个文件平铺到根目录**（目录结构不上卡）。
+Bootloader 镜像由构建产出（`MDK-ARM/Objects/stm32h7_boot.hex` 或 `build/…`），需要升级
+Bootloader 时单独烧内部 Flash sector 0。
 
 **本沙箱局限**：openocd 的 `stmqspi` 驱动在本环境无法拉起 H743 QSPI，且无 `mkfs.fat`/`mtools`，故无法用 openocd 直写 QSPI 注入升级包；升级走设计的 U 盘路径（用户机器拷包 / 沙箱看 COM19）。
 
@@ -228,4 +232,4 @@ python tools/flash_app_direct.py test_app/build/stm32h7_app.bin
 - 安全：`bsp/flash_secure.h`（`BOOT_HMAC_KEY`）、`third_party/hmac_sha256/`（RFC2104）
 - USB U 盘：`bsp/usb_board.c` / `bsp/msc_qspi.c` / `bsp/tusb_config.h`
 - Test App：`test_app/app/main.c`（1 Hz 心跳 + 动态版本 banner）、`test_app/app/app_version.c`、`test_app/CMakeLists.txt`（Release，复用 Bootloader 的 `bsp_log.c`/`uart.c`/`syscalls.c`/`led.c`）
-- 链接脚本：`stm32h743xix_flash.ld`（Bootloader）、`test_app/stm32h7_app.ld`（App @0x08020000，版本槽 @0x08021000）
+- 链接脚本：`sys_startup/stm32h743xix_flash.ld`（Bootloader）、`test_app/stm32h7_app.ld`（App @0x08020000，版本槽 @0x08021000）

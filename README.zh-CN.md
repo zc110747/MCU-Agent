@@ -10,8 +10,8 @@
 > 构建、烧录、调试与自我迭代，并在真机上完成验收。
 
 <p>  
-  <img alt="projects" src="https://img.shields.io/badge/projects-22-2b6cb0">  
-  <img alt="skills" src="https://img.shields.io/badge/curated%20skills-25-2f855a">  
+  <img alt="projects" src="https://img.shields.io/badge/projects-21-2b6cb0">  
+  <img alt="skills" src="https://img.shields.io/badge/curated%20skills-46-2f855a">  
   <img alt="platform" src="https://img.shields.io/badge/platform-STM32%20%7C%20ESP32%20%7C%20RA8D1%20%7C%20Zephyr-c05621">  
   <img alt="toolchain" src="https://img.shields.io/badge/toolchain-arm--none--eabi--gcc%20%7C%20CMake%20%7C%20Ninja%20%7C%20OpenOCD-4a5568">  
   <img alt="license" src="https://img.shields.io/badge/license-MIT-718096">  
@@ -20,7 +20,7 @@
 前端和桌面端程序已经可以大幅度被 AI 取代。嵌入式看起来有壁垒——交叉编译、硬件点亮、实时约束；  
 但作为**固定的知识**，它其实也没有壁垒，一旦写成 Agent 能直接执行的作业规程，壁垒就不成立了。
 
-本仓库是这件事的实证：**22 个完整单片机项目**，全部由 AI Agent 走通完整闭环——  
+本仓库是这件事的实证：**21 个完整单片机项目**，全部由 AI Agent 走通完整闭环——  
 搭骨架 → 实现 → 双构零警告 → 烧录 → 真机验证 → 回归脚本。
 
 ---
@@ -79,7 +79,7 @@
 | --- | --------------------------------------------------------------------- | ------------------------- | ------------------------------ |
 | 001 | [USB 混合设备（CDC + MSC）](./001.stm32h743_tinyusb_cdc_msc/README.md)      | TinyUSB                   | 一个设备两个类，端点复用                   |
 | 002 | [UVC 摄像头（OV5640）](./002.stm32h743_tinyusb_uvc_ov5640/README.md)       | TinyUSB + DCMI            | 多缓冲采集，经 USB ISO 提交             |
-| 003 | [LVGL OLED（SD 卡中文字库）](./003.stm32h743_lvgl_oled/docs/README.md)       | LVGL + FatFs              | SD 卡字库加载，中文渲染                  |
+| 003 | [LVGL OLED（SD 卡中文字库）](./003.stm32h743_lvgl_oled/README.md)       | LVGL + FatFs              | SD 卡字库加载，中文渲染                  |
 | 004 | [SD 卡图片轮播](./004.stm32h743_sd_oled_img/README.md)                     | FatFs + JPEG              | 边解边显示，直写帧缓冲                    |
 | 005 | [人存在检测](./005.stm32h743_person_detect/README.md)                      | CMSIS-NN                  | OV5640 + int8 模型跑在 Cortex-M7   |
 | 006 | [人脸检测与显示](./006.stm32h743_face_detect/README.md)                      | CMSIS-NN + PyTorch        | 模型本地训练量化后部署上板                  |
@@ -112,7 +112,7 @@
 | #   | 项目                                                          | 技术栈                       | 要点                            |
 | --- | ----------------------------------------------------------- | ------------------------- | ----------------------------- |
 | 301 | [RA8D1 Vision Board + LVGL](./301.ra8d1_lcd_lvgl/README.md) | RT-Thread Nano + LVGL 9.1 | GLCDC/MIPI-DSI 通路、RTC、启动动作条   |
-| 302 | [RA8D1 NES 模拟器 + DRW2D + USB MSC](./302.ra8d1_lcd_nes/)     | RT-Thread Nano + Dave2D   | GPU 加速贴图、W25Q64 FatFs、USB MSC |
+| 302 | [RA8D1 NES 模拟器 + DRW2D](./302.ra8d1_lcd_nes/README.md) | RT-Thread Nano + DRW2D | GPU 加速贴图、W25Q64 OSPI、串口虚拟手柄 |
 
 ---
 
@@ -207,7 +207,7 @@ SVD 外设寄存器视图已就绪。
 
 #### 003 · LVGL OLED 显示（支持 SD 卡中文字库）
 
-🚀 [003.stm32h743\_lvgl\_oled](./003.stm32h743_lvgl_oled/docs/README.md)
+🚀 [003.stm32h743\_lvgl\_oled](./003.stm32h743_lvgl_oled/README.md)
 
 ![003](./document/image/003-01.jpg)
 
@@ -467,26 +467,27 @@ GPIO48（板载 WS2812B）由专用 LED 控制器独占，GPIO19/20（USB D-/D+�
 
 #### 302 · RA8D1 NES 模拟器
 
-🚀 [302.ra8d1\_lcd\_nes](./302.ra8d1_lcd_nes/)
+🚀 [302.ra8d1\_lcd\_nes](./302.ra8d1_lcd_nes/README.md)
 
-**技术栈**：RT-Thread Nano + Dave2D（DRW2D GPU）+ W25Q64 FatFs + TinyUSB MSC
+**技术栈**：RT-Thread Nano + DRW2D（D/AVE 2D）+ W25Q64（OSPI）
 
-**工作量**：在 RA8D1 Vision Board 上跑 NES 模拟器，贴图走 GPU 加速；  
-ROM 存放于板载 W25Q64 QSPI Flash 并挂成 FAT 卷，再经 USB MSC 暴露给主机成盘。  
-验收脚本覆盖 GPU 贴图路径、逐帧输出、ROM 完整性与状态区行为。
+**工作量**：在 RA8D1 Vision Board 上跑 NES 模拟器，渲染到 480×360 MIPI-DSI 面板，贴图走 DRW2D。
+6502/PPU 解释器每帧约 27 M 周期（480 MHz 下约 13 fps）；呈现路径 `d2_blitcopy` 每帧 0.61 M
+（占 60 Hz 预算 7%）。板子没有接到模拟器的实体手柄，控制台就是手柄——字符被解码成无锁位掩码。
 
-> ⚠️ `CMakeLists.txt` 中已记录已知问题：`-O1`/`-O2` 会破坏串口控制台（格式化输出在行中被截断），  
-> 因此项目锁定了优化等级。
+> ⚠️ 两处与原始计划的偏差已写进工程 README：**USB MSC 与 W25Q64 上的 FatFs 并未实现**，
+> ROM 经 SWD staging 窗口投递（`nes stage` → `nes runmem`）；`-O1`/`-O2` 会破坏 RT-Thread
+> 控制台（格式化在行中被截断），因此两套预设都用 `-Og`。
 
 ---
 
 ## 技能库
 
-这 22 个项目里踩过的坑，全部提炼进了一个独立、可复用的仓库：
+这 21 个项目里踩过的坑，全部提炼进了一个独立、可复用的仓库：
 
 ### 👉 [zc110747/EmbedSkills](https://github.com/zc110747/EmbedSkills)
 
-> **25 个 skill · 91 篇 references** —— 全部写成 `agent_created: true` 的 Agent Skill，  
+> **46 个 skill · 123 篇 references** —— 全部写成 `agent_created: true` 的 Agent Skill，  
 > Agent 遇到对应问题时会**自动加载**。
 
 这是整个系列最有价值的产出。与其把经验写进没人看的 README，不如把它变成 Agent 能直接执行的判据。  
@@ -501,17 +502,19 @@ ROM 存放于板载 W25Q64 QSPI Flash 并挂成 FAT 卷，再经 USB MSC 暴露�
 三层加载模型是它省 token 的关键：只有 `name` + `description` 常驻（全会话约 3 KB）；  
 `SKILL.md` 正文在触发词命中时加载；`references/*.md` 只在正文指向时才读。
 
-| 领域                      | Skill                                                                                                                                                                                                                                                                   |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **MCU / 嵌入式（10）**       | `mcu-ai-agent-workflow` · `embedded-windows-toolchain` · `stm32-build-and-scaffold` · `stm32-peripherals-and-memory` · `mcu-debug-forensics` · `embedded-verification-acceptance` · `mcu-logging` · `mcu-code-style` · `mcu-cpp-development` · `embedded-config-portal` |
-| **显示 / GUI（1）**         | `lvgl-font-and-render`                                                                                                                                                                                                                                                  |
-| **平台移植（2）**             | `zephyr-stm32-porting` · `esp32-platform-notes`                                                                                                                                                                                                                         |
-| **机器人 / 多物理场（3）**       | `truth-source-and-model-vendoring` · `robotics-mechanism-and-sim` · `robotics-link-diagnostics`                                                                                                                                                                         |
-| **SOC / 视频 / 边端 AI（1）** | `soc-video-and-edge-ai`                                                                                                                                                                                                                                                 |
-| **前端取证（1）**             | `web-headless-verification`                                                                                                                                                                                                                                             |
-| **工具类（2）**              | `schematic-pdf-netlist` · `mail-weekly-digest`                                                                                                                                                                                                                          |
-| **逆向复刻（4）**             | `replica-recon` · `replica-memory-engine` · `replica-ui-fidelity` · `replica-mock-harness`                                                                                                                                                                              |
-| **代码规范落地（1）**           | `mcu-code-style-apply`                                                                                                                                                                                                                                                  |
+| 领域 | Skill |
+|---|---|
+| **MCU / 嵌入式（12）** | `mcu-ai-agent-workflow` · `embedded-windows-toolchain` · `stm32-build-and-scaffold` · `stm32-peripherals-and-memory` · `mcu-debug-forensics` · `embedded-verification-acceptance` · `mcu-logging` · `mcu-code-style` · `mcu-code-style-apply` · `mcu-cpp-development` · `embedded-config-portal` · `avr-flash-ram` |
+| **显示 / GUI（2）** | `lvgl-font-and-render` · `lvgl9-mcu-porting` |
+| **平台移植（4）** | `zephyr-stm32-porting` · `esp32-platform-notes` · `ra8d1-fsp-platform-notes` · `ra8d1-vscode-pyocd-debug` |
+| **SOC / 视频 / 边端 AI（1）** | `soc-video-and-edge-ai` |
+| **上位机应用层 / C++20 协程（3）** | `app-cpp20-coroutine-runtime` · `app-select-relay-server` · `app-host-load-acceptance` |
+| **上位机桌面（.NET / C#）（2）** | `winforms-desktop-app` · `piper-offline-tts` |
+| **机器人 / 多物理场（5）** | `truth-source-and-model-vendoring` · `robotics-mechanism-and-sim` · `robotics-link-diagnostics` · `arm-photo-texturing` · `motor-telemetry-alias-proof` |
+| **前端 / Windows GUI 取证（3）** | `web-headless-verification` · `win-gui-screenshot-verify` · `wpf-realtime-sim` |
+| **静态站 / WebView 套壳（4）** | `web-static-site-pipeline` · `web-local-progress-store` · `app-webview-shell` · `android-apk-no-gradle` |
+| **逆向复刻（4）** | `replica-recon` · `replica-memory-engine` · `replica-ui-fidelity` · `replica-mock-harness` |
+| **工具类（6）** | `schematic-pdf-netlist` · `pyocd-flm-inject-debug` · `mail-weekly-digest` · `deterministic-clock-testing` · `git-silent-source-loss` · `win-batch-sandbox-probe` |
 
 ### 安装
 
@@ -554,7 +557,7 @@ AI 做完的项目，只有在**真机上被证明**才算完成。本系列贯�
 | --- | ---------------------------------- | ---------------------------------------------- |
 | 013 | `tools/verify_stress.py`           | 24/24 通过 —— 1800 s 全双工长稳，恰好 960 B/s            |
 | 301 | `tools/verify/verify_phase8.py`    | 10 passed / 0 failed / 2 manual —— SWD 帧缓冲像素断言 |
-| 302 | `tools/verify/verify_nes_frame.py` | 逐帧 NES 输出与 GPU 贴图路径                            |
+| 302 | `tools/verify/dump_fb.py` | SWD 读回 SDRAM framebuffer 后逐像素比对 |
 | 012 | PC 侧压测 + 延迟 + 流控 + 7bit 校验         | Python 一键回归                                    |
 
 让它成立的三条规矩：
@@ -666,8 +669,8 @@ MCU-Agent/
 
 ## 规划
 
-- [x] 001–013、101–102、201–204、301–302 —— 22 个项目全部完成并通过真机验证
-- [x] 25 个 skill 发布至 [EmbedSkills](https://github.com/zc110747/EmbedSkills)
+- [x] 001–013、101–102、201–204、301–302 —— 21 个项目全部完成并通过真机验证
+- [x] 46 个 skill 发布至 [EmbedSkills](https://github.com/zc110747/EmbedSkills)
 - [x] README 双语化 —— 英文（默认）+ 简体中文
 - [ ] 边缘 AI 部署方向加深 —— ONNX → CMSIS-NN / RKNN 量化链路
 - [ ] 嵌入式 Linux SOC —— RK3568 摄像头 / RTSP 场景

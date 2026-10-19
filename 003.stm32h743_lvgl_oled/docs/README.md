@@ -25,26 +25,38 @@
 
 ```
 003.stm32h743_lvgl_oled/
-├── Core/          startup_stm32h743xx.s / system_stm32h7xx.c / main.c
-│                 stm32h7xx_hal_msp.c / stm32h7xx_it.c / syscalls.c
-├── bsp/          drv_spi_oled.c / drv_oled_fonts.c / drv_oled_text.c
-│                 drv_sdio.c / drv_rtc.c / disk_interface.c
-│                 lv_port_disp.c（LVGL 显示对接）/ lv_font_gbk.c / lv_gbk_map.c（GBK 字体）
-│                 lv_font_cfg.h / lv_font_provider.c（引擎切换）
-│                 font/           ← CTF + TTF 字体引擎（见第 8 节）
-│                   ├── ctf_format.h      CTF v1 格式定义（与 PC 端唯一真源对齐）
-│                   ├── ctf_reader.c/.h   三级直接寻址，NOT_FOUND 语义
-│                   ├── blkcache.c/.h     通用 LRU 块缓存
-│                   ├── ttf_reader.c/.h   TTF 随机访问（f_lseek+f_read，经块缓存）
-│                   ├── stb_adapter.c/.h  stb_truetype 零修改接入 ttf_reader
-│                   └── lvgl_font.c/.h    lv_font_t 后端 + 内置字体 fallback
-├── Application/  app_main.c / app_ui.c（LVGL 界面）
-├── Drivers/      CMSIS + STM32H7xx HAL
-├── third_party/  lvgl / FatFs
+├── app/           应用层
+│   ├── main.c / app_main.c / app_ui.c     LVGL 界面与主流程
+│   ├── ui_common.c / ui_page_boot.c / ui_page_info.c
+│   ├── ui_page_font.c / ui_page_fault.c   字体页 / 故障页
+│   ├── stm32h7xx_it.c / stm32h7xx_hal_msp.c / stm32h7xx_hal_conf.h / syscalls.c
+├── bsp/           用户驱动
+│   ├── drv_spi_oled.c / drv_oled_fonts.c / drv_oled_text.c   ST7789 SPI6 + 点阵文字
+│   ├── drv_sdio.c / disk_interface.c                          SD 卡 + FatFs 桥接
+│   ├── drv_rtc.c                                              RTC
+│   ├── bsp_log.c                                              PRINT_LOG 日志
+│   ├── lv_port_disp.c / lv_port_fs.c                          LVGL 显示 / 文件系统对接
+│   ├── lv_font_gbk.c / lv_gbk_map.c / lv_font_harmony.c
+│   ├── lv_font_provider.c / lv_font_cfg.h                     字体引擎切换
+│   └── font/                       ← CTF + TTF 字体引擎（见第 8 节）
+│       ├── ctf_format.h            CTF v1 格式定义（与 PC 端唯一真源对齐）
+│       ├── ctf_reader.c/.h         三级直接寻址，NOT_FOUND 语义
+│       ├── blkcache.c/.h           通用 LRU 块缓存
+│       ├── glyph_cache.c/.h        字形位图缓存
+│       ├── ttf_reader.c/.h         TTF 随机访问（f_lseek+f_read，经块缓存）
+│       ├── stb_adapter.c/.h        stb_truetype 零修改接入 ttf_reader
+│       └── lvgl_font.c/.h          lv_font_t 后端 + 内置字体 fallback
+├── sys_startup/   启动文件（gcc / arm / iar）+ system_stm32h7xx.c + 链接脚本
+├── Drivers/       CMSIS + STM32H7xx HAL（gitignore）
+├── third_party/   lvgl / FatFs（gitignore）
 ├── tools/
 │   ├── ttf2ctf/        PC 端 TTF → CTF 索引生成器（见 tools/ttf2ctf/README.md）
-│   └── host_test/      在 PC 上编译运行固件真实源码的验收测试
-├── cmake/        gcc-arm-none-eabi.cmake
+│   └── host_test/      在 PC 上编译运行固件真实源码的验收测试（run_host_test.bat）
+├── scripts/       生成与实机验收脚本：gen_gbk_map.py / gen_lv_conf.py
+│                  serial_capture.py / verify_font_firstload.py / runtime_check.gdb
+├── docs/          README.md（本文件）+ prompter.md / prompter-ttf.md
+├── MDK-ARM/       Keil 工程（ARMCLANG 双构建后端）
+├── cmake/         arm-none-eabi.cmake 交叉工具链
 ├── CMakeLists.txt          # 普通 CMake（无 CMakePresets）
 ├── STM32H743ZITX_FLASH.ld  # 根级链接脚本
 ├── openocd.cfg             # 根级，stlink + swd
@@ -52,7 +64,8 @@
 └── build_oneclick.bat      # 单工程一键编译
 ```
 
-> 模块化约定：应用逻辑 `Application/`、用户驱动 `bsp/`、HAL `Drivers/`、第三方 `third_party/`。
+> 模块化约定：应用逻辑 `app/`、用户驱动 `bsp/`、启动与链接 `sys_startup/`、
+> HAL `Drivers/`、第三方 `third_party/`。
 
 ---
 
@@ -71,7 +84,7 @@
   - 检查工具 `cmake / ninja / openocd / arm-none-eabi-gcc`；检查根目录 `Drivers`、`third_party`
     （缺失提示从 `..\support_tools\env_support_for_stm32h743.zip` 解压/拷贝）；
   - 流程 `configure → clean → build`；所有出口 `pause` 停留查看。
-- **全仓库**：仓库根目录双击 `build_all.bat`，顺序编译全部 14 个工程；失败暂停等你回车后继续，末尾输出汇总。
+- **全仓库**：仓库根目录双击 `build_all.bat`，顺序编译 `project.list` 中的全部 21 个工程；失败暂停等你回车后继续，末尾输出汇总。
 
 ### 手动（普通 CMake，无预设）
 ```bash
@@ -168,7 +181,7 @@ Unicode ─► 一级索引(plane, 8 B) ─► 页索引(page, 40 B, 256-bit 位
 - 位图位为 0 = 字体没有这个字 → **立即 NOT_FOUND，一次 SD/TTF 访问都没有**
 - 位图位的 popcount rank = entry 在页内下标 → 查找 O(1)，无遍历、无二分
 
-工具与完整格式说明见 **[`tools/ttf2ctf/README.md`](tools/ttf2ctf/README.md)**。
+工具与完整格式说明见 **[`tools/ttf2ctf/README.md`](../tools/ttf2ctf/README.md)**。
 
 生成结果（`support_tools/sd_card/SYSTEM/`，全部 `--verify` PASS）：
 
@@ -566,7 +579,7 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 
 **文件清单**：`bsp/font/glyph_cache.{c,h}`（新增）、`bsp/font/lvgl_font.c`（改写：删 `bmp_*` 池、加 lookup/insert/prefetch/epoch）、
 `bsp/font/lvgl_font.h`（加 `lvgl_font_px_of/preload_*/on_page_shown` 声明）、`bsp/lv_font_provider.{c,h}`（引擎感知透传）、
-`Application/app_ui.c`（`mk_label` 预取 + `take_switch` 抬升 epoch）、`CMakeLists.txt`（加 `glyph_cache.c`）。
+`app/app_ui.c`（`mk_label` 预取 + `take_switch` 抬升 epoch）、`CMakeLists.txt`（加 `glyph_cache.c`）。
 统计复用 `lvgl_font_get_stats()` 的 `bmp_hits/bmp_misses/bmp_flushes(=evicts)/bmp_bytes`。
 
 **构建基线（本轮双构，0 warning）**：
@@ -589,18 +602,18 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 1. 对 LVGL 页面代码进行分离，每个页面独立一个文件。
 2. 增加启动加载页面，内容是 `Waiting...` 和动态进度条；当字库预加载完成（不足 2 s 则至少等 2 s）后进入下一页；**GBK 不需要预加载，直接等待 2 s**，中间执行完整进度条即可。
 3. 缓存增至 200 KB 仍放 RAM_D2（见 [§8.15](#815-ttf-glyph-cache独立-200-kb-栅格化字形缓存lru--页钉扎--异步预取本轮新增容量-160-kb--200-kb)）。
-4. `third_party/` 与 `Drivers/` 目录禁止修改（共享第三方库，本次所有改动均在 `Application/`、`bsp/` 自有代码与 `CMakeLists.txt`）。
+4. `third_party/` 与 `Drivers/` 目录禁止修改（共享第三方库，本次所有改动均在 `app/`、`bsp/` 自有代码与 `CMakeLists.txt`）。
 
 **页面分离（指令 #1）**：原单文件 `app_ui.c`（533 行，含信息页 + 字体页 + 故障页 + 启动逻辑）拆分为：
 | 文件 | 职责 |
 |------|------|
-| `Application/ui_common.{c,h}` | 共享原语：屏幕尺寸 `UI_W/UI_H/UI_PAD/HDR_H`、调色板常量、`#define UI_FONT(px) lv_font_provider_get((px))`、`ui_common_screen_create()`、`ui_mk_label()`（内部调 `lv_font_provider_preload_label` 透明预取）、`ui_mk_label_center()`、`ui_mk_separator()`、`ui_align_right()` |
-| `Application/ui_page_info.{c,h}` | 信息面板页（时钟 / SD / 主板信息 / 缓存行），自建 1 Hz `ui_page_info_tick` 刷新；`ui_page_info_build()` / `ui_page_info_request_sd_refresh()` |
-| `Application/ui_page_font.{c,h}` | 字体引擎状态页（7 行 CJK）；`ui_page_font_build()` |
-| `Application/ui_page_boot.{c,h}` | 启动加载页；`ui_page_boot_build()` / `ui_page_boot_set(uint8_t pct)` / `ui_page_boot_set_status(const char*)` |
-| `Application/ui_page_fault.{c,h}` | ASCII 故障页；`ui_page_fault_show(line1,line2,line3)`（原 `app_ui_show_fault` 改名迁移） |
-| `Application/app_ui.c`（重写） | 纯编排器：页数组 `s_pages[2]` + 5 s 轮播 `page_switch_cb` + **启动门控 `boot_timer_cb`**；`app_ui_create()` / `app_ui_request_sd_refresh()` |
-| `Application/app_main.c` | `app_ui_show_fault(...)` → `ui_page_fault_show(...)`（SD 挂载失败分支） |
+| `app/ui_common.{c,h}` | 共享原语：屏幕尺寸 `UI_W/UI_H/UI_PAD/HDR_H`、调色板常量、`#define UI_FONT(px) lv_font_provider_get((px))`、`ui_common_screen_create()`、`ui_mk_label()`（内部调 `lv_font_provider_preload_label` 透明预取）、`ui_mk_label_center()`、`ui_mk_separator()`、`ui_align_right()` |
+| `app/ui_page_info.{c,h}` | 信息面板页（时钟 / SD / 主板信息 / 缓存行），自建 1 Hz `ui_page_info_tick` 刷新；`ui_page_info_build()` / `ui_page_info_request_sd_refresh()` |
+| `app/ui_page_font.{c,h}` | 字体引擎状态页（7 行 CJK）；`ui_page_font_build()` |
+| `app/ui_page_boot.{c,h}` | 启动加载页；`ui_page_boot_build()` / `ui_page_boot_set(uint8_t pct)` / `ui_page_boot_set_status(const char*)` |
+| `app/ui_page_fault.{c,h}` | ASCII 故障页；`ui_page_fault_show(line1,line2,line3)`（原 `app_ui_show_fault` 改名迁移） |
+| `app/app_ui.c`（重写） | 纯编排器：页数组 `s_pages[2]` + 5 s 轮播 `page_switch_cb` + **启动门控 `boot_timer_cb`**；`app_ui_create()` / `app_ui_request_sd_refresh()` |
+| `app/app_main.c` | `app_ui_show_fault(...)` → `ui_page_fault_show(...)`（SD 挂载失败分支） |
 | `CMakeLists.txt` | `PROJECT_SRCS` 在 `app_ui.c` 后追加 5 个新文件 |
 
 **启动加载页 + 预加载门控（指令 #2）**：
@@ -647,11 +660,11 @@ Glyph Cache 按 Unicode/Glyph ID 管理已栅格化的字符；再次使用时�
 
 **修复**：
 - `bsp/font/lvgl_font.c` `preload_enqueue()`：删除 `cp < 0x80` 跳过，Latin 一并预取入池（注释说明索引已含拉丁）。
-- `Application/app_ui.c` 新增 `ui_warmup_pages()`：在 `app_ui_create()` 构建完两页后，**抑制显示 flush**（`dummy_flush_cb`
+- `app/app_ui.c` 新增 `ui_warmup_pages()`：在 `app_ui_create()` 构建完两页后，**抑制显示 flush**（`dummy_flush_cb`
   吞掉帧缓冲推送、`lv_disp_flush_ready` 收尾）逐页 `lv_scr_load + lv_timer_handler` 各渲染一次，
   把"首绘一次性开销 + 字形冷栅格化"全部移到启动加载页背后（用户不可见），首个真实翻页即 warm。
 
-**约束遵守**：仅改 `bsp/font/lvgl_font.c`、`Application/app_ui.c`；未碰 `third_party/`、`Drivers/`、TTF/CTF/LVGL 核心/FatFs/stb。
+**约束遵守**：仅改 `bsp/font/lvgl_font.c`、`app/app_ui.c`；未碰 `third_party/`、`Drivers/`、TTF/CTF/LVGL 核心/FatFs/stb。
 
 **构建与实机验收（Release 生产态，OpenOCD Verified OK + ST-Link VCP 抓串口）**：
 - Debug / Release 双构 **0 warning**；FLASH / RAM 占用不变（RAM_D2 = 200 KB / 288 KB = 69.44%，RAM_D1 = 61.73%）。
@@ -697,15 +710,15 @@ ISR（`log_uart_tx_irq`）在 TXE 事件里逐字节取缓冲发送、发完自�
 → 落实"写入要关闭串口中断避免出错"的明确要求。
 
 ### 9.4 接线点
-- `Core/Src/stm32h7xx_it.c`：原 `USART1_IRQHandler` 走 `Default_Handler`，新增
+- `app/stm32h7xx_it.c`：原 `USART1_IRQHandler` 走 `Default_Handler`，新增
   `USART1_IRQHandler() ─► log_uart_tx_irq()`，并 `#include "bsp_log.h"`。
-- `Core/Src/main.c`：`MX_USART1_UART_Init()` 之后调用 `log_uart_init()`（幂等使能 USART1 NVIC）。
+- `app/main.c`：`MX_USART1_UART_Init()` 之后调用 `log_uart_init()`（幂等使能 USART1 NVIC）。
 - `CMakeLists.txt`：注册 `bsp/bsp_log.c`。
 
 ### 9.5 替换位置清单（58 处 `printf`→`PRINT_LOG`）
 | 文件 | 替换数 | 说明 |
 |------|------:|------|
-| `Application/app_main.c` | 41 | 首行加 `#include "bsp_log.h"` |
+| `app/app_main.c` | 41 | 首行加 `#include "bsp_log.h"` |
 | `bsp/lv_font_harmony.c` | 10 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
 | `bsp/lv_font_provider.c` | 7 | 首行加 `#include "bsp_log.h"`；`snprintf` 保留 |
 
@@ -737,9 +750,9 @@ ISR（`log_uart_tx_irq`）在 TXE 事件里逐字节取缓冲发送、发完自�
 栅格化时延是否可用。
 
 ### 10.2 实现
-- `Application/app_ui.c`：新增第二页（中文"鸿蒙字体引擎"状态页）；5s 定时器只置
+- `app/app_ui.c`：新增第二页（中文"鸿蒙字体引擎"状态页）；5s 定时器只置
   "待切换"标志（不在定时器回调内做重绘，避免 LVGL 重入）。
-- `Application/app_main.c`：主循环在每轮 `lv_timer_handler()` 前检测待切换，执行
+- `app/app_main.c`：主循环在每轮 `lv_timer_handler()` 前检测待切换，执行
   `lv_scr_load(新页)` 并用 **DWT CYCCNT**（`SystemCoreClock`=HCLK 240MHz 换算）测量
   这次整页重绘（含中文栅格化）的耗时，打印 `[PAGE] switch -> N, render X us`。
 

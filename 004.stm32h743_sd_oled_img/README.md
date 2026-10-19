@@ -22,13 +22,21 @@
 ## 目录结构
 
 ```
-Core/           启动文件、main、HAL MSP、中断向量、syscalls
-Drivers/        CMSIS + STM32H7xx HAL（原样引入，不改动）
-third_party/    fatfs (R0.16)、tjpgd (R0.03)
-bsp/            板级驱动：OLED、SD 卡、非阻塞 PRINT_LOG 日志（环形缓冲 + TXE 中断）
-app/            应用层：JPEG 解码流水线、轮播逻辑
-cmake/          arm-none-eabi 工具链文件
-tools/          STM32H743.svd（调试时查看外设寄存器）
+004.stm32h743_sd_oled_img/
+├── app/          JPEG 解码流水线（app_image.c）、轮播逻辑（app_slideshow.c）
+├── bsp/          板级驱动：drv_spi_oled / drv_oled_text / drv_oled_fonts
+│                 drv_sdio / disk_interface、非阻塞 PRINT_LOG（bsp_log，环形缓冲 + TXE 中断）
+├── Core/         CubeMX 风格骨架（Inc / Src / Startup），由 CMake 选择性纳入
+├── sys_startup/  启动文件（gcc / arm / iar）+ system_stm32h7xx.c + 链接脚本
+├── Drivers/      CMSIS + STM32H7xx HAL（原样引入，不改动）
+├── third_party/  fatfs (R0.16)、tjpgd (R0.03)
+├── MDK-ARM/      Keil 工程（ARMCLANG 双构建后端）
+├── cmake/        arm-none-eabi 工具链文件
+├── docs/         prompter.md
+├── tools/        调试脚本：dbg_stage1~3.gdb、rgb565_to_png.py、cap
+├── CMakeLists.txt / CMakePresets.json
+├── STM32H743.svd / STM32H743ZITX_FLASH.ld / openocd.cfg   # 均在根级
+└── build_oneclick.bat
 ```
 
 ## 构建
@@ -98,8 +106,10 @@ f_read ──▶ jd_prepare ──▶ 选择 1/1、1/2、1/4、1/8 硬解降采�
 
 | 区域 | 占用 | 容量 |
 | --- | --- | --- |
-| FLASH | 58304 B (2.78%) | 2 MB |
-| RAM_D1 (AXI SRAM) | 163424 B (31.17%) | 512 KB |
+| FLASH | 58,232 B (2.78%) | 2 MB |
+| RAM_D1 (AXI SRAM) | 163,288 B (31.15%) | 512 KB |
+
+<sub>2026-10-19 按 `arm-none-eabi-size` 复核（text+data / bss）。</sub>
 
 其中帧缓冲 112.5 KB、TJpgDec 工作区约 14 KB。DTCM / RAM_D2 / RAM_D3 / ITCM 全部空闲，
 链接脚本已预留 `.dtcm`、`.ram_d2`、`.ram_d3` 段方便后续扩展（例如加 LVGL）。

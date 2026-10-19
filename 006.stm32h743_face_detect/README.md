@@ -60,7 +60,7 @@
 ## 3. 软件架构 / 目录结构
 
 ```
-stm_face_detect/
+006.stm32h743_face_detect/
 ├── app/
 │   ├── app_face.c / .h        # 应用层：三缓冲合成 + 画框 + 去抖 + 信息栏
 │   └── ...
@@ -71,17 +71,21 @@ stm_face_detect/
 │   ├── drv_spi_oled.c/.h      # 240×240 OLED SPI 驱动
 │   └── drv_oled_fonts.c/.h    # 字体
 ├── MDK-ARM/                   # Keil MDK-ARM 工程（uvprojx + 分散加载 sct）
-│   └── stm32h743.uvprojx      # 与 CMakeLists.txt 共用同一份源码集合
+│   ├── stm32h743.uvprojx      # 与 CMakeLists.txt 共用同一份源码集合
+│   └── mdk_target.c           # ARMCLANG 半主机抑制（__use_no_semihosting 等），不可删
 ├── middleware/face_detect/     # 人脸检测中间件（与芯片无关）
 │   ├── fd_infer.c/.h          # CMSIS-NN 推理 + CenterNet 解码
 │   ├── fd_model_data.c/.h     # 导出的 int8 权重（≈49 KB const）
 │   └── fd_model_q.npz         # 量化真值（PC 仿真用）
 ├── Core/                      # main.c / HAL MSP / 中断
+├── sys_startup/               # 启动文件（gcc / arm / iar）+ system + 链接脚本
 ├── Drivers/                   # STM32 HAL + CMSIS（含 CMSIS-NN）
+├── docs/                      # prompter.md
 ├── cmake/toolchain-arm-none-eabi.cmake
 ├── CMakeLists.txt / CMakePresets.json
 ├── openocd.cfg                # ST-Link + STM32H7 SWD 配置（工程根）
 ├── STM32H743.svd              # 寄存器描述（工程根）
+├── build_oneclick.bat         # 单工程一键编译
 ├── .vscode/                   # launch/tasks/c_cpp/settings
 └── tools/                     # PC 端训练/导出/仿真（见第 6 节）
     ├── fd_arch.py             # 网络结构定义（Keras）
@@ -131,8 +135,11 @@ cmake --build --preset release
 产物 `MDK-ARM/Objects/stm32h743.{axf,hex,bin}`；判定依据 `build_log.htm` 末行
 `0 Error(s), 0 Warning(s)`。
 
-> **实现要点**：Keil 侧**不含 `syscalls.c`**、也不含 `mdk_target.c`（ARMCLANG 自带堆与
-> 半主机抑制）。控制台输出统一走 `bsp/bsp_log.c` 的 `PRINT_LOG()` → `uart_write()`
+> **实现要点**：Keil 侧**不含 `syscalls.c`**（GCC/newlib 专用堆桩），但**必须保留
+> `MDK-ARM/mdk_target.c`** —— 它提供 `__use_no_semihosting` / `__ARM_use_no_argv` +
+> `FILE __stdout` + `_sys_exit` / `_ttywrch`，抑制 ARMCLANG 链入半主机；
+> 一旦缺失，任何 `printf`/`fopen` 路径都会执行 `BKPT` 死机（且编译链接可能照过，延迟暴露）。
+> 控制台输出统一走 `bsp/bsp_log.c` 的 `PRINT_LOG()` → `uart_write()`
 > 非阻塞 TX 环；`bsp_log.c` 里的 `_write()` 重定向用 `#if defined(__GNUC__) &&
 > !defined(__ARMCC_VERSION)` 守卫，因此 GCC 与 Keil **编译同一份日志源码**。
 

@@ -19,7 +19,7 @@ echo %PROJ_LIST%
 echo ============================================================
 echo  One-Click Build All Projects
 echo  Workspace: %ROOT%
-echo  Projects : 14
+echo  Projects : 21 (see project.list)
 echo ============================================================
 echo.
 

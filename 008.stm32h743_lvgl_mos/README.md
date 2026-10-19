@@ -32,35 +32,58 @@ GPS、温湿度、气压、FM 收音、VS1053 音频、外扩 SRAM。模拟器�
 模块化目录布局，所有路径相对工程根目录，无绝对路径：
 
 ```
-stm32_nes_emulator/
+008.stm32h743_lvgl_mos/
 ├── app/                 # 应用层：菜单框架、页面、命令解析、主循环
 │   ├── app_main.c/h     # 启动顺序 + 主循环（application_init/run）
 │   ├── app_menu.c/h     # 页面注册表 + 导航状态机
 │   ├── app_page.h       # 页面描述符（4 回调：create/tick/key/handle）
 │   ├── app_pages.c      # 页面描述符实现（getter），注册顺序见 app_main.c
 │   ├── app_cmd.c/h      # 行缓冲控制台解析器（本板唯一输入设备）
-│   └── page_nes.c       # NES 页面：ROM 浏览器 + 全屏模拟器
+│   ├── page_nes.c       # NES 页面：ROM 浏览器 + 全屏模拟器
+│   ├── page_camera.c    # 相机页（OV5640 预览）
+│   ├── page_image.c     # 图片浏览页
+│   ├── page_txt.c       # 文本阅读页（TXT 分页）
+│   ├── sd_browser.c/h   # SD 目录浏览
+│   ├── img_decode.c/h   # JPEG 解码
+│   ├── ui_font.c/h      # UI 字体封装
+│   └── menu_icons.c/h   # 菜单图标位图
 ├── bsp/                 # 板级支持包：驱动 + 控制台 + 虚拟按键
 │   ├── bsp_console.c/h  # UART+USB CDC 统一 RX 环形缓冲，_write 双口输出
 │   ├── bsp_key.c/h      # 虚拟按键：事件队列（驱动 LVGL）+ 电平掩码（驱动 NES pad）
+│   ├── bsp_log.c/h      # PRINT_LOG 日志
 │   ├── drv_spi_oled.c/h # SPI6 OLED 驱动（含 may_alias TXDR 访问）
 │   ├── drv_oled_fonts.* # GBK 字模（ASCII 来自编译内表，CJK 需卡上文件）
 │   ├── drv_rtc.*        # RTC 驱动（status/time 命令、FatFs 时间戳）
+│   ├── drv_camera*.c/h  # OV5640 + DCMI 相机驱动
 │   ├── drv_usb_cdc.*    # TinyUSB CDC 初始化
+│   ├── gbk_conv.c/h     # GBK ↔ UTF-8 转换（含 gbk_unicode_tbl.c）
+│   ├── jpeg_enc.c/h     # JPEG 编码（截图/相机）
+│   ├── screen_cap.c/h   # 屏上抓图
+│   ├── sram_pool.c/h    # DTCM / RAM_D2 运行时内存池
+│   ├── lv_port_disp.c/h # LVGL 显示对接
+│   ├── lv_font_gbk.c/h / lv_gbk_map.c/h
 │   ├── usb_descriptors.c# USB 描述符（用 UID_BASE 生成序列号）
 │   └── disk_interface.c # FatFs diskio 桩（USB 桩返回 RES_NOTRDY）
-├── Drivers/             # HAL + CMSIS
-├── third_party/         # 第三方：fatfs / lvgl / tinyusb / nes
+├── Drivers/             # HAL + CMSIS（gitignore）
+├── third_party/         # 第三方（gitignore）：fatfs / lvgl / tinyusb / nes
 │   ├── nes/             # NES 核心：6502 + PPU + Mapper(0/1/2/3/4/7/23)，纯 C
 │   ├── lvgl/            # LVGL v8（LV_COLOR_16_SWAP=0，仅 GBK 字体可用）
 │   ├── tinyusb/         # TinyUSB 0.21.0（手选 dwc2 源）
 │   └── fatfs/           # FatFs
 ├── Core/                # 启动文件、系统初始化、中断向量
+├── sys_startup/         # 启动文件（gcc / arm / iar）+ system + 链接脚本
 ├── cmake/               # gcc-arm-none-eabi 工具链文件
-├── scripts/             # 主机侧脚本（Python 串口测试、字模/配置生成）
-├── STM32H743ZITX_FLASH.ld # 链接脚本（DTCM/AXI/RAM_D1/RAM_D2/FLASH 段）
+├── scripts/             # 主机侧脚本：serial_test.py（串口自测）、verify_*.py
+│                        #   实机验收、stress_*.py 压测、gen_*.py 资源生成
+├── tests/               # 主机侧单元测试（host_sram_fuzz.c / test_jpg_rgb565.c）
+├── tools/               # NesPadTool 虚拟手柄（C#/.NET）+ 菜单图标重着色脚本
+├── docs/prompter.md     # 需求 / 验收提示词
+├── MDK-ARM/             # Keil 工程（ARMCLANG 后端）
 ├── CMakeLists.txt       # 工程定义
+├── STM32H743ZITX_FLASH.ld # 链接脚本（DTCM/AXI/RAM_D1/RAM_D2/FLASH 段）
 ├── openocd.cfg          # OpenOCD 配置（stlink + swd + stm32h7x）
+├── VERIFICATION.md      # 验收记录
+├── build_oneclick.bat   # 单工程一键编译
 └── .vscode/             # launch / tasks / settings（Cortex-Debug + 串口测试）
 ```
 
@@ -267,26 +290,30 @@ python scripts/serial_test.py --port COM19 --interactive
 
 ---
 
-## 8. UI 设计规格（白底蓝字主题）
+## 8. UI 设计规格（深色主题）
 
 主菜单与各页面的 UI 采用统一视觉语言。以下为设计需求与落地要点，便于后续维护与二次开发。
 
 ### 8.1 总体视觉
-- **白底**（`COL_BG = 0xFFFFFF`）背景。
-- **主文字蓝色**（`COL_TEXT = 0x0319`）。
-- **描述 / 提示 / 状态栏浅蓝**（`COL_LABEL` / `COL_DIM = 0x64BB`）。
-- 分隔线淡蓝（`COL_SEP = 0xB6FF`），选中指示浅蓝发光（`COL_SEL = 0x8DFF`）。
+- **近黑深蓝背景**（`COL_BG = 0x07070B`），标题栏与屏幕同色（`COL_HDR = COL_BG`）。
+- **主文字白色**（`COL_TEXT = 0xFFFFFF`），标题文字白色（`COL_HDR_TXT`）。
+- **描述 / 提示淡蓝灰**（`COL_LABEL = 0xA8B4C6`），次级提示再深一档（`COL_DIM = 0x7E8BA0`）。
+- 分隔线暗灰（`COL_SEP = 0x232331`），选中高亮与强调色亮蓝（`COL_SEL` / `COL_ACCENT = 0x0A84FF`），
+  数值绿（`COL_VALUE = 0x30D158`），错误红（`COL_ERR = 0xFF453A`）。
 - 全部颜色宏集中在 `app/app_page.h`，换主题只改一处。
+- 各 APP 有独立的 **chip 色**（`s_chip[]`，见 `app/app_menu.c`）：clock 橙 / camera 青 / txt 蓝 /
+  image 紫 / nes 红 / keytest 黄 / sysinfo 绿 / about 粉；图标位图按同色烘焙，
+  方形 48×48 位图融进圆形色块里，看上去是一枚带白色字形的彩色圆章。
 
 ### 8.2 主菜单（一级，横向滑动卡片）
 - 每张卡片宽 240（整屏），`LV_FLEX_FLOW_ROW` 横向排布；`← / →` 通过 `lv_obj_scroll_to_view` 切换，底栏圆点指示当前页。
-- 卡片中央为**圆形图标**：74×74 圆环（未选中浅蓝、选中蓝色 3px）+ 外圈 90×90 淡蓝发光环；**无外边框矩形**。
-- 卡片**仅显示 APP 名称**（去掉版本号 / 串口指令等小字 hint）：24 px（`lv_font_gbk_24`），蓝色居中，位于圆形图标正下方（卡片内相对 `y = CARD_H/2 + 22`）。
-- 选中态靠圆环 + 发光环 + 蓝名区分；`A / OK / START` 进入页面，进入逻辑与旧版一致。
+- 卡片中央为**圆形图标**：74×74 圆环（未选中用 chip 色、选中用亮蓝 3px）+ 外圈 90×90 发光环；**无外边框矩形**。
+- 卡片**仅显示 APP 名称**（去掉版本号 / 串口指令等小字 hint）：24 px（`lv_font_gbk_24`），白色居中，位于圆形图标正下方（卡片内相对 `y = CARD_H/2 + 22`）。
+- 选中态靠圆环 + 发光环 + 名字颜色区分；`A / OK / START` 进入页面，进入逻辑与旧版一致。
 
 ### 8.3 顶栏（所有页面共用 `ui_header`）
-- 白底蓝字，**居中标题**（如 “APPS” “系统信息”）。
-- **左上角实时时钟**：`HH:MM` 蓝色（`lv_font_gbk_16`），取自芯片 RTC（`drv_rtc_get`）；RTC 不可用显示 `--:--`。
+- 深色底白字，**居中标题**（如 “APPS” “系统信息”），分隔线用 `COL_SEP`。
+- **左上角实时时钟**：`HH:MM` 白色（`lv_font_gbk_16`），取自芯片 RTC（`drv_rtc_get`）；RTC 不可用显示 `--:--`。
 - 刷新节奏：主循环每 pass 调 `app_menu_tick`，仅当 `HH:MM` 变化（`strcmp` 缓存比较）才 `lv_label_set_text`，避免每 5 ms 读 RTC。
 - 菜单顶栏与页面顶栏各持独立句柄（`s_hdr_clock_menu` / `s_hdr_clock_page`）；页面重开时自动指向最新标签，旧对象随 `lv_obj_clean` 销毁，无野指针。
 
@@ -296,12 +323,15 @@ python scripts/serial_test.py --port COM19 --interactive
 
 ### 8.5 字体与图标资源
 - `bsp/lv_font_gbk.*` 提供 **12 / 16 / 24 / 32 px** 四档 GBK 字体；ASCII 字形来自编译内表，CJK 字形依赖卡上 `GBKxx.FON`。
-- 主菜单图标由 `tools/gen_menu_icons.py` 生成 `app/menu_icons.c/h`（48×48 白底蓝图：clock / sysinfo / keytest / nes / image / about + 16×16 folder），已加入 CMake 源列表。
+- 主菜单图标（48×48：clock / camera / txt / image / nes / keytest / sysinfo / about + 16×16 folder）
+  落在 `app/menu_icons.c/h`。个别图标由生成器产出：`scripts/gen_camera_icon.py`、
+  `scripts/gen_txt_icon.py`；深色主题下的整体重着色用 `tools/recolor_menu_icons.py` 就地重烘焙。
 - 本版 LVGL 的 `lv_img_header_t` 无 `stride` 字段（stride 由 cf 推导），生成器已剔除该字段。
 
 ### 8.6 设计演进与取舍（关键点）
-- **FreeRTOS 方案已放弃**：RTOS 端口独占 SysTick 导致 HAL 时基冻结、`MX_SDMMC1_SD_Init` 卡死；用户决定回退裸机协作循环，专注 UI 优化。代码已回退干净（`startup_stm32h743xx.s` 向量表恢复 HAL 处理、删除 `FreeRTOSConfig.h` / `hal_timebase_tim.c`）。
-- 白底主题前为黑底；灰色小字在白底下不可见，故描述 / 提示文字统一改为浅蓝。
+- **FreeRTOS 方案已放弃**：RTOS 端口独占 SysTick 导致 HAL 时基冻结、`MX_SDMMC1_SD_Init` 卡死；用户决定回退裸机协作循环，专注 UI 优化。
+- **主题经历过 深色 → 白底蓝字 → 深色**：白底版期间灰色小字不可见，描述/提示统一改浅蓝；
+  最终回到深色（近黑深蓝 + 彩色圆章），以 `COL_*` 宏 + `s_chip[]` 为单一真值源。
 - 圆形图标风格（去外边框）替代原矩形卡片，参考真机截图确定。
 - **真机验证状态（2026-08-11）**：已用 OpenOCD + ST-Link V2 实机烧录，串口自测 **38/38 PASS**，UI 观感由用户在真机确认。
 
@@ -352,7 +382,7 @@ python scripts/serial_test.py --port COM19 --interactive
   1. 卡上文件名：`fno.fname` 经 FatFs 返回 **GBK 字节**（保留中文、保证 `f_open` 命中）。
   2. 串口输出：`bsp/gbk_conv.c` 的 `gbk_to_utf8()` 把 GBK 转 UTF-8 后打印（中文 ROM 名现正确显示）。
   3. OLED 显示：`lv_font_gbk_16/24/32` 字体驱动做 **UTF-8 → Unicode → GBK 字形** 映射，故页面必须把 GBK 名先 `gbk_to_utf8()` 转 UTF-8 再喂 `lv_label_set_text`；直接喂 GBK 字节会乱码（原 bug #1）。
-- `bsp/gbk_unicode_tbl.c` 由 `tools/gen_gbk_table.py` 离线生成（23940 项 / 21791 映射，约 48 KB Flash）。
+- `bsp/gbk_unicode_tbl.c` 由 `scripts/gen_gbk_map.py` 离线生成（23940 项 / 21791 映射，约 48 KB Flash）。
 - 工程源码统一 **UTF-8 + `-fexec-charset=UTF-8`**，字符串字面量保持 UTF-8（LVGL 期望）。
 
 ### 11.2 SELECT 键退出语义

@@ -71,6 +71,8 @@ that this is reproducible and does not depend on the interactive shell state:
 tools\idf_env.bat     activate IDF v6.1 (toolchain, python venv, PATH)
 tools\run_idf.bat     call idf_env.bat then run idf.py, mirroring all output
                       into build_log.txt
+build_oneclick.bat    repository-wide one-shot build (wraps run_idf.bat, pauses)
+flash.bat             flash the built image (port selectable)
 ```
 
 ```bat
@@ -964,8 +966,10 @@ main/
 │   ├── page.h                     the Page lifecycle contract
 │   ├── theme.{h,cpp}              the one and only visual language
 │   ├── widgets.{h,cpp}            page_layout(), buttons, rows, slots
+│   ├── ascii_fonts.{h,cpp}        compiled-in ASCII bitmap fonts
+│   ├── sd_font.{h,cpp}            SD-card HZK-style GBK dot-matrix fonts
 │   ├── lvgl_fs.h                  LVGL <-> VFS glue for file-backed images
-│   └── assets/                    generated assets (icons, GBK table, pattern)
+│   └── assets/                    generated assets (app_icons, gbk_table, test_pattern)
 ├── services/                      UI-facing, hardware-agnostic
 │   ├── storage_service.{h,cpp}    mount state, listings, whole-file R/W
 │   ├── text_service.{h,cpp}       encoding detection and decoding

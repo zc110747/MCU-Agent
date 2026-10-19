@@ -54,12 +54,12 @@ JTAG 模式**不切换** SWD 引脚：TCK/TMS 与 SWCLK/SWDIO 物理复用，
 ## 3. 快速开始
 
 ```bash
-# 1) 编译（自动载入 env.sh 内的 ESP-IDF v6.1 环境）
-./build.sh              # 增量
+# 1) 编译（脚本自动载入 env.sh / env.bat 内的 ESP-IDF 环境）
+./build.sh              # Git-Bash；Windows CMD 用 build.bat
 ./build.sh clean        # 清空重编
 
 # 2) 烧录（CH340 日志口，如 COM21）
-./flash.sh
+./flash.sh              # Windows CMD 用 flash.bat，可带端口参数
 
 # 3) 连接测试（OpenOCD 通过 CMSIS-DAP HID 识别探针）
 openocd -f interface/cmsis-dap.cfg -f target/stm32h7x.cfg
@@ -103,20 +103,30 @@ openocd -f interface/cmsis-dap.cfg -f target/stm32h7x.cfg
 ## 6. 目录结构
 
 ```
-components/
-  usb_device/       TinyUSB 设备 + HID 数据通路
-  cmsis_dap/        CMSIS-DAP v1 命令处理（SWD/JTAG 分发）
-  debug_engine/     Cortex-M 调试引擎（halt/run/step/读写寄存器/内存）
-  swd/              SWD 位带引擎（寄存器级 GPIO）
-  jtag/             JTAG 位带引擎（寄存器级 GPIO，逐字移植 ARM JTAG_DP.c）
-  wifi_dap/         Wi-Fi 传输：SoftAP + TCP 50000（**仅在无 USB 主机时启动**，见 §7.4）
-main/               app_main 入口 + 整包 whole-archive 链接
-tools/
-  verify_usb_hid.cfg  OpenOCD USB HID 链路体检（不需接目标板）
-  uart_capture.py     带到达时间戳的串口抓日志
-  hold_reset.py       按住 / 释放 EN，用于确认热点归属
-  wifi_dap_client.py  无线 DAP 客户端（AP 模式下使用）
-doc/useage.md       详细使用与排错文档
+203.esp32s3_wireless_debug/
+├── components/
+│   ├── usb_device/     TinyUSB 设备 + HID 数据通路
+│   ├── cmsis_dap/      CMSIS-DAP v1 命令处理（SWD/JTAG 分发）
+│   ├── debug_engine/   Cortex-M 调试引擎（halt/run/step/读写寄存器/内存）
+│   ├── swd/            SWD 位带引擎（寄存器级 GPIO）
+│   ├── jtag/           JTAG 位带引擎（寄存器级 GPIO，逐字移植 ARM JTAG_DP.c）
+│   ├── target/         目标芯片相关适配
+│   └── wifi_dap/       Wi-Fi 传输：SoftAP + TCP 50000（仅无 USB 主机时启动，见 §7.4）
+├── main/               app_main 入口 + 整包 whole-archive 链接
+├── tools/
+│   ├── verify_usb_hid.cfg    OpenOCD USB HID 链路体检（不需接目标板）
+│   ├── uart_capture.py       带到达时间戳的串口抓日志
+│   ├── hold_reset.py         按住 / 释放 EN，用于确认热点归属
+│   ├── wifi_dap_client.py    无线 DAP 客户端（AP 模式下使用）
+│   ├── run_jtag_transfer.py  HID 直发 JTAG 传输（IDCODE / ACK 判定）
+│   ├── run_jtag_check.py / jtag_raw_scan.py / sw2j_test.py
+│   └── swd_probe_test.py / swj_state_probe.py / swj_switch_a_b.py / tdo_timeline_test.py
+├── doc/useage.md       详细使用与排错文档
+├── env.sh / env.bat    载入 ESP-IDF 环境
+├── build.sh / build.bat / flash.sh / flash.bat   构建 / 烧录（可指定端口）
+├── idf_runner.py       idf.py 的统一启动器
+├── partitions.csv / sdkconfig.defaults / CMakeLists.txt
+└── test/ reference/ logs/   测试脚本、参考资料、日志存档
 ```
 
 ---
@@ -146,7 +156,7 @@ doc/useage.md       详细使用与排错文档
 （`pin_out(TDI_GPIO, (((v) & 1U) != 0U))`）。另按 ARM 官方 `JTAG_DP.c` 逐位修正：Shift-IR 末位须与
 `TMS=1` 同边沿（补一拍即多移一位）、去除多余 `after` deskew、ABORT 改用独立 IR `0x08`。
 注意 OpenOCD 实际只走 `DAP_JTAG_Sequence(0x14)`（非 `DAP_JTAG_Transfer(0x17)`）。
-完整排错方法论见 skill **`stm32-cmsis-dap-probe`**。
+完整排错方法论见 skill **`mcu-debug-forensics`**（[EmbedSkills](https://github.com/zc110747/EmbedSkills)）。
 
 ### 7.4 传输仲裁：USB 优先，Wi-Fi AP 兜底
 **政策**：两种传输**互斥**，不同时运行。上电先初始化 USB，然后在

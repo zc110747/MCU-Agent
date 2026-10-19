@@ -316,8 +316,8 @@ cmake --build build-release
 | 脚本 | 用途 | 最新结果 |
 |---|---|---|
 | `tools/snmp_verify` (C#) | SNMP 端到端 31 项断言 | 31/31 PASS |
-| `tools/snmp_desktop_headless` (C#) | 桌面仪表盘 6 页数据通路 + 稳定性轮询 | 26/26 PASS |
-| `tools/snmp_desktop_visualtest` + `verify_snmp_desktop_visual.py` | 6 页视觉渲染（PrintWindow 截图 + Pillow 亮像素检测） | 6/6 PASS |
+| `tools/snmp_desktop` (C#，`--headless` 走 `VerifySnmp.cs`) | 桌面仪表盘 6 页数据通路 + 稳定性轮询 | 26/26 PASS |
+| `tools/snmp_desktop` (C#，含 `VerifySnmp.cs` 无头自检) + `tools/verify_snmp_desktop_visual.py` | 6 页视觉渲染（PrintWindow 截图 + Pillow 亮像素检测） | 6/6 PASS |
 | `tools/telnet_test.py` | Telnet IAC 协商 / NUL 过滤 / 命令 / exit / idle 超时 | 全 PASS |
 | `tests/shell_stress/stress_shell.py` | shell 解析逻辑压测（PC 侧 gcc 编译 + ctypes） | 41/41 PASS |
 | `tests/shell_stress/verify_uart_hw.py` | 物理串口端到端（COM3） | 10/10 PASS |
@@ -413,15 +413,21 @@ cmake --build build-release
 ## 五、目录
 
 ```
-app/            main / FreeRTOSConfig / HAL timebase(TIM7) / LwIP 移植 / HTTP(S) / SDRAM 堆定义
+app/            main / FreeRTOSConfig / freertos_hooks / HAL timebase(TIM7) / LwIP 移植
   app/lwip/     ethernetif / lan8720 / sys_arch
   app/snmp/     ber / mib / snmp_msg / snmp_agent
   app/web/      http_server / https_server / web_assets / cert
   hwinfo.c/.h   shell.c/.h / telnet_shell.c/.h / netcfg.c/.h / mbedtls_pool.c/.h
-bsp/            bsp_uart / bsp_led / bsp_i2c / bsp_pcf8574 / bsp_sdram / bsp_ap3216 / bsp_mpu9250 / bsp_eeprom_24c02
-Drivers/        ST HAL + CMSIS
-third_party/    LwIP 2.1 / FreeRTOS-Kernel V11.1.0 / mbedtls 3.6.2 / FatFs
-tools/          snmp_client / snmp_server / snmp_common / snmp_desktop / snmp_verify / https_test.py / telnet_test.py / verify_snmp_desktop_visual.py
+  log.c/.h      sdram_heap.c / mbedtls_config.h / lwipopts.h
+bsp/            bsp_uart / bsp_led / bsp_i2c / bsp_pcf8574 / bsp_sdram / bsp_delay
+                bsp_ap3216 / bsp_mpu9250 / bsp_eeprom_24c02
+Drivers/        ST HAL + CMSIS（gitignore）
+third_party/    LwIP 2.1 / FreeRTOS-Kernel V11.1.0 / mbedtls 3.6.2 / FatFs（gitignore）
+sys_startup/    启动文件（gcc / arm / iar）+ system + 链接脚本
+MDK-ARM/        Keil 工程（ARMCLANG 后端）
+tools/          snmp_client / snmp_server / snmp_common / snmp_desktop / snmp_verify
+                https_test.py / telnet_test.py / verify_snmp_desktop_visual.py
 tests/          shell_stress/ / snmp_offline/ / verify_netcfg_block.py / i2cdiag.gdb / i2cscan.gdb
 web/            Vue 3 + Vite 前端（build 产物拷 SD 卡）
+prompter.md     需求 / 验收提示词记录
 ```

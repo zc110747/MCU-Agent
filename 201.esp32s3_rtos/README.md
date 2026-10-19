@@ -68,9 +68,9 @@
 ## 4. 工程结构
 
 ```text
-ESP32S3_FreeRTOS_Monitor/
+201.esp32s3_rtos/
 │
-├── ESP32S3_FreeRTOS_Monitor.ino      # 入口：setup() 中 app_init()+app_start()
+├── 201.esp32s3_rtos.ino              # 入口：setup() 中 app_init()+app_start()
 │
 ├── config/
 │   └── config.h                      # 所有 GPIO / 参数 / 优先级 / 内核亲和性 集中配置
@@ -92,6 +92,7 @@ ESP32S3_FreeRTOS_Monitor/
 ├── system/
 │   └── system_info.{h,cpp}           # 芯片/内存/Flash 信息与 FreeRTOS 任务表
 │
+├── build_oneclick.bat / flash-esp32.bat   # 一键编译 / 烧录
 └── README.md
 ```
 
@@ -115,12 +116,15 @@ arduino-cli core install esp32:esp32
 #    FlashSize 的取值是 16M（不是 16MB）。
 arduino-cli compile -j 8 \
   -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,UploadSpeed=921600 \
-  ESP32S3_FreeRTOS_Monitor
+  201.esp32s3_rtos
 ```
+
+> 目录名必须与 `.ino` 同名（Arduino 硬约束），所以 sketch 就叫 `201.esp32s3_rtos.ino`；
+> 若从仓库根目录调用，最后一项写 `201.esp32s3_rtos` 即可。
 
 > **关于子目录 `.cpp` 的说明**：Arduino 构建器只编译 `.ino` 与顶层文件，
 > **不会**自动编译 `app/`、`tasks/`、`bsp/`、`system/` 子目录里的 `.cpp`。
-> 本工程在 `ESP32S3_FreeRTOS_Monitor.ino` 中显式 `#include` 了各模块的 `.cpp`
+> 本工程在 `201.esp32s3_rtos.ino` 中显式 `#include` 了各模块的 `.cpp`
 > （`#include "app/app.cpp"` 等），从而把全部模块编译进同一个翻译单元。
 > 这种方式在 Arduino IDE 与 arduino-cli 下行为一致，子目录内的
 > 相对/带路径 `#include`（如 `"app/app.h"`、`"config/config.h"`）均从工程根目录解析。
@@ -139,15 +143,14 @@ arduino-cli compile -j 8 \
 
 ### 方式 C：一键脚本（推荐，零记忆命令）
 
-工程根目录已提供 `build.bat`，自动定位 `arduino-cli`（优先 PATH，其次 `../.buildtools/bin`），
-无需记忆 FQBN 与端口参数。在文件资源管理器双击，或在 CMD 中进入工程目录运行：
+工程根目录提供两个脚本（纯英文输出、每个出口都 `pause`），自动定位 `arduino-cli`
+（优先 PATH），无需记忆 FQBN 与端口参数：
 
 ```bat
-build.bat               仅编译 (jobs=8, 限制线程避免高温)
-build.bat flash        编译 + 烧录到默认端口 COM21
-build.bat flash COM21  编译 + 烧录到指定端口
-build.bat monitor      仅打开串口监视器 (115200)
-build.bat all COM21    编译 + 烧录 + 打开监视器
+build_oneclick.bat              仅编译 (jobs=8, 限制线程避免高温)，构建目录 .build
+flash-esp32.bat                 烧录：扫描全部 COM 口让你选
+flash-esp32.bat COM7            直接烧到 COM7
+flash-esp32.bat COM7 monitor    烧录后打开串口监视器
 ```
 
 > 脚本首次运行会从零编译 ESP32 core（约上千文件，耗时数分钟）；之后复用 `.build` 缓存，约 20s。
@@ -162,7 +165,7 @@ build.bat all COM21    编译 + 烧录 + 打开监视器
 - arduino-cli：
   ```bash
   arduino-cli upload -p COMx -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M \
-    ESP32S3_FreeRTOS_Monitor
+    201.esp32s3_rtos
   ```
   （把 `COMx` 替换为实际端口，例如 `COM3`）
 
