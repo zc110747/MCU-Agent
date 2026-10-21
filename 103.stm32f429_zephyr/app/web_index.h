@@ -1,0 +1,73 @@
+/**
+  ******************************************************************************
+  * @file    web_index.h
+  * @brief   Single page web UI served by the HTTP server (compiled into flash).
+  ******************************************************************************
+  */
+#ifndef APP_WEB_INDEX_H_
+#define APP_WEB_INDEX_H_
+
+static const char web_index_html[] =
+"<!DOCTYPE html>"
+"<html lang='zh-CN'><head>"
+"<meta charset='utf-8'>"
+"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+"<title>STM32F429 · Zephyr Web</title>"
+"<style>"
+"*{box-sizing:border-box}"
+"body{margin:0;background:#14161a;color:#e6e8eb;"
+"font:14px/1.6 -apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,sans-serif}"
+".wrap{max-width:640px;margin:0 auto;padding:28px 20px 40px}"
+"h1{margin:0 0 4px;font-size:19px;font-weight:600;letter-spacing:.2px}"
+"h1 span{color:#7b8390;font-weight:400;font-size:13px;margin-left:8px}"
+".sub{color:#7b8390;font-size:12px;margin-bottom:22px}"
+".grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}"
+".card{background:#1b1e24;border:1px solid #262a32;border-radius:10px;padding:14px 16px}"
+".k{color:#7b8390;font-size:12px;margin-bottom:6px}"
+".v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}"
+".on{color:#4ade80}.off{color:#6b7280}"
+".row{display:flex;gap:12px;margin-top:18px}"
+"button{flex:1;background:#232833;color:#e6e8eb;border:1px solid #303747;"
+"border-radius:9px;padding:12px 0;font-size:14px;cursor:pointer;transition:.15s}"
+"button:hover{background:#2b3140;border-color:#3d465a}"
+"button:active{transform:scale(.985)}"
+"button.live{background:#1f3a2b;border-color:#2f6b47;color:#8ef0b4}"
+".hint{margin-top:20px;color:#6b7280;font-size:12px}"
+".err{color:#f87171}"
+"</style></head><body><div class='wrap'>"
+"<h1>STM32F429IGT6 <span>Zephyr · HTTP Server</span></h1>"
+"<div class='sub'>LAN8720A · RMII · 静态 IP</div>"
+"<div class='grid'>"
+"<div class='card'><div class='k'>运行时间</div><div class='v' id='uptime'>--</div></div>"
+"<div class='card'><div class='k'>本机地址</div><div class='v' id='ip'>--</div></div>"
+"<div class='card'><div class='k'>受控 LED · PB0</div><div class='v' id='led'>--</div></div>"
+"<div class='card'><div class='k'>蜂鸣器 · PCF8574 P0</div><div class='v' id='beep'>--</div></div>"
+"<div class='card'><div class='k'>外部 SDRAM 可用</div><div class='v' id='sdram'>--</div></div>"
+"</div>"
+"<div class='row'>"
+"<button id='btn-led'>切换 LED</button>"
+"<button id='btn-beep'>切换蜂鸣器</button>"
+"</div>"
+"<p class='hint'>心跳灯 PB1 每 500 ms 闪烁，由固件自主控制，网页无法干预。</p>"
+"</div>"
+"<script>"
+"var el=function(i){return document.getElementById(i)};"
+"function fmt(ms){var s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60);"
+"if(h>0)return h+'h '+m+'m '+(s%60)+'s';if(m>0)return m+'m '+(s%60)+'s';return s+'s'}"
+"function paint(d){el('uptime').textContent=fmt(d.uptime_ms);"
+"el('ip').textContent=d.ip;"
+"var sk=d.sdram_free_kb||0;"
+"el('sdram').textContent=sk?(sk/1024).toFixed(1)+' MB':'未启用';"
+"el('led').textContent=d.led?'开':'关';el('led').className='v '+(d.led?'on':'off');"
+"el('beep').textContent=d.beep?'响':'静';el('beep').className='v '+(d.beep?'on':'off');"
+"el('btn-led').className=d.led?'live':'';el('btn-beep').className=d.beep?'live':'';}"
+"function poll(){fetch('/api/status').then(function(r){return r.json()})"
+".then(paint).catch(function(){el('uptime').textContent='连接中断'})}"
+"function cmd(p){fetch(p,{method:'POST',body:'toggle'})"
+".then(function(r){return r.json()}).then(paint).catch(function(){})}"
+"el('btn-led').onclick=function(){cmd('/api/led')};"
+"el('btn-beep').onclick=function(){cmd('/api/beep')};"
+"poll();setInterval(poll,1000);"
+"</script></body></html>";
+
+#endif /* APP_WEB_INDEX_H_ */

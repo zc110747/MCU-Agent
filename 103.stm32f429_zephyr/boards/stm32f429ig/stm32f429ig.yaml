@@ -1,0 +1,16 @@
+identifier: stm32f429ig
+name: STM32F429IGT6 network board
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+  - xtools
+ram: 192
+flash: 1024
+supported:
+  - gpio
+  - i2c
+  - netif:eth
+  - uart
+vendor: st

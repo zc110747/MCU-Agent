@@ -1,0 +1,8 @@
+# Build artefacts
+build/
+.cache/
+
+# Editor / OS noise
+.vscode/
+*.swp
+Thumbs.db

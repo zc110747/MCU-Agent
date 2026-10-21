@@ -1,0 +1,275 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Board: STM32F429IGT6 (LQFP176, 1024 KB flash, 192 KB SRAM + 64 KB CCM)
+ *        custom board -- see 101.stm32f429_net for the bare-metal reference.
+ *
+ * Differences from the ST nucleo_f429zi reference board:
+ *   - HSE is a 25 MHz crystal (not the 8 MHz ST-Link MCO / hse-bypass)
+ *   - SYSCLK 168 MHz (PLL M=25 N=336 P=2 Q=7); no over-drive needed.
+ *     Zephyr's F4 clock driver has no over-drive support, so the bare-metal
+ *     project's 180 MHz setting is intentionally NOT used here.
+ *   - Flash is 1 MB (F429IG), not 2 MB (F429ZI)
+ *   - LED0 (heartbeat) = PB1, LED1 (web controlled) = PB0, both active-low
+ *   - ETH RMII on the real board: PC1/PC4/PC5, PA1/PA2/PA7, PB11, PG13, PG14
+ *   - I2C2 on PH4 (SCL) / PH5 (SDA) -> PCF8574T (0x20): P0 = BEEP, P7 = ETH_RST
+ */
+
+/dts-v1/;
+
+#include <st/f4/stm32f429Xi.dtsi>
+#include <st/f4/stm32f429iitx-pinctrl.dtsi>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/memory-attr/memory-attr-arm.h>
+
+/ {
+	model = "STM32F429IGT6 network board";
+	compatible = "st,stm32f429ig-net";
+
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,ccm = &ccm0;
+		zephyr,code-partition = &slot0_partition;
+	};
+
+	leds: leds {
+		compatible = "gpio-leds";
+
+		/* Heartbeat LED, PB1, low level lights it up */
+		led_hb: led_hb {
+			gpios = <&gpiob 1 GPIO_ACTIVE_LOW>;
+			label = "LED_HB";
+		};
+
+		/* Web controlled LED, PB0, low level lights it up */
+		led_user: led_user {
+			gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
+			label = "LED_USER";
+		};
+	};
+
+	aliases {
+		led0 = &led_hb;
+		led1 = &led_user;
+	};
+
+	/*
+	 * External SDRAM window (FMC bank 1). Declared as a Zephyr memory region
+	 * so the ARM MPU maps it as Normal, non-cacheable -- otherwise
+	 * 0xC0000000 falls into the default "external device" attribute and
+	 * unaligned / speculative accesses would fault.
+	 */
+	sdram1: sdram@c0000000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		device_type = "memory";
+		reg = <0xc0000000 DT_SIZE_M(32)>;
+		zephyr,memory-region = "SDRAM1";
+		zephyr,memory-attr = <DT_MEM_ARM_MPU_RAM_NOCACHE>;
+	};
+};
+
+/* F429IGT6 = 1 MB flash (the SoC dtsi describes the 2 MB F429xI part) */
+&flash0 {
+	reg = <0x08000000 DT_SIZE_K(1024)>;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* The whole 1 MB is the application slot: no bootloader is used. */
+		slot0_partition: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 DT_SIZE_K(1024)>;
+		};
+	};
+};
+
+/* 25 MHz crystal on the board (no hse-bypass) */
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(25)>;
+	status = "okay";
+};
+
+/* M=25 -> 1 MHz, N=336 -> 336 MHz VCO, P=2 -> 168 MHz, Q=7 -> 48 MHz */
+&pll {
+	div-m = <25>;
+	mul-n = <336>;
+	div-p = <2>;
+	div-q = <7>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(168)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <4>;
+	apb2-prescaler = <2>;
+};
+
+/* Debug / console serial: USART1 PA9 TX, PA10 RX, 115200 8N1 */
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+/*
+ * I2C2 on PH4/PH5 -> PCF8574T I/O expander at 0x20.
+ * P0 drives the buzzer (LOW = sound), P7 drives ETH_RESET through a
+ * transistor (P7=1 -> reset asserted, P7=0 -> normal operation).
+ * The bit-banged access lives in app/board_io.c so that the reset line is
+ * released BEFORE the Ethernet driver initialises.
+ */
+&i2c2 {
+	pinctrl-0 = <&i2c2_scl_ph4 &i2c2_sda_ph5>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	status = "okay";
+
+	pcf8574: pcf8574@20 {
+		compatible = "nxp,pcf857x";
+		reg = <0x20>;
+		ngpios = <8>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "disabled";
+	};
+};
+
+/* Ethernet MAC, RMII, LAN8720A (PHY address 0) */
+&mac {
+	status = "okay";
+	pinctrl-0 = <&eth_mdc_pc1
+		     &eth_rxd0_pc4
+		     &eth_rxd1_pc5
+		     &eth_ref_clk_pa1
+		     &eth_mdio_pa2
+		     &eth_crs_dv_pa7
+		     &eth_tx_en_pb11
+		     &eth_txd0_pg13
+		     &eth_txd1_pg14>;
+	pinctrl-names = "default";
+	phy-connection-type = "rmii";
+	local-mac-address = [00 80 E1 42 10 03];
+};
+
+/*
+ * FMC SDRAM bank 1 -- W9825G6KH-6, 32 MB at 0xC0000000.
+ * Pin map identical to 101.stm32f429_net/bsp/bsp_sdram.c:
+ *   data   PD0/1/8/9/10/14/15, PE7..15
+ *   addr   PF0..5, PF12..15, PG0..2      BA0/BA1 = PG4/PG5 (FMC A14/A15)
+ *   ctrl   PC0 SDNWE, PC2 SDNE0, PC3 SDCKE0, PG8 SDCLK,
+ *          PF11 SDNRAS, PG15 SDNCAS
+ *   mask   PE0/PE1 NBL0/NBL1
+ *
+ * FMC kernel clock = HCLK (168 MHz), SDCLK = HCLK / 2 = 84 MHz.
+ *   mode register 0x230 = burst len 1, sequential, CAS 3, single write burst
+ *   refresh rate  636   = 64 ms / 8192 rows / 11.9 ns - 20
+ * Timing values are the 101 (90 MHz) numbers; they are still met at 84 MHz
+ * because a slower SDCLK makes every delay longer in nanoseconds.
+ */
+&fmc {
+	status = "okay";
+	pinctrl-0 = <&fmc_sdclk_pg8
+		     &fmc_sdnwe_pc0 &fmc_sdne0_pc2 &fmc_sdcke0_pc3
+		     &fmc_sdnras_pf11 &fmc_sdncas_pg15
+		     &fmc_a0_pf0 &fmc_a1_pf1 &fmc_a2_pf2 &fmc_a3_pf3
+		     &fmc_a4_pf4 &fmc_a5_pf5
+		     &fmc_a6_pf12 &fmc_a7_pf13 &fmc_a8_pf14 &fmc_a9_pf15
+		     &fmc_a10_pg0 &fmc_a11_pg1 &fmc_a12_pg2
+		     &fmc_a14_pg4 &fmc_a15_pg5
+		     &fmc_d0_pd14 &fmc_d1_pd15 &fmc_d2_pd0 &fmc_d3_pd1
+		     &fmc_d4_pe7 &fmc_d5_pe8 &fmc_d6_pe9 &fmc_d7_pe10
+		     &fmc_d8_pe11 &fmc_d9_pe12 &fmc_d10_pe13 &fmc_d11_pe14
+		     &fmc_d12_pe15
+		     &fmc_d13_pd8 &fmc_d14_pd9 &fmc_d15_pd10
+		     &fmc_nbl0_pe0 &fmc_nbl1_pe1>;
+	pinctrl-names = "default";
+
+	sdram: sdram {
+		status = "okay";
+		power-up-delay = <100>;
+		num-auto-refresh = <8>;
+		mode-register = <0x230>;
+		refresh-rate = <636>;
+
+		bank@0 {
+			reg = <0>;
+			st,sdram-control = <STM32_FMC_SDRAM_NC_9
+					    STM32_FMC_SDRAM_NR_13
+					    STM32_FMC_SDRAM_MWID_16
+					    STM32_FMC_SDRAM_NB_4
+					    STM32_FMC_SDRAM_CAS_3
+					    STM32_FMC_SDRAM_SDCLK_PERIOD_2
+					    STM32_FMC_SDRAM_RBURST_ENABLE
+					    STM32_FMC_SDRAM_RPIPE_1>;
+			st,sdram-timing = <2 8 6 6 2 2 2>;
+		};
+	};
+};
+
+/* Unused reference-board peripherals */
+&i2c1 {
+	status = "disabled";
+};
+
+&spi1 {
+	status = "disabled";
+};
+
+&usart3 {
+	status = "disabled";
+};
+
+&usart6 {
+	status = "disabled";
+};
+
+&usbotg_fs {
+	status = "disabled";
+};
+
+&timers1 {
+	status = "disabled";
+};
+
+&rtc {
+	status = "disabled";
+};
+
+&iwdg {
+	status = "disabled";
+};
+
+/* Hardware RNG: the IP stack needs a random source (TCP ISN, port selection) */
+&rng {
+	status = "okay";
+};
+
+&adc1 {
+	status = "disabled";
+};
+
+&dac1 {
+	status = "disabled";
+};
+
+&vref {
+	status = "disabled";
+};
+
+&vbat {
+	status = "disabled";
+};
+
+&die_temp {
+	status = "disabled";
+};
