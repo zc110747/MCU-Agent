@@ -136,7 +136,9 @@ static void cmd_help(void)
     "  sd            SD card / filesystem status\r\n"
     "  ls            list files on the SD card\r\n"
     "  cat <file>    print a file from the SD card\r\n"
-    "  remount       re-read the SD card filesystem (after host edits)\r\n");
+    "  remount       re-read the SD card filesystem (after host edits)\r\n"
+    "  mtrace        dump the SD/USB event trace (ms since reset)\r\n"
+    "  replug        soft USB detach + re-attach (D+ pull-up cycle)\r\n");
 }
 
 static void cmd_stats(void)
@@ -175,6 +177,34 @@ static void cmd_flood(const char* arg)
     }
     uint32_t dt = board_millis() - t0;
     cdc_printf("sent %lu lines in %lu ms\r\n", (unsigned long) n, (unsigned long) dt);
+}
+
+/* Electrically detach and re-attach the USB device: DWC2 soft disconnect
+* drops the D+ pull-up, which is exactly what the host sees when the cable is
+* pulled. Useful to reproduce plug-in timing (and to re-enumerate after the
+* host got confused) without reaching for the cable. */
+static void cmd_replug(void)
+{
+    cdc_puts("\r\nUSB soft replug: D+ off for 500 ms ...\r\n");
+    tud_disconnect();
+    board_delay_ms(500);
+    tud_connect();
+}
+
+/* Dump the SD/USB event ring: what the host asked for, in what order, and
+* how the card answered. Timestamps are milliseconds since reset. */
+static void cmd_mtrace(void)
+{
+    char line[96];
+    uint16_t cur = 0;
+
+    cdc_puts("\r\nSD/USB trace (ms since reset):\r\n");
+    while (sd_trace_next(line, (int) sizeof(line), &cur))
+    {
+        cdc_puts(line);
+    }
+    cdc_printf("last HAL SD error: 0x%08lX\r\n",
+               (unsigned long) sdcard_last_error());
 }
 
 static void handle_line(char* line)
@@ -234,6 +264,14 @@ static void handle_line(char* line)
     else if (strcmp(line, "remount") == 0)
     {
         cmd_remount();
+    }
+    else if (strcmp(line, "mtrace") == 0)
+    {
+        cmd_mtrace();
+    }
+    else if (strcmp(line, "replug") == 0)
+    {
+        cmd_replug();
     }
     else
     {
@@ -319,6 +357,7 @@ static void led_task(void)
 int main(void)
 {
     bsp_init();
+    sd_trace_add(SD_TR_BOOT, 0, 0, 0);
     bsp_log_init();         /* USART1 @ 115200 8N1 debug logging */
 
     PRINT_LOG("System Init OK\r\n");
@@ -341,6 +380,7 @@ int main(void)
         .speed = TUSB_SPEED_FULL,
     };
     tusb_init(BOARD_TUD_RHPORT, &rh_init);
+    sd_trace_add(SD_TR_TUSB, 0, 0, 0);
 
     while (1)
     {
@@ -357,10 +397,13 @@ int main(void)
 void tud_mount_cb(void)
 {
     g_cdc.link = LINK_MOUNTED;
+    msc_trace_arm();             /* so a trace read now shows this mount */
+    sd_trace_add(SD_TR_MOUNT, 0, 0, 0);
 }
 void tud_umount_cb(void)
 {
     g_cdc.link = LINK_UNMOUNTED;
+    sd_trace_add(SD_TR_UMOUNT, 0, 0, 0);
 }
 
 void tud_suspend_cb(bool remote_wakeup_en)

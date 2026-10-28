@@ -21,6 +21,20 @@ typedef struct
 
 static SD_APP_STATE_T g_sd_app = {0};
 
+/* FatFs logical drive that maps to the SD card.
+ *
+ * FF_VOLUMES is 2 and third_party/FatFs/diskio.c assigns physical drives as
+ * 0 = RAM disk (DEV_RAM), 1 = SD/MMC (DEV_MMC).
+ *
+ * Every path passed to FatFs MUST carry this prefix. With FF_FS_RPATH == 0 the
+ * volume parser resolves a path without a drive number to drive 0 uncondition-
+ * ally (get_ldnumber() returns 0), and f_chdrive() has no effect at all because
+ * CurrVol is only consulted when FF_FS_RPATH == 1. So a bare "/" or "README.TXT"
+ * silently addressed the unformatted RAM disk at 0x24000000 even though the SD
+ * card had mounted fine - which is exactly why ls/cat kept failing with
+ * FR_NO_PATH while "FS mount" said yes. */
+#define SD_VOL "1:"
+
 /* ---- tiny, unbuffered CDC output (newlib printf would buffer) ------------ */
 static void sd_write(const void* data, uint32_t len)
 {
@@ -53,20 +67,20 @@ static void sd_printf(const char* fmt, ...)
 /* ------------------------------------------------------------------------ */
 void fatfs_init(void)
 {
-    FRESULT fr = f_mount(&g_sd_app.fs, "0:", 1);
+    FRESULT fr = f_mount(&g_sd_app.fs, SD_VOL, 1);
     if (fr == FR_NO_FILESYSTEM)
     {
         /* First run on a blank card: lay down a FAT32 volume and drop a README. */
         MKFS_PARM opt = { FM_FAT32, 0, 0, 0, 0 };
-        fr = f_mkfs("0:", &opt, g_sd_app.work, sizeof(g_sd_app.work));
+        fr = f_mkfs(SD_VOL, &opt, g_sd_app.work, sizeof(g_sd_app.work));
         if (fr == FR_OK)
         {
-            f_mount(NULL, "0:", 0);                 /* unmount, then re-mount clean */
-            fr = f_mount(&g_sd_app.fs, "0:", 1);
+            f_mount(NULL, SD_VOL, 0);                 /* unmount, then re-mount clean */
+            fr = f_mount(&g_sd_app.fs, SD_VOL, 1);
             if (fr == FR_OK)
             {
                 FIL f;
-                if (f_open(&f, "README.TXT", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK)
+                if (f_open(&f, SD_VOL "/README.TXT", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK)
                 {
                     const char* msg =
                     "STM32H743 TinyUSB CDC + MSC demo\r\n"
@@ -80,13 +94,14 @@ void fatfs_init(void)
         }
     }
     g_sd_app.mounted = (fr == FR_OK);
+    sd_trace_add(SD_TR_FATFS, (uint8_t) fr, 0, 0);
 }
 
 void fatfs_release_for_host(void)
 {
     if (g_sd_app.mounted)
     {
-        f_mount(NULL, "0:", 0); g_sd_app.mounted = false;
+        f_mount(NULL, SD_VOL, 0); g_sd_app.mounted = false;
     }
     g_sd_app.host = true;
 }
@@ -96,7 +111,7 @@ void fatfs_reacquire(void)
     g_sd_app.host = false;
     if (!g_sd_app.mounted)
     {
-        FRESULT fr = f_mount(&g_sd_app.fs, "0:", 1);
+        FRESULT fr = f_mount(&g_sd_app.fs, SD_VOL, 1);
         g_sd_app.mounted = (fr == FR_OK);
     }
 }
@@ -134,9 +149,11 @@ void cmd_ls(void)
     }
 
     DIR dir; FILINFO fno;
-    if (f_opendir(&dir, "/") != FR_OK)
+    FRESULT fr = f_opendir(&dir, SD_VOL "/");
+    if (fr != FR_OK)
     {
-        sd_printf("opendir failed\r\n"); return;
+        sd_printf("opendir failed (fr=%d, fs_type=%d)\r\n", (int) fr, (int) g_sd_app.fs.fs_type);
+        return;
     }
     sd_printf("  size     name\r\n");
     while (f_readdir(&dir, &fno) == FR_OK && fno.fname[0])
@@ -155,9 +172,17 @@ void cmd_cat(const char* fname)
     }
 
     FIL f;
-    if (f_open(&f, fname, FA_READ) != FR_OK)
+    /* The drive prefix is mandatory (see SD_VOL). Accept both "README.TXT" and
+       "/README.TXT" from the user, but never emit a doubled separator. */
+    char path[80];
+    const char* rel = fname;
+    while (*rel == '/' || *rel == '\\') rel++;
+    snprintf(path, sizeof(path), SD_VOL "/%s", rel);
+
+    FRESULT fr = f_open(&f, path, FA_READ);
+    if (fr != FR_OK)
     {
-        sd_printf("cannot open '%s'\r\n", fname);
+        sd_printf("cannot open '%s' (fr=%d)\r\n", path, (int) fr);
         return;
     }
     uint8_t buf[64]; UINT br;
@@ -171,8 +196,8 @@ void cmd_cat(const char* fname)
 
 void cmd_remount(void)
 {
-    if (g_sd_app.mounted) f_mount(NULL, "0:", 0);
-    FRESULT fr = f_mount(&g_sd_app.fs, "0:", 1);
+    if (g_sd_app.mounted) f_mount(NULL, SD_VOL, 0);
+    FRESULT fr = f_mount(&g_sd_app.fs, SD_VOL, 1);
     g_sd_app.mounted = (fr == FR_OK);
     sd_printf("FatFs remounted: %s\r\n", g_sd_app.mounted ? "ok" : "fail");
 }

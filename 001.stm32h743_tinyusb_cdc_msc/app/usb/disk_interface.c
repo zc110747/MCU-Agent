@@ -11,9 +11,6 @@
 #include "bsp_sdcard.h"
 #include <string.h>
 
-#define SD_RUN_ERROR_TIMES  4
-
-static uint8_t is_fdisk_error = 0;
 extern SD_HandleTypeDef hsd1;
 
 //RAM disk
@@ -64,85 +61,38 @@ int RAM_disk_ioctl(BYTE cmd, void *buff)
 }
 
 //MMC disk
+/* ------------------------------------------------------------------------ */
+/* MMC / SD disk glue                                                       */
+/*                                                                          */
+/* The block layer in bsp_sdcard.c already waits for the card to become idle  */
+/* and retries a failed transfer three times. Re-initialising the card from   */
+/* here (as an earlier revision did) meant re-running the whole 400 kHz       */
+/* identification sequence while the USB host was waiting for a SCSI answer - */
+/* exactly the situation where Windows falls into a multi-second retry loop.  */
+/* ------------------------------------------------------------------------ */
 int MMC_disk_status(void)
 {
-    if(is_fdisk_error == 1)
-    {
-        return RES_ERROR;
-    }
-    
-    return RES_OK;
+    return sdcard_present() ? RES_OK : RES_NOTRDY;
 }
 
 int MMC_disk_initialize(void)
 {
-    return 0;
+    /* Cheap fast path: the card is usually already up (main() init). Only run
+       the full init when it is not, which doubles as hot-insert recovery. */
+    if (!sdcard_present()) sdcard_init();
+    return sdcard_present() ? RES_OK : RES_NOTRDY;
 }
 
 int MMC_disk_read(BYTE *buff, LBA_t sector, UINT count)
 {
-    uint8_t res = 0;
-    uint8_t index = 0;
-    
-    if (is_fdisk_error == 1)
-    {
-        return RES_ERROR;
-    }
-    
-    do
-    {
-        res = sdcard_read_disk(buff, sector, count);
-        if (res != HAL_OK)
-        {
-            index++;
-            sdcard_init();
-        }
-        
-        if (index == SD_RUN_ERROR_TIMES)
-        {
-            is_fdisk_error = 1;
-        }
-    }
-     while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
-    
-    if (res != HAL_OK)
-    {
-        return RES_ERROR;
-    }
-    return RES_OK;
+    return (sdcard_read_blocks(buff, (uint32_t) sector, (uint32_t) count) == SD_ST_OK)
+           ? RES_OK : RES_ERROR;
 }
 
 int MMC_disk_write(const BYTE *buff, LBA_t sector, UINT count)
 {
-    uint8_t res = 0;
-    uint8_t index = 0;
-    
-    if (is_fdisk_error == 1)
-    {
-        return RES_ERROR;
-    }
-    
-    do
-    {
-        res = sdcard_write_disk(buff, sector, count);
-        if (res != HAL_OK)
-        {
-            index++;
-            sdcard_init();
-        }
-        
-        if (index == SD_RUN_ERROR_TIMES)
-        {
-            is_fdisk_error = 1;
-        }
-    }
-     while(res != HAL_OK && index < SD_RUN_ERROR_TIMES);
-
-    if (res != HAL_OK)
-    {
-        return RES_ERROR;
-    }
-    return RES_OK;
+    return (sdcard_write_blocks(buff, (uint32_t) sector, (uint32_t) count) == SD_ST_OK)
+           ? RES_OK : RES_ERROR;
 }
 
 int MMC_disk_ioctl(BYTE cmd, void *buff)

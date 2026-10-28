@@ -59,7 +59,18 @@ extern "C" {
 
 /* MSC (USB Mass Storage / U-disk) - one LUN backed by the SD card. */
 #define CFG_TUD_MSC_MAXLUN     1
-#define CFG_TUD_MSC_EP_BUFSIZE 512   /* == SD block size, so offset is always 0 */
+#define CFG_TUD_MSC_EP_BUFSIZE 32768 /* 64 SD blocks per USB transfer. The link
+                                        is Full Speed (12 Mbit/s, ~1.2 MB/s raw),
+                                        so per-transfer fixed costs dominate:
+                                        every extra block in one BOT round trip
+                                        amortises the card's write-programming
+                                        latency. Measured on this board,
+                                        512 B -> 147 KB/s, 4 KB -> 619 KB/s,
+                                        32 KB -> 921 KB/s write (read saturates
+                                        at ~1.01 MB/s from 4 KB upwards).
+                                        Must stay a multiple of the 512 B block
+                                        size so transfers stay sector aligned,
+                                        and below UINT16_MAX (TinyUSB asserts). */
 
 /* CDC FIFO sizes (bytes). 512 gives comfortable headroom for bulk echo. */
 #define CFG_TUD_CDC_RX_BUFSIZE  512

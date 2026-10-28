@@ -15,6 +15,7 @@ void fatfs_init(void);            /* mount; format + seed README if blank */
 void fatfs_release_for_host(void);/* host just mounted the U-disk        */
 void fatfs_reacquire(void);       /* host just ejected the U-disk         */
 bool fatfs_host_active(void);     /* true while the host owns the card    */
+void msc_trace_arm(void);         /* re-arm READ tracing for the next mount */
 
 void cmd_sd(void);                /* CDC: show SD card / filesystem status */
 void cmd_ls(void);                /* CDC: list root directory             */
