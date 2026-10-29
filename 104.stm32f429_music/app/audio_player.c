@@ -78,12 +78,13 @@ static void audio_dma_complete(void)
 /* -------------------------------------------------------------------------- */
 /* FatFs helpers (every call holds the filesystem lock)                       */
 /* -------------------------------------------------------------------------- */
-static uint32_t read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bits)
+static uint32_t read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bits,
+                         uint16_t channels)
 {
     uint32_t produced;
 
     fs_lock();
-    produced = wav_read_pcm(fp, dst, bytes, bits);
+    produced = wav_read_pcm(fp, dst, bytes, bits, channels);
     fs_unlock();
     return produced;
 }
@@ -169,8 +170,8 @@ static TRACK_RESULT_T play_one_track(void)
 
     publish_track(&info);
 
-    filled0 = read_pcm(&fp, s_buf0, AUDIO_BUF_BYTES, bits);
-    filled1 = read_pcm(&fp, s_buf1, AUDIO_BUF_BYTES, bits);
+    filled0 = read_pcm(&fp, s_buf0, AUDIO_BUF_BYTES, bits, info.channels);
+    filled1 = read_pcm(&fp, s_buf1, AUDIO_BUF_BYTES, bits, info.channels);
 
     if ((filled0 | filled1) == 0U)
     {
@@ -222,7 +223,7 @@ static TRACK_RESULT_T play_one_track(void)
             continue;
         }
 
-        filled = read_pcm(&fp, half, AUDIO_BUF_BYTES, bits);
+        filled = read_pcm(&fp, half, AUDIO_BUF_BYTES, bits, info.channels);
         if (filled < AUDIO_BUF_BYTES)
         {
             /* End of file: the tail is already zero-padded, so just let the last half
