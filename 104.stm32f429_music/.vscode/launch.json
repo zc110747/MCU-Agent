@@ -13,7 +13,7 @@
       ],
       "openocdPath": "openocd",
       "gdbPath": "arm-none-eabi-gdb",
-      "device": "STM32F429ZIT6",
+      "device": "STM32F429IGT6",
       "interface": "swd",
       "runToEntryPoint": "main",
       "preLaunchTask": "build",
@@ -32,7 +32,7 @@
       ],
       "openocdPath": "openocd",
       "gdbPath": "arm-none-eabi-gdb",
-      "device": "STM32F429ZIT6",
+      "device": "STM32F429IGT6",
       "interface": "swd",
       "showDevDebugOutput": "none",
       "svdFile": "${workspaceFolder}/STM32F429x.svd"
