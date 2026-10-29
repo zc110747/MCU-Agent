@@ -1,17 +1,17 @@
 /**
-  ******************************************************************************
-  * @file    bsp_lcd.c
-  * @brief   FMC Bank1 NE1 8080 16-bit LCD driver for the STM32F429 Apollo board.
-  *
-  *  Adapted from embedded_based_on_stm32/code/00-Drivers/drv_lcd.c:
-  *   - F429 FMC GPIO pin configuration added (the reference relied on an
-  *     external HAL_SRAM_MspInit that does not exist in this project).
-  *   - NT35510 init sequence kept verbatim; an ILI9806E generic MIPI-DCS
-  *     fallback added (board may ship either controller).
-  *   - lcd_color_fill() added for the LVGL display port.
-  *   - Resolution is taken from LCD_WIDTH / LCD_HEIGHT (real panel 800x480).
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_lcd.c
+ * @brief   FMC Bank1 NE1 8080 16-bit LCD driver for the STM32F429 Apollo board.
+ *
+ *  Adapted from embedded_based_on_stm32/code/00-Drivers/drv_lcd.c:
+ *   - F429 FMC GPIO pin configuration added (the reference relied on an
+ *     external HAL_SRAM_MspInit that does not exist in this project).
+ *   - NT35510 init sequence kept verbatim; an ILI9806E generic MIPI-DCS
+ *     fallback added (board may ship either controller).
+ *   - lcd_color_fill() added for the LVGL display port.
+ *   - Resolution is taken from LCD_WIDTH / LCD_HEIGHT (real panel 800x480).
+ ******************************************************************************
+ */
 #include <string.h>
 #include <stdio.h>
 #include "bsp_lcd.h"
@@ -21,53 +21,53 @@
 /* Local state                                                                */
 /* -------------------------------------------------------------------------- */
 static SRAM_HandleTypeDef hsram1;
-LCD_INFO g_lcd_info = {0};
+static LCD_INFO_T         s_lcd_info = {0};
 
 /* Set once lcd_config_init() has published the final GRAM window.  Other
  * threads (the touch service, which maps coordinates onto that window) must
- * not read g_lcd_info before this is set: until then the width/height are
+ * not read s_lcd_info before this is set: until then the width/height are
  * still the pre-scan-direction values. */
-static uint8_t g_lcd_ready = 0U;
+static uint8_t s_lcd_ready = 0U;
 
 /* scan direction */
-#define L2R_U2D  0
-#define L2R_D2U  1
-#define R2L_U2D  2
-#define R2L_D2U  3
-#define U2D_L2R  4
-#define U2D_R2L  5
-#define D2U_L2R  6
-#define D2U_R2L  7
-#define DFT_SCAN_DIR  L2R_U2D
+#define L2R_U2D 0
+#define L2R_D2U 1
+#define R2L_U2D 2
+#define R2L_D2U 3
+#define U2D_L2R 4
+#define U2D_R2L 5
+#define D2U_L2R 6
+#define D2U_R2L 7
+#define DFT_SCAN_DIR L2R_U2D
 
 /* Orientation the player UI is laid out for: 1 = 800x480 landscape (the panel
  * is addressed transposed, MADCTL MV=1), 0 = native 480x800 portrait. */
-#define LCD_DEFAULT_DIR  1U
+#define LCD_DEFAULT_DIR 1U
 
 /* local function prototypes */
-static void lcd_config_init(void);
-static GlobalType_t lcd_hardware_init(void);
-static uint16_t lcd_rd_data(void);
-static void lcd_write_reg(uint16_t regval);
-static void lcd_write_data(uint16_t data);
-static void lcd_write_reg_data(uint16_t reg, uint16_t data);
-static void lcd_display_dir(uint8_t dir);
-static void lcd_scan_dir(uint8_t dir);
+static void          lcd_config_init(void);
+static GLOBAL_TYPE_T lcd_hardware_init(void);
+static uint16_t      lcd_rd_data(void);
+static void          lcd_write_reg(uint16_t regval);
+static void          lcd_write_data(uint16_t data);
+static void          lcd_write_reg_data(uint16_t reg, uint16_t data);
+static void          lcd_display_dir(uint8_t dir);
+static void          lcd_scan_dir(uint8_t dir);
 
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
-GlobalType_t lcd_driver_init(void)
+GLOBAL_TYPE_T lcd_driver_init(void)
 {
-    GlobalType_t result;
+    GLOBAL_TYPE_T result;
 
-    memset((char *)&g_lcd_info, 0, sizeof(LCD_INFO));
+    memset((char *)&s_lcd_info, 0, sizeof(LCD_INFO_T));
 
-    g_lcd_info.lcd_width  = LCD_WIDTH;
-    g_lcd_info.lcd_height = LCD_HEIGHT;
-    g_lcd_info.wramcmd    = 0x2C00;
-    g_lcd_info.setxcmd    = 0x2A00;
-    g_lcd_info.setycmd    = 0x2B00;
+    s_lcd_info.lcd_width  = LCD_WIDTH;
+    s_lcd_info.lcd_height = LCD_HEIGHT;
+    s_lcd_info.wramcmd    = 0x2C00;
+    s_lcd_info.setxcmd    = 0x2A00;
+    s_lcd_info.setycmd    = 0x2B00;
 
     result = lcd_hardware_init();
     if (result == RT_OK)
@@ -82,26 +82,26 @@ GlobalType_t lcd_driver_init(void)
     return result;
 }
 
-LCD_INFO *get_lcd_info(void)
+const LCD_INFO_T *lcd_get_info(void)
 {
-    return &g_lcd_info;
+    return &s_lcd_info;
 }
 
 /**
-  * @brief  @retval 1 once the panel is up and g_lcd_info holds the final GRAM
-  *         window (i.e. after the scan-direction swap has been applied).
-  */
-int lcd_driver_ready(void)
+ * @brief  @retval 1 once the panel is up and s_lcd_info holds the final GRAM
+ *         window (i.e. after the scan-direction swap has been applied).
+ */
+uint8_t lcd_driver_ready(void)
 {
-    return (g_lcd_ready != 0U) ? 1 : 0;
+    return s_lcd_ready;
 }
 
 void lcd_driver_clear(uint32_t color)
 {
-    uint32_t index = 0;
-    uint32_t totalpoint = g_lcd_info.lcd_width;
+    uint32_t index      = 0;
+    uint32_t totalpoint = s_lcd_info.lcd_width;
 
-    totalpoint *= g_lcd_info.lcd_height;
+    totalpoint *= s_lcd_info.lcd_height;
     lcd_set_cursor(0x0, 0x0);
     lcd_write_ram_prepare();
     for (index = 0; index < totalpoint; index++)
@@ -112,34 +112,34 @@ void lcd_driver_clear(uint32_t color)
 
 void lcd_set_cursor(uint16_t Xpos, uint16_t Ypos)
 {
-    lcd_write_reg(g_lcd_info.setxcmd);
+    lcd_write_reg(s_lcd_info.setxcmd);
     lcd_write_data(Xpos >> 8);
-    lcd_write_reg(g_lcd_info.setxcmd + 1);
+    lcd_write_reg(s_lcd_info.setxcmd + 1);
     lcd_write_data(Xpos & 0xFF);
-    lcd_write_reg(g_lcd_info.setycmd);
+    lcd_write_reg(s_lcd_info.setycmd);
     lcd_write_data(Ypos >> 8);
-    lcd_write_reg(g_lcd_info.setycmd + 1);
+    lcd_write_reg(s_lcd_info.setycmd + 1);
     lcd_write_data(Ypos & 0xFF);
 }
 
 void lcd_write_ram_prepare(void)
 {
-    LCD->LCD_REG = g_lcd_info.wramcmd;
+    LCD->LCD_REG = s_lcd_info.wramcmd;
     __NOP();
 }
 
 void lcd_fast_drawpoint(uint16_t x, uint16_t y, uint32_t color)
 {
-    lcd_write_reg(g_lcd_info.setxcmd);
+    lcd_write_reg(s_lcd_info.setxcmd);
     lcd_write_data(x >> 8);
-    lcd_write_reg(g_lcd_info.setxcmd + 1);
+    lcd_write_reg(s_lcd_info.setxcmd + 1);
     lcd_write_data(x & 0xFF);
-    lcd_write_reg(g_lcd_info.setycmd);
+    lcd_write_reg(s_lcd_info.setycmd);
     lcd_write_data(y >> 8);
-    lcd_write_reg(g_lcd_info.setycmd + 1);
+    lcd_write_reg(s_lcd_info.setycmd + 1);
     lcd_write_data(y & 0xFF);
 
-    LCD->LCD_REG = g_lcd_info.wramcmd;
+    LCD->LCD_REG = s_lcd_info.wramcmd;
     LCD->LCD_RAM = color;
 }
 
@@ -154,23 +154,23 @@ void lcd_color_fill(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t *pi
     }
 
     /* column address window */
-    lcd_write_reg(g_lcd_info.setxcmd);
+    lcd_write_reg(s_lcd_info.setxcmd);
     lcd_write_data(x >> 8);
-    lcd_write_reg(g_lcd_info.setxcmd + 1);
+    lcd_write_reg(s_lcd_info.setxcmd + 1);
     lcd_write_data(x & 0xFF);
-    lcd_write_reg(g_lcd_info.setxcmd + 2);
+    lcd_write_reg(s_lcd_info.setxcmd + 2);
     lcd_write_data((x + w - 1) >> 8);
-    lcd_write_reg(g_lcd_info.setxcmd + 3);
+    lcd_write_reg(s_lcd_info.setxcmd + 3);
     lcd_write_data((x + w - 1) & 0xFF);
 
     /* row address window */
-    lcd_write_reg(g_lcd_info.setycmd);
+    lcd_write_reg(s_lcd_info.setycmd);
     lcd_write_data(y >> 8);
-    lcd_write_reg(g_lcd_info.setycmd + 1);
+    lcd_write_reg(s_lcd_info.setycmd + 1);
     lcd_write_data(y & 0xFF);
-    lcd_write_reg(g_lcd_info.setycmd + 2);
+    lcd_write_reg(s_lcd_info.setycmd + 2);
     lcd_write_data((y + h - 1) >> 8);
-    lcd_write_reg(g_lcd_info.setycmd + 3);
+    lcd_write_reg(s_lcd_info.setycmd + 3);
     lcd_write_data((y + h - 1) & 0xFF);
 
     lcd_write_ram_prepare();
@@ -195,17 +195,17 @@ static void lcd_delay_us(uint16_t times)
     }
 }
 
-static GlobalType_t lcd_hardware_init(void)
+static GLOBAL_TYPE_T lcd_hardware_init(void)
 {
-    FMC_NORSRAM_TimingTypeDef Timing = {0};
-    FMC_NORSRAM_TimingTypeDef ExtTiming = {0};
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    FMC_NORSRAM_TimingTypeDef Timing          = {0};
+    FMC_NORSRAM_TimingTypeDef ExtTiming       = {0};
+    GPIO_InitTypeDef          GPIO_InitStruct = {0};
 
     /* Backlight off while we bring the interface up. */
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-    GPIO_InitStruct.Pin = GPIO_PIN_5;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Pin   = GPIO_PIN_5;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull  = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -213,9 +213,9 @@ static GlobalType_t lcd_hardware_init(void)
      * alternate-function 12.  The data bus (PD/PE) and address lines (PF/PG,
      * PD11..13) are shared with the SDRAM controller on this board, so
      * re-initialising them as FMC AF here is idempotent and safe. */
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF12_FMC;
 
     /* PD: D0,D1,D2,D3,NOE,NWE,NE1,D13,D14,D15,A16,A17,A18 */
@@ -242,39 +242,39 @@ static GlobalType_t lcd_hardware_init(void)
                           GPIO_PIN_4 | GPIO_PIN_5;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-    hsram1.Instance = FMC_NORSRAM_DEVICE;
-    hsram1.Extended = FMC_NORSRAM_EXTENDED_DEVICE;
-    hsram1.Init.NSBank = FMC_NORSRAM_BANK1;
-    hsram1.Init.DataAddressMux = FMC_DATA_ADDRESS_MUX_DISABLE;
-    hsram1.Init.MemoryType = FMC_MEMORY_TYPE_SRAM;
-    hsram1.Init.MemoryDataWidth = FMC_NORSRAM_MEM_BUS_WIDTH_16;
-    hsram1.Init.BurstAccessMode = FMC_BURST_ACCESS_MODE_DISABLE;
+    hsram1.Instance                = FMC_NORSRAM_DEVICE;
+    hsram1.Extended                = FMC_NORSRAM_EXTENDED_DEVICE;
+    hsram1.Init.NSBank             = FMC_NORSRAM_BANK1;
+    hsram1.Init.DataAddressMux     = FMC_DATA_ADDRESS_MUX_DISABLE;
+    hsram1.Init.MemoryType         = FMC_MEMORY_TYPE_SRAM;
+    hsram1.Init.MemoryDataWidth    = FMC_NORSRAM_MEM_BUS_WIDTH_16;
+    hsram1.Init.BurstAccessMode    = FMC_BURST_ACCESS_MODE_DISABLE;
     hsram1.Init.WaitSignalPolarity = FMC_WAIT_SIGNAL_POLARITY_LOW;
-    hsram1.Init.WrapMode = FMC_WRAP_MODE_DISABLE;
-    hsram1.Init.WaitSignalActive = FMC_WAIT_TIMING_BEFORE_WS;
-    hsram1.Init.WriteOperation = FMC_WRITE_OPERATION_ENABLE;
-    hsram1.Init.WaitSignal = FMC_WAIT_SIGNAL_DISABLE;
-    hsram1.Init.ExtendedMode = FMC_EXTENDED_MODE_ENABLE;
-    hsram1.Init.AsynchronousWait = FMC_ASYNCHRONOUS_WAIT_DISABLE;
-    hsram1.Init.WriteBurst = FMC_WRITE_BURST_DISABLE;
-    hsram1.Init.ContinuousClock = FMC_CONTINUOUS_CLOCK_SYNC_ONLY;
-    hsram1.Init.PageSize = FMC_PAGE_SIZE_NONE;
+    hsram1.Init.WrapMode           = FMC_WRAP_MODE_DISABLE;
+    hsram1.Init.WaitSignalActive   = FMC_WAIT_TIMING_BEFORE_WS;
+    hsram1.Init.WriteOperation     = FMC_WRITE_OPERATION_ENABLE;
+    hsram1.Init.WaitSignal         = FMC_WAIT_SIGNAL_DISABLE;
+    hsram1.Init.ExtendedMode       = FMC_EXTENDED_MODE_ENABLE;
+    hsram1.Init.AsynchronousWait   = FMC_ASYNCHRONOUS_WAIT_DISABLE;
+    hsram1.Init.WriteBurst         = FMC_WRITE_BURST_DISABLE;
+    hsram1.Init.ContinuousClock    = FMC_CONTINUOUS_CLOCK_SYNC_ONLY;
+    hsram1.Init.PageSize           = FMC_PAGE_SIZE_NONE;
 
-    Timing.AddressSetupTime = 15;
-    Timing.AddressHoldTime = 15;
-    Timing.DataSetupTime = 70;
+    Timing.AddressSetupTime      = 15;
+    Timing.AddressHoldTime       = 15;
+    Timing.DataSetupTime         = 70;
     Timing.BusTurnAroundDuration = 1;
-    Timing.CLKDivision = 16;
-    Timing.DataLatency = 17;
-    Timing.AccessMode = FMC_ACCESS_MODE_A;
+    Timing.CLKDivision           = 16;
+    Timing.DataLatency           = 17;
+    Timing.AccessMode            = FMC_ACCESS_MODE_A;
 
-    ExtTiming.AddressSetupTime = 15;
-    ExtTiming.AddressHoldTime = 15;
-    ExtTiming.DataSetupTime = 15;
+    ExtTiming.AddressSetupTime      = 15;
+    ExtTiming.AddressHoldTime       = 15;
+    ExtTiming.DataSetupTime         = 15;
     ExtTiming.BusTurnAroundDuration = 1;
-    ExtTiming.CLKDivision = 16;
-    ExtTiming.DataLatency = 17;
-    ExtTiming.AccessMode = FMC_ACCESS_MODE_A;
+    ExtTiming.CLKDivision           = 16;
+    ExtTiming.DataLatency           = 17;
+    ExtTiming.AccessMode            = FMC_ACCESS_MODE_A;
 
     if (HAL_SRAM_Init(&hsram1, &Timing, &ExtTiming) != HAL_OK)
     {
@@ -317,11 +317,11 @@ static void lcd_config_init(void)
     lcd_write_reg(0xDB00);
     id[0] = lcd_rd_data();
     lcd_write_reg(0xDC00);
-    id[1] = lcd_rd_data();
-    g_lcd_info.lcd_id = (uint16_t)(id[0] << 8 | id[1]);
-    PRINT_LOG("[LCD ] controller ID = 0x%04X\r\n", g_lcd_info.lcd_id);
+    id[1]             = lcd_rd_data();
+    s_lcd_info.lcd_id = (uint16_t)(id[0] << 8 | id[1]);
+    PRINT_LOG("[LCD ] controller ID = 0x%04X\r\n", s_lcd_info.lcd_id);
 
-    if (g_lcd_info.lcd_id == 0x8000)
+    if (s_lcd_info.lcd_id == 0x8000)
     {
         /* ---------- NT35510 (正点原子) ---------- */
         lcd_write_reg_data(0xF000, 0x55);
@@ -707,7 +707,7 @@ static void lcd_config_init(void)
         lcd_write_reg_data(0xC903, 0x50);
         lcd_write_reg_data(0xC904, 0x50);
         lcd_write_reg_data(0x3500, 0x00);
-        lcd_write_reg_data(0x3A00, 0x55);  /* 16-bit/pixel */
+        lcd_write_reg_data(0x3A00, 0x55); /* 16-bit/pixel */
         lcd_write_reg(0x1100);
         lcd_delay_us(120);
         lcd_write_reg(0x2900);
@@ -720,14 +720,14 @@ static void lcd_config_init(void)
          * VCOM registers on real hardware.  Orientation is applied by
          * lcd_scan_dir() below. */
         PRINT_LOG("[LCD ] using ILI9806E generic init (tune on hardware)\r\n");
-        lcd_write_reg(0x01);          /* software reset */
+        lcd_write_reg(0x01); /* software reset */
         lcd_delay_us(10);
         lcd_delay_us(120);
-        lcd_write_reg(0x11);          /* sleep out */
+        lcd_write_reg(0x11); /* sleep out */
         lcd_delay_us(120);
-        lcd_write_reg_data(0x3A, 0x55);   /* 16 bpp RGB565 */
-        lcd_write_reg_data(0x36, 0x00);   /* MADCTL (tune for orientation) */
-        lcd_write_reg(0x29);          /* display on */
+        lcd_write_reg_data(0x3A, 0x55); /* 16 bpp RGB565 */
+        lcd_write_reg_data(0x36, 0x00); /* MADCTL (tune for orientation) */
+        lcd_write_reg(0x29);            /* display on */
         lcd_delay_us(20);
     }
 
@@ -740,17 +740,17 @@ static void lcd_config_init(void)
     lcd_display_dir(LCD_DEFAULT_DIR);
     lcd_driver_clear(LCD_BLACK);
     LCD_BACKLIGHT_ON();
-    g_lcd_ready = 1U;
+    s_lcd_ready = 1U;
     PRINT_LOG("[LCD ] active GRAM window %lux%lu (dir %u, MADCTL 0x%02X)\r\n",
-              (unsigned long)g_lcd_info.lcd_width,
-              (unsigned long)g_lcd_info.lcd_height,
-              (unsigned)g_lcd_info.lcd_dir,
-              (unsigned)((g_lcd_info.lcd_dir == 0U) ? 0x00U : 0xA0U));
+              (unsigned long)s_lcd_info.lcd_width,
+              (unsigned long)s_lcd_info.lcd_height,
+              (unsigned)s_lcd_info.lcd_dir,
+              (unsigned)((s_lcd_info.lcd_dir == 0U) ? 0x00U : 0xA0U));
 }
 
 static void lcd_display_dir(uint8_t dir)
 {
-    g_lcd_info.lcd_dir = dir;
+    s_lcd_info.lcd_dir = dir;
 
     /* The NT35510 drives 480 source columns and 800 gate rows, so 480x800 is
      * the only orientation it can address without transposing the GRAM.  In
@@ -761,13 +761,13 @@ static void lcd_display_dir(uint8_t dir)
      * revision of this driver produced. */
     if (dir == 0U)
     {
-        g_lcd_info.lcd_width  = 480U;
-        g_lcd_info.lcd_height = 800U;
+        s_lcd_info.lcd_width  = 480U;
+        s_lcd_info.lcd_height = 800U;
     }
     else
     {
-        g_lcd_info.lcd_width  = 800U;
-        g_lcd_info.lcd_height = 480U;
+        s_lcd_info.lcd_width  = 800U;
+        s_lcd_info.lcd_height = 480U;
     }
 
     /* lcd_scan_dir() re-checks the pair against MADCTL's MV bit. */
@@ -782,33 +782,68 @@ static void lcd_scan_dir(uint8_t dir)
     /* A landscape (dir == 1) frame is stored transposed, so the requested
      * "left-to-right / up-to-down" scan has to be rotated into the equivalent
      * source-major direction.  Mapping identical to 正点原子 LCD_Scan_Dir(). */
-    if (g_lcd_info.lcd_dir == 1U)
+    if (s_lcd_info.lcd_dir == 1U)
     {
         switch (dir)
         {
-            case L2R_U2D: dir = D2U_L2R; break;
-            case L2R_D2U: dir = D2U_R2L; break;
-            case R2L_U2D: dir = U2D_L2R; break;
-            case R2L_D2U: dir = U2D_R2L; break;
-            case U2D_L2R: dir = L2R_D2U; break;
-            case U2D_R2L: dir = L2R_U2D; break;
-            case D2U_L2R: dir = R2L_D2U; break;
-            case D2U_R2L: dir = R2L_U2D; break;
-            default: break;
+        case L2R_U2D:
+            dir = D2U_L2R;
+            break;
+        case L2R_D2U:
+            dir = D2U_R2L;
+            break;
+        case R2L_U2D:
+            dir = U2D_L2R;
+            break;
+        case R2L_D2U:
+            dir = U2D_R2L;
+            break;
+        case U2D_L2R:
+            dir = L2R_D2U;
+            break;
+        case U2D_R2L:
+            dir = L2R_U2D;
+            break;
+        case D2U_L2R:
+            dir = R2L_D2U;
+            break;
+        case D2U_R2L:
+            dir = R2L_U2D;
+            break;
+        default:
+            break;
         }
     }
 
     switch (dir)
     {
-        case L2R_U2D:  regval |= (0 << 7) | (0 << 6) | (0 << 5); break;
-        case L2R_D2U:  regval |= (1 << 7) | (0 << 6) | (0 << 5); break;
-        case R2L_U2D:  regval |= (0 << 7) | (1 << 6) | (0 << 5); break;
-        case R2L_D2U:  regval |= (1 << 7) | (1 << 6) | (0 << 5); break;
-        case U2D_L2R:  regval |= (0 << 7) | (0 << 6) | (1 << 5); break;
-        case U2D_R2L:  regval |= (0 << 7) | (1 << 6) | (1 << 5); break;
-        case D2U_L2R:  regval |= (1 << 7) | (0 << 6) | (1 << 5); break;
-        case D2U_R2L:  regval |= (1 << 7) | (1 << 6) | (1 << 5); break;
-        default:       regval |= (0 << 7) | (0 << 6) | (0 << 5); break;
+    case L2R_U2D:
+        regval |= (0 << 7) | (0 << 6) | (0 << 5);
+        break;
+    case L2R_D2U:
+        regval |= (1 << 7) | (0 << 6) | (0 << 5);
+        break;
+    case R2L_U2D:
+        regval |= (0 << 7) | (1 << 6) | (0 << 5);
+        break;
+    case R2L_D2U:
+        regval |= (1 << 7) | (1 << 6) | (0 << 5);
+        break;
+    case U2D_L2R:
+        regval |= (0 << 7) | (0 << 6) | (1 << 5);
+        break;
+    case U2D_R2L:
+        regval |= (0 << 7) | (1 << 6) | (1 << 5);
+        break;
+    case D2U_L2R:
+        regval |= (1 << 7) | (0 << 6) | (1 << 5);
+        break;
+    case D2U_R2L:
+        regval |= (1 << 7) | (1 << 6) | (1 << 5);
+        break;
+    default:
+        regval |= (0 << 7) | (0 << 6) | (0 << 5);
+        break;
     }
 
     lcd_write_reg_data(0x3600, regval);
@@ -817,38 +852,38 @@ static void lcd_scan_dir(uint8_t dir)
      * gate (800) direction and the height the source (480) direction. */
     if ((regval & 0x20U) != 0U)
     {
-        if (g_lcd_info.lcd_width < g_lcd_info.lcd_height)
+        if (s_lcd_info.lcd_width < s_lcd_info.lcd_height)
         {
-            temp = g_lcd_info.lcd_width;
-            g_lcd_info.lcd_width = g_lcd_info.lcd_height;
-            g_lcd_info.lcd_height = temp;
+            temp                  = s_lcd_info.lcd_width;
+            s_lcd_info.lcd_width  = s_lcd_info.lcd_height;
+            s_lcd_info.lcd_height = temp;
         }
     }
     else
     {
-        if (g_lcd_info.lcd_width > g_lcd_info.lcd_height)
+        if (s_lcd_info.lcd_width > s_lcd_info.lcd_height)
         {
-            temp = g_lcd_info.lcd_width;
-            g_lcd_info.lcd_width = g_lcd_info.lcd_height;
-            g_lcd_info.lcd_height = temp;
+            temp                  = s_lcd_info.lcd_width;
+            s_lcd_info.lcd_width  = s_lcd_info.lcd_height;
+            s_lcd_info.lcd_height = temp;
         }
     }
 
     /* define the screen region */
-    lcd_write_reg(g_lcd_info.setxcmd);
+    lcd_write_reg(s_lcd_info.setxcmd);
     lcd_write_data(0);
-    lcd_write_reg(g_lcd_info.setxcmd + 1);
+    lcd_write_reg(s_lcd_info.setxcmd + 1);
     lcd_write_data(0);
-    lcd_write_reg(g_lcd_info.setxcmd + 2);
-    lcd_write_data((uint16_t)((g_lcd_info.lcd_width - 1) >> 8));
-    lcd_write_reg(g_lcd_info.setxcmd + 3);
-    lcd_write_data((uint16_t)((g_lcd_info.lcd_width - 1) & 0xFF));
-    lcd_write_reg(g_lcd_info.setycmd);
+    lcd_write_reg(s_lcd_info.setxcmd + 2);
+    lcd_write_data((uint16_t)((s_lcd_info.lcd_width - 1) >> 8));
+    lcd_write_reg(s_lcd_info.setxcmd + 3);
+    lcd_write_data((uint16_t)((s_lcd_info.lcd_width - 1) & 0xFF));
+    lcd_write_reg(s_lcd_info.setycmd);
     lcd_write_data(0);
-    lcd_write_reg(g_lcd_info.setycmd + 1);
+    lcd_write_reg(s_lcd_info.setycmd + 1);
     lcd_write_data(0);
-    lcd_write_reg(g_lcd_info.setycmd + 2);
-    lcd_write_data((uint16_t)((g_lcd_info.lcd_height - 1) >> 8));
-    lcd_write_reg(g_lcd_info.setycmd + 3);
-    lcd_write_data((uint16_t)((g_lcd_info.lcd_height - 1) & 0xFF));
+    lcd_write_reg(s_lcd_info.setycmd + 2);
+    lcd_write_data((uint16_t)((s_lcd_info.lcd_height - 1) >> 8));
+    lcd_write_reg(s_lcd_info.setycmd + 3);
+    lcd_write_data((uint16_t)((s_lcd_info.lcd_height - 1) & 0xFF));
 }

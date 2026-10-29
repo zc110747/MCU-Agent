@@ -1,210 +1,213 @@
 /**
-  ******************************************************************************
-  * @file    bsp_uart.c
-  * @brief   USART1 (PA9/PA10) debug console with a scheduler-aware TX path.
-  *
-  *  Transmit paths
-  *  --------------
-  *    scheduler NOT running (boot)  -> blocking polled HAL_UART_Transmit()
-  *    scheduler RUNNING             -> mutex + critical section ring enqueue,
-  *                                     drained by the TXE interrupt
-  *
-  *  Why the polled path matters: before vTaskStartScheduler() the TXE ISR may
-  *  not be live / may be masked, and nobody polls the ring, so an enqueue-only
-  *  path would silently swallow the boot banner.  Blocking transmit is slow
-  *  but it is only used during start-up and it never drops a byte.
-  *
-  *  Why the mutex is LAZY
-  *  ---------------------
-  *  BSP_UART_Init() is called before the SDRAM is up and therefore before
-  *  vPortDefineHeapRegions(); xSemaphoreCreateMutex() there would allocate from
-  *  an undefined heap.  The mutex is created on first use instead, i.e. on the
-  *  first uart_write() that happens with the scheduler running - by then ucHeap
-  *  is valid.  The critical section makes that lazy init race-free.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_uart.c
+ * @brief   USART1 (PA9/PA10) debug console with a scheduler-aware TX path.
+ *
+ *  Transmit paths
+ *  --------------
+ *    scheduler NOT running (boot)  -> blocking polled HAL_UART_Transmit()
+ *    scheduler RUNNING             -> mutex + critical section ring enqueue,
+ *                                     drained by the TXE interrupt
+ *
+ *  Why the polled path matters: before vTaskStartScheduler() the TXE ISR may
+ *  not be live / may be masked, and nobody polls the ring, so an enqueue-only
+ *  path would silently swallow the boot banner.  Blocking transmit is slow
+ *  but it is only used during start-up and it never drops a byte.
+ *
+ *  Why the mutex is LAZY: bsp_uart_init() runs before the SDRAM is up and
+ *  therefore before vPortDefineHeapRegions(); xSemaphoreCreateMutex() there
+ *  would allocate from an undefined heap.  The mutex is created on first use
+ *  instead, i.e. on the first uart_write() that happens with the scheduler
+ *  running - by then ucHeap is valid.  The critical section makes that lazy
+ *  init race-free.
+ ******************************************************************************
+ */
 #include "bsp_uart.h"
-#include "FreeRTOS.h"   /* core FreeRTOS definitions */
-#include "task.h"       /* taskENTER_CRITICAL / xTaskGetSchedulerState */
+#include "FreeRTOS.h" /* core FreeRTOS definitions */
+#include "task.h"     /* taskENTER_CRITICAL / xTaskGetSchedulerState */
 #include "semphr.h"
 #include <string.h>
 
-void Error_Handler(void);  /* defined in main.c */
+void error_handler(void); /* defined in main.c */
 
 UART_HandleTypeDef huart1;
 
-/* ---- TX: ring buffer + critical section ---- */
-static uint8_t g_tx_buf[UART_TX_BUF_SIZE];
-static volatile uint16_t g_tx_head = 0;   /* written by uart_write */
-static volatile uint16_t g_tx_tail = 0;   /* read by IRQ */
-static volatile uint8_t  g_tx_busy = 0;   /* transmitter active */
-static volatile uint8_t  g_uart_ready = 0;
+/* Everything the TX path owns: ring + drain flags + serialisation mutex. */
+typedef struct
+{
+    uint8_t           buf[UART_TX_BUF_SIZE]; /* ring storage */
+    volatile uint16_t head;                  /* written by uart_write */
+    volatile uint16_t tail;                  /* written by the TXE ISR */
+    volatile uint8_t  busy;                  /* transmitter active */
+    volatile uint8_t  ready;                 /* USART1 configured */
+    SemaphoreHandle_t mutex;                 /* NULL until first post-sched use */
+} UART_TX_STATE_T;
 
-/* Serialises concurrent uart_write() callers once the scheduler is up.
- * NULL until the first post-scheduler write (see the file header). */
-static SemaphoreHandle_t g_tx_mutex = NULL;
+static UART_TX_STATE_T s_uart_tx = {0};
 
 static inline uint16_t tx_used(void)
 {
-  return (uint16_t)((g_tx_head - g_tx_tail) & (UART_TX_BUF_SIZE - 1));
+    return (uint16_t)((s_uart_tx.head - s_uart_tx.tail) & (UART_TX_BUF_SIZE - 1U));
 }
 
 /**
-  * @brief  Return the TX mutex, creating it on first use.
-  * @retval the mutex, or NULL if it could not be created (caller then runs
-  *         unprotected, which is still correct - the critical section below
-  *         keeps the ring itself consistent).
-  */
+ * @brief  Return the TX mutex, creating it on first use.
+ * @retval the mutex, or NULL if it could not be created (caller then runs
+ *         unprotected, which is still correct - the critical section below
+ *         keeps the ring itself consistent).
+ */
 static SemaphoreHandle_t tx_mutex_get(void)
 {
-  taskENTER_CRITICAL();
-  if (g_tx_mutex == NULL)
-  {
-    g_tx_mutex = xSemaphoreCreateMutex();
-  }
-  taskEXIT_CRITICAL();
-
-  return g_tx_mutex;
-}
-
-void BSP_UART_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  __HAL_RCC_USART1_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  GPIO_InitStruct.Pin       = GPIO_PIN_9 | GPIO_PIN_10;   /* PA9 = TX, PA10 = RX */
-  GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull      = GPIO_NOPULL;
-  GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  huart1.Instance          = USART1;
-  huart1.Init.BaudRate     = 115200;
-  huart1.Init.WordLength   = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits     = UART_STOPBITS_1;
-  huart1.Init.Parity       = UART_PARITY_NONE;
-  huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
-  huart1.Init.Mode         = UART_MODE_TX_RX;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /* Enable TXE interrupt so the ring drains in the ISR.  Priority below
-   * configMAX_SYSCALL_INTERRUPT_PRIORITY is not required for TX (no FreeRTOS
-   * API used), but keep it modest. */
-  HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
-  HAL_NVIC_EnableIRQ(USART1_IRQn);
-  g_uart_ready = 1;
-}
-
-int uart_write(const uint8_t *data, int len)
-{
-  int queued = 0;
-  SemaphoreHandle_t mtx;
-
-  /* Boot stage (or UART not up yet): the TXE ISR is not draining the ring, so
-   * enqueue-only would silently swallow the boot banner.  Use a blocking
-   * polled transmit instead - slow, but it never drops a byte and it does not
-   * need the interrupt or the scheduler. */
-  if ((g_uart_ready == 0) ||
-      (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING))
-  {
-    if (g_uart_ready == 0)
+    taskENTER_CRITICAL();
+    if (s_uart_tx.mutex == NULL)
     {
-      return 0;                                   /* nothing to transmit on */
+        s_uart_tx.mutex = xSemaphoreCreateMutex();
     }
-    HAL_UART_Transmit(&huart1, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
-    return len;
-  }
+    taskEXIT_CRITICAL();
 
-  mtx = tx_mutex_get();
-  if (mtx != NULL)
-  {
-    if (xSemaphoreTake(mtx, portMAX_DELAY) != pdTRUE)
-    {
-      return 0;
-    }
-  }
-
-  /* Critical section protects the ring counters + busy flag from the ISR.
-   * The whole line is enqueued in one go, so log lines never interleave. */
-  taskENTER_CRITICAL();
-  for (int i = 0; i < len; i++)
-  {
-    uint16_t next = (uint16_t)((g_tx_head + 1) & (UART_TX_BUF_SIZE - 1));
-    if (next == g_tx_tail) break;           /* full -> drop the remainder */
-    g_tx_buf[g_tx_head] = data[i];
-    g_tx_head = next;
-    queued++;
-  }
-  if (g_tx_busy == 0 && g_tx_head != g_tx_tail)
-  {
-    g_tx_busy = 1;
-    SET_BIT(huart1.Instance->CR1, USART_CR1_TXEIE);
-  }
-  taskEXIT_CRITICAL();
-
-  if (mtx != NULL)
-  {
-    xSemaphoreGive(mtx);
-  }
-
-  return queued;
+    return s_uart_tx.mutex;
 }
 
-int uart_puts(const char *s)
+void bsp_uart_init(void)
 {
-  return uart_write((const uint8_t *)s, (int)strlen(s));
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_USART1_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    GPIO_InitStruct.Pin       = GPIO_PIN_9 | GPIO_PIN_10; /* PA9 = TX, PA10 = RX */
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    huart1.Instance          = USART1;
+    huart1.Init.BaudRate     = 115200;
+    huart1.Init.WordLength   = UART_WORDLENGTH_8B;
+    huart1.Init.StopBits     = UART_STOPBITS_1;
+    huart1.Init.Parity       = UART_PARITY_NONE;
+    huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+    huart1.Init.Mode         = UART_MODE_TX_RX;
+    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&huart1) != HAL_OK)
+    {
+        error_handler();
+    }
+
+    /* Enable the TXE interrupt so the ring drains in the ISR.  Priority 6 sits
+     * below configMAX_SYSCALL_INTERRUPT_PRIORITY; the TX path calls no FreeRTOS
+     * API from the ISR, so this is safe. */
+    HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+    s_uart_tx.ready = 1U;
+}
+
+int32_t uart_write(const uint8_t *data, int32_t len)
+{
+    int32_t           queued = 0;
+    SemaphoreHandle_t mtx;
+
+    /* Boot stage (or UART not up yet): the TXE ISR is not draining the ring, so
+     * enqueue-only would silently swallow the boot banner.  Use a blocking
+     * polled transmit instead - slow, but it never drops a byte and it does not
+     * need the interrupt or the scheduler. */
+    if ((s_uart_tx.ready == 0U) || (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING))
+    {
+        if (s_uart_tx.ready == 0U)
+        {
+            return 0; /* nothing to transmit on */
+        }
+        HAL_UART_Transmit(&huart1, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
+        return len;
+    }
+
+    mtx = tx_mutex_get();
+    if (mtx != NULL)
+    {
+        if (xSemaphoreTake(mtx, portMAX_DELAY) != pdTRUE)
+        {
+            return 0;
+        }
+    }
+
+    /* Critical section protects the ring counters + busy flag from the ISR.
+     * The whole line is enqueued in one go, so log lines never interleave. */
+    taskENTER_CRITICAL();
+    for (int32_t i = 0; i < len; i++)
+    {
+        uint16_t next = (uint16_t)((s_uart_tx.head + 1U) & (UART_TX_BUF_SIZE - 1U));
+        if (next == s_uart_tx.tail)
+        {
+            break; /* full -> drop the remainder */
+        }
+        s_uart_tx.buf[s_uart_tx.head] = data[i];
+        s_uart_tx.head                = next;
+        queued++;
+    }
+    if ((s_uart_tx.busy == 0U) && (s_uart_tx.head != s_uart_tx.tail))
+    {
+        s_uart_tx.busy = 1U;
+        SET_BIT(huart1.Instance->CR1, USART_CR1_TXEIE);
+    }
+    taskEXIT_CRITICAL();
+
+    if (mtx != NULL)
+    {
+        xSemaphoreGive(mtx);
+    }
+
+    return queued;
+}
+
+int32_t uart_puts(const char *s)
+{
+    return uart_write((const uint8_t *)s, (int32_t)strlen(s));
 }
 
 void uart_flush(void)
 {
-  uint32_t guard = 200000U;      /* ~1 s of spins: never hang the caller */
+    uint32_t guard = 200000U; /* ~1 s of spins: never hang the caller */
 
-  /* Wait until no bytes are pending and the transmitter has gone idle.
-   * Before the scheduler is up the polled path already sent everything, so
-   * this returns immediately in that case. */
-  while ((g_tx_busy != 0 || tx_used() != 0) && (guard-- > 0U))
-  {
-    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+    /* Wait until no bytes are pending and the transmitter has gone idle.
+     * Before the scheduler is up the polled path already sent everything, so
+     * this returns immediately in that case. */
+    while (((s_uart_tx.busy != 0U) || (tx_used() != 0U)) && (guard-- > 0U))
     {
-      vTaskDelay(pdMS_TO_TICKS(1));   /* let the ISR make progress */
+        if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1)); /* let the ISR make progress */
+        }
     }
-  }
 }
 
 /* Real USART1 vector: overrides the weak Default_Handler in the startup .s. */
 void USART1_IRQHandler(void)
 {
-  BSP_UART_IRQHandler();
+    bsp_uart_irq_handler();
 }
 
-void BSP_UART_IRQHandler(void)
+void bsp_uart_irq_handler(void)
 {
-  uint32_t sr = READ_REG(huart1.Instance->SR);
+    uint32_t sr = READ_REG(huart1.Instance->SR);
 
-  if ((sr & USART_SR_TXE) != 0)
-  {
-    if (g_tx_tail != g_tx_head)
+    if ((sr & USART_SR_TXE) != 0U)
     {
-      huart1.Instance->DR = g_tx_buf[g_tx_tail];
-      g_tx_tail = (uint16_t)((g_tx_tail + 1) & (UART_TX_BUF_SIZE - 1));
+        if (s_uart_tx.tail != s_uart_tx.head)
+        {
+            huart1.Instance->DR = s_uart_tx.buf[s_uart_tx.tail];
+            s_uart_tx.tail      = (uint16_t)((s_uart_tx.tail + 1U) & (UART_TX_BUF_SIZE - 1U));
+        }
+        else
+        {
+            CLEAR_BIT(huart1.Instance->CR1, USART_CR1_TXEIE);
+            s_uart_tx.busy = 0U;
+        }
     }
-    else
-    {
-      CLEAR_BIT(huart1.Instance->CR1, USART_CR1_TXEIE);
-      g_tx_busy = 0;
-    }
-  }
 
-  /* RX: clear RXNE to avoid a sticky interrupt; not consumed by the demo. */
-  if ((sr & USART_SR_RXNE) != 0)
-  {
-    (void)huart1.Instance->DR;
-  }
+    /* RX: clear RXNE to avoid a sticky interrupt; not consumed by the demo. */
+    if ((sr & USART_SR_RXNE) != 0U)
+    {
+        (void)huart1.Instance->DR;
+    }
 }

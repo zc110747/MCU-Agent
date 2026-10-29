@@ -1,35 +1,35 @@
 /**
-  ******************************************************************************
-  * @file    bsp_sdio.c
-  * @brief   microSD card driver over SDIO (4-bit wide bus), polled (no DMA).
-  *
-  *  Based on embedded_based_on_stm32/code/00-Drivers/drv_sdio.c.
-  *
-  *  Retry policy
-  *  ------------
-  *  bsp_sdio_init() may be called as often as the caller likes.  A failure can
-  *  mean "no card in the socket" as much as "real error", so the state is not
-  *  latched: every call re-arms the peripheral and re-runs the full
-  *  enumeration.  With no card installed SD_PowerON() bails out on the first
-  *  CMD55 (no response -> error returned), so a failed attempt costs well
-  *  under a millisecond and is safe to repeat from a task loop.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    bsp_sdio.c
+ * @brief   microSD card driver over SDIO (4-bit wide bus), polled (no DMA).
+ *
+ *  Based on embedded_based_on_stm32/code/00-Drivers/drv_sdio.c.
+ *
+ *  Retry policy
+ *  ------------
+ *  bsp_sdio_init() may be called as often as the caller likes.  A failure can
+ *  mean "no card in the socket" as much as "real error", so the state is not
+ *  latched: every call re-arms the peripheral and re-runs the full
+ *  enumeration.  With no card installed SD_PowerON() bails out on the first
+ *  CMD55 (no response -> error returned), so a failed attempt costs well
+ *  under a millisecond and is safe to repeat from a task loop.
+ ******************************************************************************
+ */
 #include "bsp_sdio.h"
 
 #include <stdio.h>
 
 SD_HandleTypeDef hsd_card;
 
-static int s_ready = 0;
+static uint8_t s_ready = 0U;
 
 /* -------------------------------------------------------------------------- */
 /* Hardware bring-up                                                          */
 /* -------------------------------------------------------------------------- */
 
 /**
-  * @brief  SDIO + GPIO clocks and pin mux (called before every HAL_SD_Init).
-  */
+ * @brief  SDIO + GPIO clocks and pin mux (called before every HAL_SD_Init).
+ */
 static void sdio_msp_init(void)
 {
     GPIO_InitTypeDef gpio = {0};
@@ -60,11 +60,11 @@ static void sdio_msp_init(void)
 /* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
 
-GlobalType_t bsp_sdio_init(void)
+GLOBAL_TYPE_T bsp_sdio_init(void)
 {
     sdio_msp_init();
 
-    hsd_card.Instance           = SDIO;
+    hsd_card.Instance                 = SDIO;
     hsd_card.Init.ClockEdge           = SDIO_CLOCK_EDGE_RISING;
     hsd_card.Init.ClockBypass         = SDIO_CLOCK_BYPASS_DISABLE;
     hsd_card.Init.ClockPowerSave      = SDIO_CLOCK_POWER_SAVE_DISABLE;
@@ -96,7 +96,7 @@ void bsp_sdio_deinit(void)
     s_ready = 0;
 }
 
-int bsp_sdio_is_ready(void)
+uint8_t bsp_sdio_is_ready(void)
 {
     return s_ready;
 }
@@ -104,7 +104,7 @@ int bsp_sdio_is_ready(void)
 HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint32_t nblocks)
 {
     HAL_StatusTypeDef st;
-    uint32_t waited = 0;
+    uint32_t          waited = 0;
 
     if (!s_ready)
     {
@@ -135,7 +135,7 @@ HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint3
 HAL_StatusTypeDef bsp_sdio_write_blocks(const uint8_t *buf, uint32_t start_block, uint32_t nblocks)
 {
     HAL_StatusTypeDef st;
-    uint32_t waited = 0;
+    uint32_t          waited = 0;
 
     if (!s_ready)
     {
@@ -161,7 +161,7 @@ HAL_StatusTypeDef bsp_sdio_write_blocks(const uint8_t *buf, uint32_t start_block
     return HAL_OK;
 }
 
-GlobalType_t bsp_sdio_get_info(uint32_t *block_count, uint16_t *block_size)
+GLOBAL_TYPE_T bsp_sdio_get_info(uint32_t *block_count, uint16_t *block_size)
 {
     HAL_SD_CardInfoTypeDef info;
 

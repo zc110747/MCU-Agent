@@ -1,25 +1,25 @@
 /**
-  ******************************************************************************
-  * @file    lv_port_disp.c
-  * @brief   LVGL display port for the NT35510 800x480 panel on FMC Bank1 NE1
-  *          (8080 16-bit, polled writes -- no LTDC, no DMA2D).
-  *
-  *  Pixel format
-  *  ------------
-  *  LV_COLOR_DEPTH = 16 and LV_COLOR_16_SWAP = 0: one lv_color_t is one RGB565
-  *  word, which is exactly what lcd_color_fill() writes into the panel GRAM.
-  *  No byte swapping anywhere.
-  *
-  *  Buffering
-  *  ---------
-  *  The flush is a blocking FIFO write loop, so a second draw buffer would buy
-  *  nothing -- LVGL cannot render ahead while the CPU is feeding the panel.
-  *  One partial buffer of DISP_BUF_LINES rows is used instead: 800 x 60 x 2 B =
-  *  96 kB, i.e. 12.5% of the screen, comfortably above the 10% LVGL asks for.
-  *  It is taken from the FreeRTOS heap (external SDRAM) so the 192 kB of
-  *  internal SRAM stays available for the audio buffers and task stacks.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    lv_port_disp.c
+ * @brief   LVGL display port for the NT35510 800x480 panel on FMC Bank1 NE1
+ *          (8080 16-bit, polled writes -- no LTDC, no DMA2D).
+ *
+ *  Pixel format
+ *  ------------
+ *  LV_COLOR_DEPTH = 16 and LV_COLOR_16_SWAP = 0: one lv_color_t is one RGB565
+ *  word, which is exactly what lcd_color_fill() writes into the panel GRAM.
+ *  No byte swapping anywhere.
+ *
+ *  Buffering
+ *  ---------
+ *  The flush is a blocking FIFO write loop, so a second draw buffer would buy
+ *  nothing -- LVGL cannot render ahead while the CPU is feeding the panel.
+ *  One partial buffer of DISP_BUF_LINES rows is used instead: 800 x 60 x 2 B =
+ *  96 kB, i.e. 12.5% of the screen, comfortably above the 10% LVGL asks for.
+ *  It is taken from the FreeRTOS heap (external SDRAM) so the 192 kB of
+ *  internal SRAM stays available for the audio buffers and task stacks.
+ ******************************************************************************
+ */
 #include "lv_port_disp.h"
 #include "lvgl.h"
 #include "bsp_lcd.h"
@@ -28,17 +28,17 @@
 #include "log.h"
 
 /* Rows held in the draw buffer: 800 x 60 x 2 B = 96 kB. */
-#define DISP_BUF_LINES      60U
+#define DISP_BUF_LINES 60U
 
-static lv_disp_draw_buf_t   s_draw_buf_dsc;
-static lv_disp_drv_t        s_disp_drv;
+static lv_disp_draw_buf_t s_draw_buf_dsc;
+static lv_disp_drv_t      s_disp_drv;
 /* Draw buffer lives in SDRAM (pvPortMalloc) so an 800 px wide partial buffer
  * does not consume the 256 KB internal SRAM. */
-static lv_color_t          *s_draw_buf = NULL;
+static lv_color_t *s_draw_buf = NULL;
 
 /**
-  * @brief  Push one rendered area to the panel.
-  */
+ * @brief  Push one rendered area to the panel.
+ */
 static void disp_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p)
 {
     uint16_t w = (uint16_t)(area->x2 - area->x1 + 1);

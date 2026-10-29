@@ -1,23 +1,23 @@
 /**
-  ******************************************************************************
-  * @file    audio_player.c
-  * @brief   WAV playback engine (one task owns the whole audio path).
-  *
-  *  Buffer strategy
-  *  ----------------
-  *  Two 4 KB halves driven by DMA2 Stream3 in double-buffer mode.  At 44.1 kHz
-  *  stereo 16-bit one half is ~23 ms of audio, which is three orders of
-  *  magnitude longer than a polled SDIO read of the same size -- so refilling
-  *  from the task, never from the ISR, costs no audio continuity.
-  *
-  *  Why the ISR records the free half
-  *  ---------------------------------
-  *  bsp_sai_free_buffer() reads the DMA's CT bit.  If the task were delayed by
-  *  more than one buffer period, CT would already have flipped again and the
-  *  task would refill the half that is *playing*.  Sampling CT inside the ISR
-  *  and handing that index to the task keeps the pairing exact.
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    audio_player.c
+ * @brief   WAV playback engine (one task owns the whole audio path).
+ *
+ *  Buffer strategy
+ *  ----------------
+ *  Two 4 KB halves driven by DMA2 Stream3 in double-buffer mode.  At 44.1 kHz
+ *  stereo 16-bit one half is ~23 ms of audio, which is three orders of
+ *  magnitude longer than a polled SDIO read of the same size -- so refilling
+ *  from the task, never from the ISR, costs no audio continuity.
+ *
+ *  Why the ISR records the free half
+ *  ---------------------------------
+ *  bsp_sai_free_buffer() reads the DMA's CT bit.  If the task were delayed by
+ *  more than one buffer period, CT would already have flipped again and the
+ *  task would refill the half that is *playing*.  Sampling CT inside the ISR
+ *  and handing that index to the task keeps the pairing exact.
+ ******************************************************************************
+ */
 #include <stdio.h>
 #include <string.h>
 
@@ -38,23 +38,22 @@
 
 /* One DMA half buffer.  4 KB is what the ALIENTEK reference uses; it is also
  * the smallest size that stayed glitch-free at 24-bit / 192 kHz there. */
-#define AUDIO_BUF_BYTES     4096U
-#define AUDIO_TASK_STACK    768U
-#define AUDIO_TASK_PRIO     (tskIDLE_PRIORITY + 3)
+#define AUDIO_BUF_BYTES 4096U
+#define AUDIO_TASK_STACK 768U
+#define AUDIO_TASK_PRIO (tskIDLE_PRIORITY + 3)
 
-typedef enum
-{
-  TRACK_RESULT_NEXT = 0,
-  TRACK_RESULT_PREV,
-  TRACK_RESULT_ERROR,
+typedef enum {
+    TRACK_RESULT_NEXT = 0,
+    TRACK_RESULT_PREV,
+    TRACK_RESULT_ERROR,
 } TRACK_RESULT_T;
 
 typedef struct
 {
-  AUDIO_STATUS_T status;
-  volatile bool  req_next;
-  volatile bool  req_prev;
-  volatile uint8_t free_half;    /* written by the DMA ISR */
+    AUDIO_STATUS_T   status;
+    volatile bool    req_next;
+    volatile bool    req_prev;
+    volatile uint8_t free_half; /* written by the DMA ISR */
 } AUDIO_RUNTIME_T;
 
 static AUDIO_RUNTIME_T s_audio = {0};
@@ -69,11 +68,11 @@ static SemaphoreHandle_t s_dma_sem = NULL;
 /* -------------------------------------------------------------------------- */
 static void audio_dma_complete(void)
 {
-  BaseType_t woken = pdFALSE;
+    BaseType_t woken = pdFALSE;
 
-  s_audio.free_half = bsp_sai_free_buffer();
-  (void)xSemaphoreGiveFromISR(s_dma_sem, &woken);
-  portYIELD_FROM_ISR(woken);
+    s_audio.free_half = bsp_sai_free_buffer();
+    (void)xSemaphoreGiveFromISR(s_dma_sem, &woken);
+    portYIELD_FROM_ISR(woken);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -81,25 +80,25 @@ static void audio_dma_complete(void)
 /* -------------------------------------------------------------------------- */
 static uint32_t read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bits)
 {
-  uint32_t produced;
+    uint32_t produced;
 
-  fs_lock();
-  produced = wav_read_pcm(fp, dst, bytes, bits);
-  fs_unlock();
-  return produced;
+    fs_lock();
+    produced = wav_read_pcm(fp, dst, bytes, bits);
+    fs_unlock();
+    return produced;
 }
 
 static void publish_track(const WAV_INFO_T *info)
 {
-  const char *name = playlist_name((uint16_t)playlist_current());
+    const char *name = playlist_name((uint16_t)playlist_current());
 
-  s_audio.status.track            = playlist_current();
-  s_audio.status.total_seconds    = info->total_seconds;
-  s_audio.status.current_seconds  = 0U;
-  s_audio.status.sample_rate      = (uint16_t)info->sample_rate;
-  s_audio.status.bits_per_sample  = info->bits_per_sample;
-  (void)snprintf(s_audio.status.name, sizeof(s_audio.status.name), "%s",
-                 (name != NULL) ? name : "?");
+    s_audio.status.track           = playlist_current();
+    s_audio.status.total_seconds   = info->total_seconds;
+    s_audio.status.current_seconds = 0U;
+    s_audio.status.sample_rate     = (uint16_t)info->sample_rate;
+    s_audio.status.bits_per_sample = info->bits_per_sample;
+    (void)snprintf(s_audio.status.name, sizeof(s_audio.status.name), "%s",
+                   (name != NULL) ? name : "?");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -107,150 +106,150 @@ static void publish_track(const WAV_INFO_T *info)
 /* -------------------------------------------------------------------------- */
 static TRACK_RESULT_T play_one_track(void)
 {
-  FIL fp;
-  WAV_INFO_T info;
-  FRESULT rc;
-  char path[PLAYLIST_NAME_MAX + 16U];
-  uint16_t bits;
-  uint32_t filled0;
-  uint32_t filled1;
-  TRACK_RESULT_T result = TRACK_RESULT_NEXT;
+    FIL            fp;
+    WAV_INFO_T     info;
+    FRESULT        rc;
+    char           path[PLAYLIST_NAME_MAX + 16U];
+    uint16_t       bits;
+    uint32_t       filled0;
+    uint32_t       filled1;
+    TRACK_RESULT_T result = TRACK_RESULT_NEXT;
 
-  if (playlist_current() < 0)
-  {
-    (void)playlist_select(0U);
-  }
-  if (!playlist_path((uint16_t)playlist_current(), path, sizeof(path)))
-  {
-    return TRACK_RESULT_ERROR;
-  }
+    if (playlist_current() < 0)
+    {
+        (void)playlist_select(0U);
+    }
+    if (!playlist_path((uint16_t)playlist_current(), path, sizeof(path)))
+    {
+        return TRACK_RESULT_ERROR;
+    }
 
-  fs_lock();
-  rc = f_open(&fp, path, FA_READ);
-  fs_unlock();
-  if (rc != FR_OK)
-  {
-    PRINT_LOG("[PLAY] open failed rc=%d : %s\r\n", (int)rc, path);
-    return TRACK_RESULT_ERROR;
-  }
+    fs_lock();
+    rc = f_open(&fp, path, FA_READ);
+    fs_unlock();
+    if (rc != FR_OK)
+    {
+        PRINT_LOG("[PLAY] open failed rc=%d : %s\r\n", (int32_t)rc, path);
+        return TRACK_RESULT_ERROR;
+    }
 
-  fs_lock();
-  (void)wav_parse_header(&fp, &info);   /* logs its own failure reason */
-  fs_unlock();
+    fs_lock();
+    (void)wav_parse_header(&fp, &info); /* logs its own failure reason */
+    fs_unlock();
 
-  if ((info.bits_per_sample != 16U) && (info.bits_per_sample != 24U))
-  {
+    if ((info.bits_per_sample != 16U) && (info.bits_per_sample != 24U))
+    {
+        fs_lock();
+        (void)f_close(&fp);
+        fs_unlock();
+        return TRACK_RESULT_ERROR;
+    }
+    bits = info.bits_per_sample;
+
+    bsp_wm8978_set_i2s_format(WM8978_FMT_I2S,
+                              (bits == 24U) ? WM8978_WLEN_24 : WM8978_WLEN_16);
+
+    if (!bsp_sai_configure((uint8_t)bits, info.sample_rate,
+                           s_buf0, s_buf1, AUDIO_BUF_BYTES))
+    {
+        fs_lock();
+        (void)f_close(&fp);
+        fs_unlock();
+        return TRACK_RESULT_ERROR;
+    }
+
+    fs_lock();
+    (void)f_lseek(&fp, info.data_offset);
+    fs_unlock();
+
+    /* Drop any completion left over from the previous track. */
+    while (xSemaphoreTake(s_dma_sem, 0) == pdTRUE)
+    {
+    }
+
+    publish_track(&info);
+
+    filled0 = read_pcm(&fp, s_buf0, AUDIO_BUF_BYTES, bits);
+    filled1 = read_pcm(&fp, s_buf1, AUDIO_BUF_BYTES, bits);
+
+    if ((filled0 | filled1) == 0U)
+    {
+        /* Empty data chunk: skip without starting the clock. */
+        fs_lock();
+        (void)f_close(&fp);
+        fs_unlock();
+        return TRACK_RESULT_NEXT;
+    }
+
+    s_audio.status.state = AUDIO_STATE_PLAYING;
+    bsp_sai_play();
+
+    PRINT_LOG("[PLAY] now playing: %s\r\n", s_audio.status.name);
+
+    for (;;)
+    {
+        uint8_t *half;
+        uint32_t filled;
+
+        if (xSemaphoreTake(s_dma_sem, pdMS_TO_TICKS(200)) != pdTRUE)
+        {
+            /* No completion for 200 ms: the stream is longer than any half buffer at
+             * the slowest supported rate, so this can only be a stalled clock. */
+            PRINT_LOG("[PLAY] DMA stalled, aborting track\r\n");
+            result = TRACK_RESULT_ERROR;
+            break;
+        }
+
+        if (s_audio.req_prev)
+        {
+            s_audio.req_prev = false;
+            result           = TRACK_RESULT_PREV;
+            break;
+        }
+        if (s_audio.req_next)
+        {
+            s_audio.req_next = false;
+            result           = TRACK_RESULT_NEXT;
+            break;
+        }
+
+        half = (s_audio.free_half == 0U) ? s_buf0 : s_buf1;
+
+        if (s_audio.status.state == AUDIO_STATE_PAUSED)
+        {
+            /* Keep the clock fed with silence: resuming is then instantaneous. */
+            memset(half, 0, AUDIO_BUF_BYTES);
+            continue;
+        }
+
+        filled = read_pcm(&fp, half, AUDIO_BUF_BYTES, bits);
+        if (filled < AUDIO_BUF_BYTES)
+        {
+            /* End of file: the tail is already zero-padded, so just let the last half
+             * finish playing before switching tracks. */
+            uint32_t bytes_per_sec = info.byte_rate;
+            if (bytes_per_sec != 0U)
+            {
+                vTaskDelay(pdMS_TO_TICKS((filled * 1000U) / bytes_per_sec + 10U));
+            }
+            PRINT_LOG("[PLAY] end of track, auto next\r\n");
+            result = TRACK_RESULT_NEXT;
+            break;
+        }
+
+        if (info.data_size != 0U)
+        {
+            uint32_t pos = (uint32_t)fp.fptr - info.data_offset;
+            s_audio.status.current_seconds =
+                (uint32_t)(((uint64_t)pos * info.total_seconds) / info.data_size);
+        }
+    }
+
+    bsp_sai_stop();
     fs_lock();
     (void)f_close(&fp);
     fs_unlock();
-    return TRACK_RESULT_ERROR;
-  }
-  bits = info.bits_per_sample;
-
-  bsp_wm8978_set_i2s_format(WM8978_FMT_I2S,
-                            (bits == 24U) ? WM8978_WLEN_24 : WM8978_WLEN_16);
-
-  if (!bsp_sai_configure((uint8_t)bits, info.sample_rate,
-                        s_buf0, s_buf1, AUDIO_BUF_BYTES))
-  {
-    fs_lock();
-    (void)f_close(&fp);
-    fs_unlock();
-    return TRACK_RESULT_ERROR;
-  }
-
-  fs_lock();
-  (void)f_lseek(&fp, info.data_offset);
-  fs_unlock();
-
-  /* Drop any completion left over from the previous track. */
-  while (xSemaphoreTake(s_dma_sem, 0) == pdTRUE)
-  {
-  }
-
-  publish_track(&info);
-
-  filled0 = read_pcm(&fp, s_buf0, AUDIO_BUF_BYTES, bits);
-  filled1 = read_pcm(&fp, s_buf1, AUDIO_BUF_BYTES, bits);
-
-  if ((filled0 | filled1) == 0U)
-  {
-    /* Empty data chunk: skip without starting the clock. */
-    fs_lock();
-    (void)f_close(&fp);
-    fs_unlock();
-    return TRACK_RESULT_NEXT;
-  }
-
-  s_audio.status.state = AUDIO_STATE_PLAYING;
-  bsp_sai_play();
-
-  PRINT_LOG("[PLAY] now playing: %s\r\n", s_audio.status.name);
-
-  for (;;)
-  {
-    uint8_t *half;
-    uint32_t filled;
-
-    if (xSemaphoreTake(s_dma_sem, pdMS_TO_TICKS(200)) != pdTRUE)
-    {
-      /* No completion for 200 ms: the stream is longer than any half buffer at
-       * the slowest supported rate, so this can only be a stalled clock. */
-      PRINT_LOG("[PLAY] DMA stalled, aborting track\r\n");
-      result = TRACK_RESULT_ERROR;
-      break;
-    }
-
-    if (s_audio.req_prev)
-    {
-      s_audio.req_prev = false;
-      result = TRACK_RESULT_PREV;
-      break;
-    }
-    if (s_audio.req_next)
-    {
-      s_audio.req_next = false;
-      result = TRACK_RESULT_NEXT;
-      break;
-    }
-
-    half = (s_audio.free_half == 0U) ? s_buf0 : s_buf1;
-
-    if (s_audio.status.state == AUDIO_STATE_PAUSED)
-    {
-      /* Keep the clock fed with silence: resuming is then instantaneous. */
-      memset(half, 0, AUDIO_BUF_BYTES);
-      continue;
-    }
-
-    filled = read_pcm(&fp, half, AUDIO_BUF_BYTES, bits);
-    if (filled < AUDIO_BUF_BYTES)
-    {
-      /* End of file: the tail is already zero-padded, so just let the last half
-       * finish playing before switching tracks. */
-      uint32_t bytes_per_sec = info.byte_rate;
-      if (bytes_per_sec != 0U)
-      {
-        vTaskDelay(pdMS_TO_TICKS((filled * 1000U) / bytes_per_sec + 10U));
-      }
-      PRINT_LOG("[PLAY] end of track, auto next\r\n");
-      result = TRACK_RESULT_NEXT;
-      break;
-    }
-
-    if (info.data_size != 0U)
-    {
-      uint32_t pos = (uint32_t)fp.fptr - info.data_offset;
-      s_audio.status.current_seconds =
-          (uint32_t)(((uint64_t)pos * info.total_seconds) / info.data_size);
-    }
-  }
-
-  bsp_sai_stop();
-  fs_lock();
-  (void)f_close(&fp);
-  fs_unlock();
-  return result;
+    return result;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -258,52 +257,52 @@ static TRACK_RESULT_T play_one_track(void)
 /* -------------------------------------------------------------------------- */
 static void audio_task(void *arg)
 {
-  (void)arg;
+    (void)arg;
 
-  for (;;)
-  {
-    if (sd_card_is_ready() == 0)
+    for (;;)
     {
-      if (sd_card_init() != RT_OK)
-      {
-        s_audio.status.state = AUDIO_STATE_ERROR;
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        continue;
-      }
+        if (sd_card_is_ready() == 0)
+        {
+            if (sd_card_init() != RT_OK)
+            {
+                s_audio.status.state = AUDIO_STATE_ERROR;
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
+            }
+        }
+
+        if (playlist_count() == 0U)
+        {
+            if (!playlist_scan())
+            {
+                s_audio.status.state = AUDIO_STATE_ERROR;
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
+            }
+            (void)playlist_select(0U);
+        }
+
+        s_audio.status.track_count = playlist_count();
+
+        switch (play_one_track())
+        {
+        case TRACK_RESULT_PREV:
+            (void)playlist_step(-1);
+            break;
+
+        case TRACK_RESULT_NEXT:
+            (void)playlist_step(1);
+            break;
+
+        case TRACK_RESULT_ERROR:
+        default:
+            /* Unreadable file: skip it so a single bad track cannot wedge the
+             * player, and give the console a moment to be readable. */
+            (void)playlist_step(1);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            break;
+        }
     }
-
-    if (playlist_count() == 0U)
-    {
-      if (!playlist_scan())
-      {
-        s_audio.status.state = AUDIO_STATE_ERROR;
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        continue;
-      }
-      (void)playlist_select(0U);
-    }
-
-    s_audio.status.track_count = playlist_count();
-
-    switch (play_one_track())
-    {
-      case TRACK_RESULT_PREV:
-        (void)playlist_step(-1);
-        break;
-
-      case TRACK_RESULT_NEXT:
-        (void)playlist_step(1);
-        break;
-
-      case TRACK_RESULT_ERROR:
-      default:
-        /* Unreadable file: skip it so a single bad track cannot wedge the
-         * player, and give the console a moment to be readable. */
-        (void)playlist_step(1);
-        vTaskDelay(pdMS_TO_TICKS(50));
-        break;
-    }
-  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -311,52 +310,52 @@ static void audio_task(void *arg)
 /* -------------------------------------------------------------------------- */
 void audio_player_start(void)
 {
-  if (s_dma_sem != NULL)
-  {
-    return;
-  }
+    if (s_dma_sem != NULL)
+    {
+        return;
+    }
 
-  s_dma_sem = xSemaphoreCreateBinary();
-  configASSERT(s_dma_sem != NULL);
+    s_dma_sem = xSemaphoreCreateBinary();
+    configASSERT(s_dma_sem != NULL);
 
-  s_audio.status.state = AUDIO_STATE_IDLE;
-  s_audio.status.track = -1;
+    s_audio.status.state = AUDIO_STATE_IDLE;
+    s_audio.status.track = -1;
 
-  bsp_sai_set_dma_callback(audio_dma_complete);
+    bsp_sai_set_dma_callback(audio_dma_complete);
 
-  (void)xTaskCreate(audio_task, "audio", AUDIO_TASK_STACK, NULL,
-                    AUDIO_TASK_PRIO, NULL);
+    (void)xTaskCreate(audio_task, "audio", AUDIO_TASK_STACK, NULL,
+                      AUDIO_TASK_PRIO, NULL);
 }
 
 const AUDIO_STATUS_T *audio_player_status(void)
 {
-  return &s_audio.status;
+    return &s_audio.status;
 }
 
 void audio_player_toggle_pause(void)
 {
-  if (s_audio.status.state == AUDIO_STATE_PLAYING)
-  {
-    s_audio.status.state = AUDIO_STATE_PAUSED;
-    PRINT_LOG("[KEY ] KEY_UP -> pause at %us\r\n",
-              (unsigned)s_audio.status.current_seconds);
-  }
-  else if (s_audio.status.state == AUDIO_STATE_PAUSED)
-  {
-    s_audio.status.state = AUDIO_STATE_PLAYING;
-    PRINT_LOG("[KEY ] KEY_UP -> resume at %us\r\n",
-              (unsigned)s_audio.status.current_seconds);
-  }
+    if (s_audio.status.state == AUDIO_STATE_PLAYING)
+    {
+        s_audio.status.state = AUDIO_STATE_PAUSED;
+        PRINT_LOG("[KEY ] KEY_UP -> pause at %us\r\n",
+                  (unsigned)s_audio.status.current_seconds);
+    }
+    else if (s_audio.status.state == AUDIO_STATE_PAUSED)
+    {
+        s_audio.status.state = AUDIO_STATE_PLAYING;
+        PRINT_LOG("[KEY ] KEY_UP -> resume at %us\r\n",
+                  (unsigned)s_audio.status.current_seconds);
+    }
 }
 
 void audio_player_next(void)
 {
-  s_audio.req_next = true;
-  PRINT_LOG("[KEY ] KEY0 -> next track\r\n");
+    s_audio.req_next = true;
+    PRINT_LOG("[KEY ] KEY0 -> next track\r\n");
 }
 
 void audio_player_prev(void)
 {
-  s_audio.req_prev = true;
-  PRINT_LOG("[KEY ] KEY2 -> previous track\r\n");
+    s_audio.req_prev = true;
+    PRINT_LOG("[KEY ] KEY2 -> previous track\r\n");
 }
