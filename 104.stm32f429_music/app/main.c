@@ -1,11 +1,12 @@
 /**
  ******************************************************************************
  * @file    main.c
- * @brief   STM32F429IGT6 WAV player: FreeRTOS + LVGL + SAI/WM8978 + SD card.
+ * @brief   STM32F429IGT6 music player: FreeRTOS + LVGL + SAI/WM8978 + SD card.
  *
  *  Data path
  *  ---------
- *    microSD (SDIO, 4-bit polled) -> FatFs -> WAV PCM
+ *    microSD (SDIO, 4-bit polled) -> FatFs -> track_decoder (WAV unpack / MP3
+ *    decode) -> 16-bit stereo PCM
  *        -> DMA2 Stream3 (double buffered) -> SAI1_A (I2S master)
  *        -> WM8978 DAC -> speaker / headphone
  *
@@ -81,7 +82,7 @@ int main(void)
     bsp_led_off(1);
 
     bsp_uart_init();
-    PRINT_LOG("\r\n=== STM32F429 WAV player ===\r\n");
+    PRINT_LOG("\r\n=== STM32F429 music player ===\r\n");
 
     /* External SDRAM must be alive before the FreeRTOS heap is defined. */
     if (bsp_sdram_init() != 0)

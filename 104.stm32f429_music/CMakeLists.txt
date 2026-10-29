@@ -41,6 +41,7 @@ include_directories(
   third_party/FreeRTOS-Kernel/include
   third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F
   third_party/FatFs
+  third_party/minimp3
   # LVGL: the top dir resolves "lv_conf.h" from lvgl.h, src/ resolves the
   # internal "../lvgl.h" form used inside the library.
   third_party/lvgl
@@ -129,6 +130,9 @@ set(FATFS_SOURCES
 # LVGL v8 (recursive over src/).
 file(GLOB_RECURSE LVGL_SOURCES third_party/lvgl/src/*.c)
 
+# minimp3: single-file, public-domain MP3 decoder (see third_party/minimp3).
+set(MINIMP3_SOURCES third_party/minimp3/minimp3.c)
+
 # Keep the vendored library's warnings out of the build so the project's own
 # code stays strictly warning-clean under -Wall -Wextra.
 set_source_files_properties(${LVGL_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
@@ -146,6 +150,7 @@ add_executable(${PROJECT_NAME}.elf
   ${FREERTOS_SOURCES}
   ${FATFS_SOURCES}
   ${LVGL_SOURCES}
+  ${MINIMP3_SOURCES}
 )
 
 # The FreeRTOS ARM_CM4F port has unconditional vstmdbeq/vldmiaeq {s16-s31} in
@@ -154,6 +159,16 @@ add_executable(${PROJECT_NAME}.elf
 set_source_files_properties(
   third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F/port.c
   PROPERTIES COMPILE_OPTIONS "-mfloat-abi=softfp;-mfpu=fpv4-sp-d16"
+)
+
+# minimp3 is float-heavy (MDCT + polyphase synthesis).  Built with soft-float
+# it would spend all its time in the software floating point routines, so this
+# one translation unit gets softfp (VFP instructions, same calling convention
+# as soft) plus -O2/-w.  No float crosses the ABI boundary: the interface in
+# app/mp3_decoder.h is integers and pointers only.
+set_source_files_properties(
+  ${MINIMP3_SOURCES}
+  PROPERTIES COMPILE_OPTIONS "-mfloat-abi=softfp;-mfpu=fpv4-sp-d16;-O2;-w"
 )
 
 set_target_properties(${PROJECT_NAME}.elf PROPERTIES

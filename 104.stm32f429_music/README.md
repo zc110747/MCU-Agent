@@ -1,8 +1,9 @@
-# 104.stm32f429_music — STM32F429 WAV 音乐播放器
+# 104.stm32f429_music — STM32F429 音乐播放器
 
 正点原子阿波罗 STM32F429IGT6（实验45 音乐播放实验）的 FreeRTOS + LVGL 重构版。
-从 SD 卡的 `0:/MUSIC` 目录读取 WAV 播放到 WM8978，屏幕显示曲名 / 进度条 / 时间，
-三个按键完成播放控制。构建与调试统一走 **CMake + Ninja + arm-none-eabi-gcc + OpenOCD/ST-Link + GDB**。
+从 SD 卡的 `0:/MUSIC` 目录读取 **WAV / MP3** 播放到 WM8978，屏幕显示曲名 / 进度条 / 时间 /
+目录文件数与可播曲目数，四个按键完成播放控制。构建与调试统一走
+**CMake + Ninja + arm-none-eabi-gcc + OpenOCD/ST-Link + GDB**。
 
 ---
 
@@ -83,18 +84,49 @@ BASEPRI，若不清零，TIM12 中断会被屏蔽，`HAL_GetTick()` 停走。
 ## 5. 数据通路
 
 ```
-SD 卡 (SDIO 轮询) -> FatFs -> wav_decoder -> audio_player
+SD 卡 (SDIO 轮询) -> FatFs -> track_decoder ─┬─ wav_decoder : 16/24 bit -> 16-bit stereo
+                                             └─ mp3_decoder : minimp3   -> 16-bit stereo
+                                             -> audio_player
                                              ├─ DMA2_Stream3 双缓冲 (M0AR/M1AR, CIRC)
                                              └─ SAI1_A_DR -> PE2..PE5 -> WM8978 -> 耳机/喇叭
 LVGL 8.3.11 (SDRAM 堆) -> lv_port_disp -> lcd_color_fill() -> FMC -> NT35510
 ```
 
+- **解码层与播放层解耦**：`track_decoder` 对外只暴露「16-bit 立体声 PCM + Fs」，
+  播放引擎不知道源文件的格式；加格式只动 `track_decoder.c` 的分派，不动 `audio_player.c`。
 - **音频缓冲**：每半缓冲 4096 B，DMA 传输完成中断 `DMA2_Stream3_IRQHandler` →
   `bsp_sai_dma_irq_handler()` → 应用回调释放信号量；实际填充在任务上下文做（FatFs 不可重入）。
 - **暂停**：不停止 SAI/时钟链，而是向空闲半缓冲写 0 —— 恢复时无爆音、无重新同步开销。
-- **单声道处理**：SAI 配置为 stereo master（2 slot/帧），而曲库是单声道 WAV。
-  `wav_read_pcm()` 会把每个采样复制到左右两个 slot，否则每帧吃掉 2 个源采样 → **2 倍速**。
+- **单声道处理**：SAI 配置为 stereo master（2 slot/帧），单声道源会被复制到左右两个 slot，
+  否则每帧吃掉 2 个源采样 → **2 倍速**。WAV 与 MP3 共用这条规则。
 - **播完切歌**：读到 EOF 后先 `vTaskDelay` 让最后半缓冲播完，再切下一首（循环列表）。
+
+### 5.1 MP3 支持要点
+
+| 项目 | 取值 | 原因 |
+|---|---|---|
+| 解码器 | minimp3（单头文件，CC0） | 无动态内存、无系统调用，DCT 表全静态 |
+| 配置 | `MINIMP3_ONLY_MP3` + `MINIMP3_NO_SIMD` | 省 ~40 KB 表；Cortex-M4 的 NEON 路径不适用 |
+| 编译选项 | 仅该文件 `-mfloat-abi=softfp -mfpu=fpv4-sp-d16` | 解码是 float 实现；工程其余仍是 `soft` ABI，FPU 由 `vPortEnableVFP()` 使能 |
+| 输出 | 16-bit stereo LE | 与 WAV 路径、SAI slot 配置统一 |
+| 内存 | `s_mp3` ≈ 26 KB（`.bss`，内部 SRAM） | 见下两条 |
+
+两处必须知道的实现细节：
+
+1. **本地补丁**：上游 `mp3dec_decode_frame()` 在**栈上**放 `mp3dec_scratch_t`（16 256 B）。
+   在 3 KB 的播放任务栈上点击 MP3 立刻 HardFault（栈溢出）——这就是「一点 MP3 就死机」
+   的根因。本工程把它改成 `static`（进 `.bss`），并把 `AUDIO_TASK_STACK` 提到 6 KB 留余量。
+2. **自己分帧，不要把整窗喂给解码器**：若一次传入的缓冲尾部截断了一个帧，minimp3 会
+   `memset(dec, 0, ...)` 清掉 Layer III 的 **bit reservoir**，后续依赖它的帧会静默失败，
+   表现为「只解出 76% 时长」。`mp3_decoder.c` 因此自己解析帧头、每次只喂完整一帧
+   （`mp3_need()` → `mp3_parse_header()` → `mp3dec_decode_frame()` → `mp3_consume()`）。
+   修前 385 帧里 87 帧被判 junk，修后 385/385，时长与 ffmpeg 偏差 < 1%，波形相关性 0.999998。
+
+每首 MP3 播完会打印解码开销，用来判断还剩多少实时余量：
+
+```
+[MP3 ] decoded 277 s in 41235 ms (14% of realtime)
+```
 
 ## 6. 按键与界面
 
@@ -117,8 +149,25 @@ LVGL 8.3.11 (SDRAM 堆) -> lv_port_disp -> lcd_color_fill() -> FMC -> NT35510
 界面左下角显示 `VOL n/5`。
 
 按键为 `bsp_key_scan()` 轮询 + 2 次连续采样一致才生效（按下降沿触发，长按不重复）。
-界面为深色单屏：曲名（超长自动滚动）、进度条、`当前 / 总时长`、采样率与位深、按键提示。
-中文字形来自 SD 卡 `0:/SYSTEM/FONT/GBK{12,16,24,32}.FON`，ASCII 来自编译期字模表。
+界面为深色单屏：
+
+```
+MUSIC PLAYER
+┌───────────────────────────────────────────────┐
+│ 大海-张雨生.mp3                                │
+│ [██████████-------------------------]         │
+│ 00:41                                  04:37  │
+│ PLAYING                      MP3 44100 Hz / 16 bit │
+│ FILES 12   MUSIC 12   NOW 11/12               │
+└───────────────────────────────────────────────┘
+KEY_UP: play/pause   KEY0: next   KEY1: volume   KEY2: prev      VOL 3/5
+```
+
+- `FILES n` = 目录里的**普通文件总数**，`MUSIC m` = 其中**可播数目**（`.wav` + `.mp3`），
+  两者不等就说明有文件扩展名不支持（`.APE/.flac/.txt` 等）或文件名损坏。
+- `NOW i/n` = 当前曲目在播放列表中的位置。
+- 曲名超长自动滚动；中文字形来自 SD 卡 `0:/SYSTEM/FONT/GBK{12,16,24,32}.FON`，
+  ASCII 来自编译期字模表。
 
 ## 7. 构建
 
@@ -136,12 +185,15 @@ cmake --build build_rel
 - 一键脚本 `build_oneclick.bat`（configure / build / clean / flash）。
 - VSCode：`Ctrl+Shift+B` 构建，F5 选 `Debug (OpenOCD + ST-Link)`（`.vscode/launch.json`）。
 
-当前占用（Debug）：
+当前占用（全量重编，双构零警告）：
 
 ```
-FLASH: 205312 B / 1 MB   (19.58%)
-RAM:    42912 B / 192 KB (21.83%)
+Debug    FLASH: 225268 B / 1 MB (21.48%)   RAM: 78808 B / 192 KB (40.08%)
+Release  FLASH: 254800 B / 1 MB (24.30%)   RAM: 78824 B / 192 KB (40.09%)
 ```
+
+RAM 里 ~26 KB 是 MP3 解码器的静态状态（`s_mp3`：16 KB minimp3 scratch + 5 KB 输入窗 +
+4.5 KB PCM 暂存），Debug 版另含 FreeRTOS `configASSERT` 与日志字符串。
 
 ## 8. 烧录与调试
 
@@ -157,39 +209,47 @@ openocd -f openocd.cfg -c "program build/stm32f429_music.elf verify" -c "reset h
 串口：`COM12`，115200 8N1。正常启动日志：
 
 ```
-=== STM32F429 WAV player ===
+=== STM32F429 music player ===
 [SDRAM] init OK
 [LCD ] controller ID = 0x8000
 [LCD ] active GRAM window 800x480 (dir 1, MADCTL 0xA0)
 [SD  ] SDIO init OK (30436 MB, block=512)
 [SD  ] mounted 0:
 [FONT] GBK glyph files loaded from SD
-[CODEC] WM8978 configured
+[CODEC] WM8978 configured (volume 3/5)
 [UI  ] LVGL 8.3.11 screen up (800x480)
-[PLAY] 10 track(s) in 0:/MUSIC
+[PLAY] 12/12 file(s) playable in 0:/MUSIC
 [WAV ] 22050 Hz 1 ch 16 bit, 37 s
 [SAI ] 22050 Hz / 16-bit ready (2048 items per half)
 [PLAY] now playing: 0001.A_New_Hobby.wav
+...
+[MP3 ] 44100 Hz 2 ch 320 kbps, 277 s
+[SAI ] 44100 Hz / 16-bit ready (2048 items per half)
+[PLAY] now playing: 大海-张雨生.mp3
 ```
+
+正常播放期间串口是**静默**的（不逐帧打印），只在切歌 / 按键 / 出错时输出。
 
 ## 9. SD 卡目录要求
 
 ```
-0:/MUSIC/*.wav              // 仅 WAV（PCM 16/24 bit，单/双声道），大小写不敏感
+0:/MUSIC/*.wav              // PCM 16/24 bit，单/双声道，任意常用采样率
+0:/MUSIC/*.mp3              // MPEG-1/2/2.5 Layer III，CBR/VBR 均可，ID3v2 自动跳过
 0:/SYSTEM/FONT/GBK12.FON    // 可选：没有则中文曲名不显示
 0:/SYSTEM/FONT/GBK16.FON
 0:/SYSTEM/FONT/GBK24.FON
 0:/SYSTEM/FONT/GBK32.FON
 ```
 
-播放列表在启动时扫描一次（最多 64 首，按名字排序）；换卡后需复位。
+扩展名大小写不敏感。播放列表在启动时扫描一次（最多 64 首，按名字排序）；换卡后需复位。
+UI 上的 `FILES / MUSIC` 就是「扫描到的文件数 / 其中可播数」。
 
 ## 10. 目录结构
 
 ```
-app/     main.c  system clock  FreeRTOSConfig.h  UI 播放引擎  WAV 解析  播放列表  FatFs 胶水
+app/     main.c  system clock  FreeRTOSConfig.h  UI 播放引擎  track_decoder  WAV/MP3 解析  播放列表  FatFs 胶水
 bsp/     SDRAM  SDIO  LCD(FMC)  LCD 文字/字库  SAI  WM8978  IIC  KEY  LED  UART  delay
-third_party/  FreeRTOS V11.1.0  LVGL 8.3.11  FatFs  CMSIS  HAL
+third_party/  FreeRTOS V11.1.0  LVGL 8.3.11  FatFs  minimp3  CMSIS  HAL
 cmake/   arm-none-eabi-gcc.cmake（工具链文件）
 ```
 
@@ -204,3 +264,13 @@ cmake/   arm-none-eabi-gcc.cmake（工具链文件）
    参数变成 `WCHAR*` 而编译报指针类型不兼容；与 LVGL 的 UTF-8 对齐要用 `2`。
 4. **FreeRTOS heap_5 + 外部 SDRAM** 的顺序是硬约束（见第 3 节）。
 5. **`file(GLOB)` 收源文件时新增 `.c` 必须重新 `cmake -S -B` 配置**，否则链接报未定义。
+6. **minimp3 的 16 KB scratch 在栈上**（上游实现），3 KB 播放栈一点 MP3 就栈溢出 HardFault；
+   本工程改成 `static` 并把播放任务栈提到 6 KB。
+7. **MP3 必须自己分帧**：整窗喂进 `mp3dec_decode_frame()` 时尾部截断会让它清空
+   bit reservoir，后续帧静默丢失（表现为只播出约 76% 时长）。
+8. **float 解码器要单独开 softfp**：`-mfloat-abi=softfp -mfpu=fpv4-sp-d16` 只加在
+   `minimp3.c` 上；全工程改用 softfp 会牵动所有库的 ABI，FPU 也要靠 `vPortEnableVFP()` 打开。
+9. **SDIO 传输被调试器打断会粘住 `FR_DISK_ERR`**：用 GDB 在播放中 `halt` 半途会
+   让 FatFs 之后每次 `f_open()` 都返回 `rc=1`，整卷不可用直到重新挂载。
+   `audio_task` 现在连续 3 首读失败就 `playlist_clear()` + `sd_card_invalidate()` 重挂载，
+   不会再无限刷日志假装"死机"。

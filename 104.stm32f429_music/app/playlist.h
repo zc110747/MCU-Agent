@@ -26,13 +26,25 @@ extern "C" {
 /**
  * @brief  Scan PLAYLIST_DIR and rebuild the track table (sorted by name).
  *         Takes the FatFs lock internally.
- * @retval true   at least one .wav file was found
+ * @retval true   at least one playable file (.wav / .mp3) was found
  * @retval false  folder missing / empty / unreadable
  */
 bool playlist_scan(void);
 
-/** Number of tracks found by the last successful scan. */
+/**
+ * @brief  Drop the track table (count -> 0), forcing a rescan.
+ *
+ *  Used when the volume itself became unreadable: the caller unmounts and
+ *  remounts the card, and the next playlist_count() == 0 makes audio_task
+ *  scan the folder again instead of spinning on stale entries.
+ */
+void playlist_clear(void);
+
+/** Number of playable tracks found by the last successful scan. */
 uint16_t playlist_count(void);
+
+/** Number of regular files in the folder, playable or not. */
+uint16_t playlist_dir_files(void);
 
 /** Current track index, or -1 when nothing is selected. */
 int16_t playlist_current(void);

@@ -69,6 +69,7 @@ typedef struct
     lv_obj_t *time_label;
     lv_obj_t *state_label;
     lv_obj_t *format_label;
+    lv_obj_t *count_label;
     lv_obj_t *volume_label;
     lv_obj_t *bar;
     lv_obj_t *hint_label;
@@ -76,6 +77,9 @@ typedef struct
     char     shown_name[96];
     uint32_t shown_seconds;
     uint32_t shown_total;
+    uint16_t shown_files;
+    uint16_t shown_tracks;
+    int16_t  shown_index;
     uint8_t  shown_state;
     uint8_t  shown_volume;
 } UI_WIDGETS_T;
@@ -161,6 +165,13 @@ static void build_screen(void)
     s_ui.format_label = make_label(panel, &lv_font_gbk_16, COLOR_TEXT_DIM);
     lv_label_set_text(s_ui.format_label, "");
     lv_obj_align(s_ui.format_label, LV_ALIGN_TOP_RIGHT, -40, 190);
+
+    /* Folder inventory: every file vs. the playable ones, plus the position in
+     * the playlist.  A file that is present but unplayable is then visible
+     * instead of silently ignored. */
+    s_ui.count_label = make_label(panel, &lv_font_gbk_16, COLOR_TEXT_DIM);
+    lv_label_set_text(s_ui.count_label, "");
+    lv_obj_align(s_ui.count_label, LV_ALIGN_TOP_LEFT, 40, 220);
 
     /* Key hints */
     s_ui.hint_label = make_label(screen, &lv_font_gbk_12, COLOR_TEXT_DIM);
@@ -254,10 +265,41 @@ static void refresh_from_status(void)
 
     if (status->sample_rate != 0U)
     {
-        (void)snprintf(format_text, sizeof(format_text), "%u Hz / %u bit",
+        (void)snprintf(format_text, sizeof(format_text), "%s %u Hz / %u bit",
+                       (status->is_mp3 != 0U) ? "MP3" : "WAV",
                        (unsigned)status->sample_rate,
                        (unsigned)status->bits_per_sample);
         lv_label_set_text(s_ui.format_label, format_text);
+    }
+
+    if ((status->dir_files != s_ui.shown_files) ||
+        (status->track_count != s_ui.shown_tracks) ||
+        (status->track != s_ui.shown_index))
+    {
+        char count_text[48];
+
+        if (status->track >= 0)
+        {
+            (void)snprintf(count_text, sizeof(count_text),
+                           "FILES %u   MUSIC %u   NOW %d/%u",
+                           (unsigned)status->dir_files,
+                           (unsigned)status->track_count,
+                           (int)status->track + 1,
+                           (unsigned)status->track_count);
+        }
+        else
+        {
+            (void)snprintf(count_text, sizeof(count_text),
+                           "FILES %u   MUSIC %u   NOW -/%u",
+                           (unsigned)status->dir_files,
+                           (unsigned)status->track_count,
+                           (unsigned)status->track_count);
+        }
+        lv_label_set_text(s_ui.count_label, count_text);
+
+        s_ui.shown_files  = status->dir_files;
+        s_ui.shown_tracks = status->track_count;
+        s_ui.shown_index  = status->track;
     }
 }
 
@@ -307,6 +349,12 @@ void app_ui_init(void)
     lv_init();
     lv_port_disp_init();
     build_screen();
+
+    /* Force the first refresh to paint the track name / counters: the cache
+     * must start at "nothing shown yet", not at a value that can equal a real
+     * track index. */
+    s_ui.shown_index = -1;
+
     PRINT_LOG("[UI  ] LVGL %d.%d.%d screen up (%ux%u)\r\n",
               LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
               (unsigned)LCD_WIDTH, (unsigned)LCD_HEIGHT);

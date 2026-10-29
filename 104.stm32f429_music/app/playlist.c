@@ -3,9 +3,14 @@
  * @file    playlist.c
  * @brief   Builds the track table from PLAYLIST_DIR ("0:/MUSIC").
  *
- *  Only *.wav is accepted (case-insensitive).  Names are copied out of FILINFO
- *  immediately because f_readdir() reuses its buffer, and the table is sorted
- *  with a simple insertion sort -- 64 entries at most, done once per rescan.
+ *  Accepted extensions: .wav and .mp3 (case-insensitive).  Names are copied out
+ *  of FILINFO immediately because f_readdir() reuses its buffer, and the table
+ *  is sorted with a simple insertion sort -- 64 entries at most, done once per
+ *  rescan.
+ *
+ *  The directory file count is kept separately from the playable count so the
+ *  UI can show "N files, M playable" and make a mis-named or unsupported file
+ *  visible instead of silently ignoring it.
  ******************************************************************************
  */
 #include <stdio.h>
@@ -20,6 +25,7 @@
 typedef struct
 {
     uint16_t count;
+    uint16_t dir_files;
     int16_t  current;
     char     names[PLAYLIST_MAX_TRACKS][PLAYLIST_NAME_MAX];
 } PLAYLIST_INFO_T;
@@ -29,21 +35,40 @@ static PLAYLIST_INFO_T s_playlist = {0};
 /* f_readdir() reuses this; 255 + LFN bookkeeping lives on the caller's stack. */
 static FILINFO s_file_info;
 
-static bool is_wav_name(const char *name)
+static bool has_extension(const char *name, const char *ext)
 {
     size_t len = strlen(name);
+    size_t i;
 
-    if (len < 5U)
+    if (len <= strlen(ext))
+    {
+        return false;
+    }
+    if (name[len - 4U] != '.')
     {
         return false;
     }
 
-    return ((name[len - 4U] == '.') &&
-            ((name[len - 3U] == 'w') || (name[len - 3U] == 'W')) &&
-            ((name[len - 2U] == 'a') || (name[len - 2U] == 'A')) &&
-            ((name[len - 1U] == 'v') || (name[len - 1U] == 'V')))
-               ? true
-               : false;
+    for (i = 0U; i < 3U; i++)
+    {
+        char a = name[len - 3U + i];
+        char b = ext[i];
+
+        if ((a >= 'A') && (a <= 'Z'))
+        {
+            a = (char)(a - 'A' + 'a');
+        }
+        if (a != b)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool is_supported_name(const char *name)
+{
+    return (has_extension(name, "wav") || has_extension(name, "mp3")) ? true : false;
 }
 
 static void sort_names(void)
@@ -69,12 +94,14 @@ bool playlist_scan(void)
 {
     DIR      dir;
     FRESULT  rc;
-    uint16_t found = 0U;
+    uint16_t found     = 0U;
+    uint16_t dir_files = 0U;
     size_t   name_len;
     int16_t  previous = s_playlist.current;
 
-    s_playlist.count   = 0U;
-    s_playlist.current = -1;
+    s_playlist.count     = 0U;
+    s_playlist.dir_files = 0U;
+    s_playlist.current   = -1;
 
     fs_lock();
 
@@ -97,7 +124,10 @@ bool playlist_scan(void)
         {
             continue;
         }
-        if (!is_wav_name(s_file_info.fname))
+
+        dir_files++;
+
+        if (!is_supported_name(s_file_info.fname))
         {
             continue;
         }
@@ -121,10 +151,12 @@ bool playlist_scan(void)
     (void)f_closedir(&dir);
     fs_unlock();
 
-    s_playlist.count = found;
+    s_playlist.count     = found;
+    s_playlist.dir_files = dir_files;
     if (found == 0U)
     {
-        PRINT_LOG("[PLAY] no .wav file in " PLAYLIST_DIR "\r\n");
+        PRINT_LOG("[PLAY] %u file(s) in " PLAYLIST_DIR ", none playable\r\n",
+                  (unsigned)dir_files);
         return false;
     }
 
@@ -137,13 +169,26 @@ bool playlist_scan(void)
         s_playlist.current = previous;
     }
 
-    PRINT_LOG("[PLAY] %u track(s) in " PLAYLIST_DIR "\r\n", (unsigned)found);
+    PRINT_LOG("[PLAY] %u/%u file(s) playable in " PLAYLIST_DIR "\r\n",
+              (unsigned)found, (unsigned)dir_files);
     return true;
+}
+
+void playlist_clear(void)
+{
+    s_playlist.count     = 0U;
+    s_playlist.dir_files = 0U;
+    s_playlist.current   = -1;
 }
 
 uint16_t playlist_count(void)
 {
     return s_playlist.count;
+}
+
+uint16_t playlist_dir_files(void)
+{
+    return s_playlist.dir_files;
 }
 
 int16_t playlist_current(void)

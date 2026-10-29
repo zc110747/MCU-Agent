@@ -16,8 +16,12 @@
 
 /* Enough for RIFF + fmt + any FACT/LIST/ID3 preamble a normal file carries. */
 #define WAV_SCAN_BYTES 1024U
-/* 24-bit input is read 3 bytes per sample and widened to 4. */
-#define WAV_24BIT_CHUNK 3072U
+/* 24-bit input is read 3 bytes per channel and repacked to 2.  A stereo chunk
+ * therefore needs 1.5 bytes of staging per output byte; 6 KB covers a 4 KB
+ * output buffer. */
+#define WAV_24BIT_CHUNK 6144U
+/* Output is always one stereo frame of two 16-bit slots. */
+#define WAV_FRAME_BYTES 4U
 
 #define WAV_ID_RIFF 0x46464952U /* "RIFF" */
 #define WAV_ID_WAVE 0x45564157U /* "WAVE" */
@@ -135,7 +139,7 @@ bool wav_parse_header(FIL *fp, WAV_INFO_T *info)
 }
 
 /**
- * @brief  Duplicate every 16-bit sample into both I2S slots, in place.
+ * @brief  Duplicate every 16-bit sample into both slots, in place.
  *
  *         The SAI runs as a stereo master and consumes two slots per frame, so
  *         a mono stream fed verbatim would advance by two source samples per
@@ -158,71 +162,75 @@ static uint32_t expand_mono_to_slots(uint8_t *dst, uint32_t samples)
         hw[(i - 1U) * 2U] = v;
         hw[(i * 2U) - 1U] = v;
     }
-    return samples * 4U;
+    return samples * WAV_FRAME_BYTES;
 }
 
-uint32_t wav_read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bps, uint16_t channels)
+/**
+ * @brief  24-bit payload -> 16-bit stereo slots.
+ *
+ *         A 24-bit sample is stored little endian as 3 bytes; keeping the top
+ *         16 bits means dropping the first byte.  The source lives in
+ *         s_pack24, the destination in dst, so the two never overlap and the
+ *         loop can run forwards.
+ */
+static uint32_t pack24_to_slots16(uint8_t *dst, const uint8_t *src, uint32_t samples,
+                                  uint16_t channels)
+{
+    uint32_t i;
+
+    for (i = 0U; i < samples; i++)
+    {
+        uint32_t frame = (channels == 1U) ? i : (i / 2U);
+        uint32_t slot  = (channels == 1U) ? 0U : (i & 1U);
+        uint32_t out   = (frame * 2U + slot) * 2U;
+
+        dst[out]      = src[i * 3U + 1U];
+        dst[out + 1U] = src[i * 3U + 2U];
+
+        if (channels == 1U)
+        {
+            dst[out + 2U] = src[i * 3U + 1U];
+            dst[out + 3U] = src[i * 3U + 2U];
+        }
+    }
+    return samples * ((channels == 1U) ? 4U : 2U);
+}
+
+uint32_t wav_read_pcm16(FIL *fp, uint8_t *dst, uint32_t bytes, const WAV_INFO_T *info)
 {
     UINT     br = 0U;
     uint32_t produced;
 
-    if ((fp == NULL) || (dst == NULL) || (bytes == 0U))
+    if ((fp == NULL) || (dst == NULL) || (bytes == 0U) || (info == NULL))
     {
         return 0U;
     }
 
-    if (bps == 24U)
+    bytes -= bytes % WAV_FRAME_BYTES;
+
+    if (info->bits_per_sample == 24U)
     {
-        /* One 32-bit word per slot, sample left-aligned (bits 31..8).  A mono
-         * source contributes one sample to both slots. */
-        uint32_t slots   = bytes / 4U;
-        uint32_t samples = (channels == 1U) ? (slots / 2U) : slots;
-        uint32_t raw     = samples * 3U;
-        uint32_t i;
+        /* frames = bytes / 4 slots; each frame needs 3 bytes per channel. */
+        uint32_t frames = bytes / WAV_FRAME_BYTES;
+        uint32_t raw    = frames * ((info->channels == 1U) ? 3U : 6U);
         uint32_t done;
 
         if (raw > WAV_24BIT_CHUNK)
         {
-            raw     = WAV_24BIT_CHUNK - (WAV_24BIT_CHUNK % 3U);
-            samples = raw / 3U;
+            raw    = WAV_24BIT_CHUNK - (WAV_24BIT_CHUNK % 3U);
+            frames = raw / ((info->channels == 1U) ? 3U : 6U);
         }
 
         if (f_read(fp, s_pack24, raw, &br) != FR_OK)
         {
             br = 0U;
         }
-        done = br / 3U;
-
-        for (i = 0U; i < done; i++)
-        {
-            uint32_t word = (channels == 1U) ? (i * 2U) : i;
-
-            dst[word * 4U + 0U] = 0U;
-            dst[word * 4U + 1U] = s_pack24[i * 3U + 0U];
-            dst[word * 4U + 2U] = s_pack24[i * 3U + 1U];
-            dst[word * 4U + 3U] = s_pack24[i * 3U + 2U];
-
-            if (channels == 1U)
-            {
-                dst[word * 4U + 4U] = 0U;
-                dst[word * 4U + 5U] = s_pack24[i * 3U + 0U];
-                dst[word * 4U + 6U] = s_pack24[i * 3U + 1U];
-                dst[word * 4U + 7U] = s_pack24[i * 3U + 2U];
-            }
-        }
-        produced = (channels == 1U) ? (done * 8U) : (done * 4U);
-
-        /* Zero-pad the tail so the DMA never replays stale audio. */
-        if (produced < bytes)
-        {
-            memset(dst + produced, 0, bytes - produced);
-        }
-        return produced;
+        done     = br / ((info->channels == 1U) ? 3U : 6U);
+        produced = pack24_to_slots16(dst, s_pack24, done, info->channels);
     }
-
-    if (channels == 1U)
+    else if (info->channels == 1U)
     {
-        /* Read the mono half of the buffer, then stretch it to both slots. */
+        /* Read the mono half of the target, then stretch it to both slots. */
         uint32_t mono_bytes = bytes / 2U;
 
         if (f_read(fp, dst, (UINT)mono_bytes, &br) != FR_OK)
@@ -237,7 +245,7 @@ uint32_t wav_read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bps, uint1
         {
             br = 0U;
         }
-        produced = br;
+        produced = br - (br % WAV_FRAME_BYTES);
     }
 
     if (produced < bytes)

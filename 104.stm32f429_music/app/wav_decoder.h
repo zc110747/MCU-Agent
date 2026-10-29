@@ -46,30 +46,31 @@ typedef struct
 bool wav_parse_header(FIL *fp, WAV_INFO_T *info);
 
 /**
- * @brief  Read the next PCM bytes and convert them to the SAI slot layout.
+ * @brief  Read the next PCM bytes and normalise them to 16-bit stereo.
  *
- *         The SAI is a stereo master: every frame carries two slots, and the
- *         DMA advances one slot per transfer.  A mono source therefore HAS to be
- *         duplicated into both slots, otherwise the frame rate advances the
- *         stream by two samples per frame and the file plays at double speed.
+ *         Output format is always 2 x 16 bit little endian per audio frame,
+ *         which is what the SAI/WM8978 chain is configured for:
  *
- *         16-bit: one 16-bit sample per slot (mono duplicated to L+R).
- *         24-bit: one 32-bit word per slot, sample left-aligned (bits 31..8),
- *                 because the SAI transmits a 24-bit payload inside a 32-bit
- *                 slot, MSB first.
+ *         - 16-bit stereo : copied verbatim
+ *         - 16-bit mono   : every sample duplicated into both slots
+ *         - 24-bit stereo : top 16 bits of each sample
+ *         - 24-bit mono   : top 16 bits, duplicated into both slots
+ *
+ *         Duplication is mandatory, not cosmetic: the SAI is a stereo master
+ *         and advances one slot per DMA transfer, so a mono stream fed verbatim
+ *         would play at double speed.
  *
  *         A short read is zero-padded, so the DMA always gets a full buffer and
  *         the caller detects end-of-file from the returned count.
  *
- * @param  fp        open file positioned in the data chunk
- * @param  dst       destination buffer (4-byte aligned)
- * @param  bytes     buffer size in bytes
- * @param  bps       bits per sample from WAV_INFO_T
- * @param  channels  1 = mono (duplicated), 2 = stereo (verbatim)
+ * @param  fp     open file positioned in the data chunk
+ * @param  dst    destination buffer (4-byte aligned)
+ * @param  bytes  buffer size in bytes (multiple of 4)
+ * @param  info   parsed header of the same file
  *
  * @retval number of bytes actually produced (equals `bytes` until EOF)
  */
-uint32_t wav_read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bps, uint16_t channels);
+uint32_t wav_read_pcm16(FIL *fp, uint8_t *dst, uint32_t bytes, const WAV_INFO_T *info);
 
 #ifdef __cplusplus
 }

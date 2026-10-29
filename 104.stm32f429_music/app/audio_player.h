@@ -37,8 +37,10 @@ typedef struct
     volatile uint32_t      total_seconds;
     volatile uint16_t      sample_rate;
     volatile uint16_t      bits_per_sample;
-    volatile uint16_t      track_count;
-    char                   name[96]; /* file name of the current track */
+    volatile uint16_t      track_count; /* playable files in the folder */
+    volatile uint16_t      dir_files;   /* every file in the folder */
+    volatile uint8_t       is_mp3;      /* 1 = MP3, 0 = WAV */
+    char                   name[96];    /* file name of the current track */
 } AUDIO_STATUS_T;
 
 /**

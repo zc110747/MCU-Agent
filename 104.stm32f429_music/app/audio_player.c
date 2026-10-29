@@ -1,10 +1,21 @@
 /**
  ******************************************************************************
  * @file    audio_player.c
- * @brief   WAV playback engine (one task owns the whole audio path).
+ * @brief   Playback engine: playlist walking, SAI double buffering, keys.
+ *
+ *  One task owns the whole audio path.  It blocks on a DMA transfer-complete
+ *  semaphore and refills whichever half buffer just finished, so no FatFs call
+ *  ever happens in interrupt context.
+ *
+ *  Codec agnostic
+ *  --------------
+ *  Everything below track_decoder.h is just "16-bit stereo PCM at Fs": WAV is
+ *  unpacks/expands, MP3 is decoded by minimp3, and the SAI is always
+ *  configured for 16-bit slots.  Adding a format therefore never touches this
+ *  file.
  *
  *  Buffer strategy
- *  ----------------
+ *  ---------------
  *  Two 4 KB halves driven by DMA2 Stream3 in double-buffer mode.  At 44.1 kHz
  *  stereo 16-bit one half is ~23 ms of audio, which is three orders of
  *  magnitude longer than a polled SDIO read of the same size -- so refilling
@@ -32,14 +43,18 @@
 #include "bsp_wm8978.h"
 #include "playlist.h"
 #include "sd_card.h"
-#include "wav_decoder.h"
+#include "track_decoder.h"
 #include "fs_diskio.h"
 #include "log.h"
 
 /* One DMA half buffer.  4 KB is what the ALIENTEK reference uses; it is also
  * the smallest size that stayed glitch-free at 24-bit / 192 kHz there. */
 #define AUDIO_BUF_BYTES 4096U
-#define AUDIO_TASK_STACK 768U
+/* The task stack also carries a FIL (with its long-filename buffer), the path
+ * and the decoder's return path, so 6 KB rather than the 3 KB a WAV-only player
+ * needed.  The MP3 decoder's own 16 KB scratch buffer deliberately does NOT
+ * live here - see the local patch note in third_party/minimp3/minimp3.h. */
+#define AUDIO_TASK_STACK 1536U
 #define AUDIO_TASK_PRIO (tskIDLE_PRIORITY + 3)
 
 typedef enum {
@@ -76,28 +91,23 @@ static void audio_dma_complete(void)
 }
 
 /* -------------------------------------------------------------------------- */
-/* FatFs helpers (every call holds the filesystem lock)                       */
+/* FatFs helpers (track_decoder takes the filesystem lock itself)              */
 /* -------------------------------------------------------------------------- */
-static uint32_t read_pcm(FIL *fp, uint8_t *dst, uint32_t bytes, uint16_t bits,
-                         uint16_t channels)
+static uint32_t read_pcm(uint8_t *dst, uint32_t bytes)
 {
-    uint32_t produced;
-
-    fs_lock();
-    produced = wav_read_pcm(fp, dst, bytes, bits, channels);
-    fs_unlock();
-    return produced;
+    return track_decoder_read(dst, bytes);
 }
 
-static void publish_track(const WAV_INFO_T *info)
+static void publish_track(const TRACK_INFO_T *info)
 {
     const char *name = playlist_name((uint16_t)playlist_current());
 
     s_audio.status.track           = playlist_current();
     s_audio.status.total_seconds   = info->total_seconds;
     s_audio.status.current_seconds = 0U;
-    s_audio.status.sample_rate     = (uint16_t)info->sample_rate;
+    s_audio.status.sample_rate     = info->sample_rate;
     s_audio.status.bits_per_sample = info->bits_per_sample;
+    s_audio.status.is_mp3          = (info->kind == TRACK_KIND_MP3) ? 1U : 0U;
     (void)snprintf(s_audio.status.name, sizeof(s_audio.status.name), "%s",
                    (name != NULL) ? name : "?");
 }
@@ -108,10 +118,9 @@ static void publish_track(const WAV_INFO_T *info)
 static TRACK_RESULT_T play_one_track(void)
 {
     FIL            fp;
-    WAV_INFO_T     info;
+    TRACK_INFO_T   info;
     FRESULT        rc;
     char           path[PLAYLIST_NAME_MAX + 16U];
-    uint16_t       bits;
     uint32_t       filled0;
     uint32_t       filled1;
     TRACK_RESULT_T result = TRACK_RESULT_NEXT;
@@ -134,34 +143,27 @@ static TRACK_RESULT_T play_one_track(void)
         return TRACK_RESULT_ERROR;
     }
 
-    fs_lock();
-    (void)wav_parse_header(&fp, &info); /* logs its own failure reason */
-    fs_unlock();
-
-    if ((info.bits_per_sample != 16U) && (info.bits_per_sample != 24U))
+    if (!track_decoder_open(&fp, path, &info))
     {
+        track_decoder_close();
         fs_lock();
         (void)f_close(&fp);
         fs_unlock();
         return TRACK_RESULT_ERROR;
     }
-    bits = info.bits_per_sample;
 
-    bsp_wm8978_set_i2s_format(WM8978_FMT_I2S,
-                              (bits == 24U) ? WM8978_WLEN_24 : WM8978_WLEN_16);
+    /* The whole chain is 16-bit stereo now, whatever the source was. */
+    bsp_wm8978_set_i2s_format(WM8978_FMT_I2S, WM8978_WLEN_16);
 
-    if (!bsp_sai_configure((uint8_t)bits, info.sample_rate,
+    if (!bsp_sai_configure(BSP_SAI_BITS_16, info.sample_rate,
                            s_buf0, s_buf1, AUDIO_BUF_BYTES))
     {
+        track_decoder_close();
         fs_lock();
         (void)f_close(&fp);
         fs_unlock();
         return TRACK_RESULT_ERROR;
     }
-
-    fs_lock();
-    (void)f_lseek(&fp, info.data_offset);
-    fs_unlock();
 
     /* Drop any completion left over from the previous track. */
     while (xSemaphoreTake(s_dma_sem, 0) == pdTRUE)
@@ -170,12 +172,13 @@ static TRACK_RESULT_T play_one_track(void)
 
     publish_track(&info);
 
-    filled0 = read_pcm(&fp, s_buf0, AUDIO_BUF_BYTES, bits, info.channels);
-    filled1 = read_pcm(&fp, s_buf1, AUDIO_BUF_BYTES, bits, info.channels);
+    filled0 = read_pcm(s_buf0, AUDIO_BUF_BYTES);
+    filled1 = read_pcm(s_buf1, AUDIO_BUF_BYTES);
 
     if ((filled0 | filled1) == 0U)
     {
         /* Empty data chunk: skip without starting the clock. */
+        track_decoder_close();
         fs_lock();
         (void)f_close(&fp);
         fs_unlock();
@@ -223,12 +226,13 @@ static TRACK_RESULT_T play_one_track(void)
             continue;
         }
 
-        filled = read_pcm(&fp, half, AUDIO_BUF_BYTES, bits, info.channels);
+        filled = read_pcm(half, AUDIO_BUF_BYTES);
         if (filled < AUDIO_BUF_BYTES)
         {
             /* End of file: the tail is already zero-padded, so just let the last half
              * finish playing before switching tracks. */
-            uint32_t bytes_per_sec = info.byte_rate;
+            uint32_t bytes_per_sec = track_decoder_output_rate();
+
             if (bytes_per_sec != 0U)
             {
                 vTaskDelay(pdMS_TO_TICKS((filled * 1000U) / bytes_per_sec + 10U));
@@ -238,15 +242,23 @@ static TRACK_RESULT_T play_one_track(void)
             break;
         }
 
-        if (info.data_size != 0U)
-        {
-            uint32_t pos = (uint32_t)fp.fptr - info.data_offset;
-            s_audio.status.current_seconds =
-                (uint32_t)(((uint64_t)pos * info.total_seconds) / info.data_size);
-        }
+        s_audio.status.current_seconds = track_decoder_position_seconds();
+    }
+
+    if (info.kind == TRACK_KIND_MP3)
+    {
+        /* Decode cost vs. audio produced: the headroom number that decides
+         * whether a faster MP3 rate is still playable on this clock. */
+        uint32_t played = track_decoder_position_seconds();
+        uint32_t used   = track_decoder_decode_ms();
+
+        PRINT_LOG("[MP3 ] decoded %lu s in %lu ms (%lu%% of realtime)\r\n",
+                  (unsigned long)played, (unsigned long)used,
+                  (unsigned long)((played != 0U) ? ((used * 100U) / (played * 1000U)) : 0U));
     }
 
     bsp_sai_stop();
+    track_decoder_close();
     fs_lock();
     (void)f_close(&fp);
     fs_unlock();
@@ -256,9 +268,16 @@ static TRACK_RESULT_T play_one_track(void)
 /* -------------------------------------------------------------------------- */
 /* Task                                                                       */
 /* -------------------------------------------------------------------------- */
+/* Consecutive unreadable tracks tolerated before the volume is declared dead.
+ * One bad file must not cost a remount, but FatFs sticks on FR_DISK_ERR until
+ * the volume is mounted again - so a whole-table failure has to escalate. */
+#define AUDIO_ERROR_LIMIT 3U
+
 static void audio_task(void *arg)
 {
     (void)arg;
+
+    uint8_t error_streak = 0U;
 
     for (;;)
     {
@@ -284,24 +303,44 @@ static void audio_task(void *arg)
         }
 
         s_audio.status.track_count = playlist_count();
+        s_audio.status.dir_files   = playlist_dir_files();
 
-        switch (play_one_track())
         {
-        case TRACK_RESULT_PREV:
-            (void)playlist_step(-1);
-            break;
+            TRACK_RESULT_T result = play_one_track();
 
-        case TRACK_RESULT_NEXT:
-            (void)playlist_step(1);
-            break;
+            if (result == TRACK_RESULT_ERROR)
+            {
+                error_streak++;
 
-        case TRACK_RESULT_ERROR:
-        default:
-            /* Unreadable file: skip it so a single bad track cannot wedge the
-             * player, and give the console a moment to be readable. */
-            (void)playlist_step(1);
-            vTaskDelay(pdMS_TO_TICKS(50));
-            break;
+                if (error_streak >= AUDIO_ERROR_LIMIT)
+                {
+                    /* Every entry failed: assume the card, not the files.
+                     * Unmount + drop the table so the top of this loop brings
+                     * the whole stack back up instead of logging forever. */
+                    PRINT_LOG("[PLAY] %u track(s) unreadable, remounting SD\r\n",
+                              (unsigned)error_streak);
+                    playlist_clear();
+                    sd_card_invalidate();
+                    error_streak = 0U;
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    continue;
+                }
+
+                (void)playlist_step(1);
+                vTaskDelay(pdMS_TO_TICKS(50));
+                continue;
+            }
+
+            error_streak = 0U;
+
+            if (result == TRACK_RESULT_PREV)
+            {
+                (void)playlist_step(-1);
+            }
+            else
+            {
+                (void)playlist_step(1);
+            }
         }
     }
 }
