@@ -5,10 +5,9 @@
  *
  *          Wiring (ALIENTEK Apollo F429):
  *            KEY0   PH3   active low   -> next track
+ *            KEY1   PH2   active low   -> volume up/down (5 levels, bounces)
  *            KEY2   PC13  active low   -> previous track
  *            KEY_UP PA0   active high  -> play / pause
- *          KEY1 (PH2) is wired but not used by the player; it is still sampled
- *          so the debounce table stays uniform.
  *
  *          Debounce: the caller must invoke bsp_key_scan() at a fixed period
  *          (BSP_KEY_SCAN_PERIOD_MS).  A key is accepted only after two
@@ -28,9 +27,10 @@ extern "C" {
 
 typedef enum {
     BSP_KEY_EVENT_NONE = 0,
-    BSP_KEY_EVENT_PLAY_PAUSE, /* KEY_UP  / PA0 */
-    BSP_KEY_EVENT_NEXT,       /* KEY0    / PH3 */
+    BSP_KEY_EVENT_PLAY_PAUSE, /* KEY_UP  / PA0  */
+    BSP_KEY_EVENT_NEXT,       /* KEY0    / PH3  */
     BSP_KEY_EVENT_PREV,       /* KEY2    / PC13 */
+    BSP_KEY_EVENT_VOLUME,     /* KEY1    / PH2  */
 } BSP_KEY_EVENT_T;
 
 /** Configure the four key pins.  No interrupt is used. */

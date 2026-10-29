@@ -129,11 +129,12 @@ int main(void)
     {
         PRINT_LOG("[CODEC] WM8978 not responding (I2C)\r\n");
     }
-    bsp_wm8978_set_hp_volume(40U, 40U);
-    bsp_wm8978_set_spk_volume(40U);
+    bsp_wm8978_set_volume_level(WM8978_VOLUME_LEVEL_DEF);
     bsp_wm8978_set_dac(1U);
     bsp_wm8978_set_output(1U);
-    PRINT_LOG("[CODEC] WM8978 configured\r\n");
+    PRINT_LOG("[CODEC] WM8978 configured (volume %u/%u)\r\n",
+              (unsigned)bsp_wm8978_volume_level(),
+              (unsigned)WM8978_VOLUME_LEVELS);
 
     bsp_key_init();
 

@@ -15,12 +15,17 @@
  *      |                                                   |
  *      |  PLAYING                      44.1 kHz / 16 bit   |
  *      |                                                   |
- *      |  KEY_UP: play/pause   KEY0: next   KEY2: prev     |
+ *      |  KEY_UP: play/pause  KEY0: next  KEY1: vol  KEY2: prev   [VOL 3/5]
  *      +---------------------------------------------------+
  *
  *  Only the widgets that actually change are refreshed, and only when their
  *  value changed, so the FMC 8080 panel (polled, no LTDC) is not asked to push
  *  pixels it has already shown.
+ *
+ *  The track name is cached as a string, not as a playlist index: the first
+ *  track is index 0, which is exactly the value a zero-initialised cache would
+ *  hold, so an index-only comparison silently skips the very first redraw and
+ *  the player boots showing an empty name label.
  *
  *  Note on file names: LVGL's built-in Montserrat faces cover Latin-1 only, so
  *  non-ASCII bytes in a track name are replaced with '?' here.  Feeding them
@@ -39,6 +44,7 @@
 #include "audio_player.h"
 #include "bsp_key.h"
 #include "bsp_lcd.h"
+#include "bsp_wm8978.h"
 #include "lv_port_disp.h"
 #include "log.h"
 
@@ -63,13 +69,15 @@ typedef struct
     lv_obj_t *time_label;
     lv_obj_t *state_label;
     lv_obj_t *format_label;
+    lv_obj_t *volume_label;
     lv_obj_t *bar;
     lv_obj_t *hint_label;
 
-    int16_t  shown_track;
+    char     shown_name[96];
     uint32_t shown_seconds;
     uint32_t shown_total;
     uint8_t  shown_state;
+    uint8_t  shown_volume;
 } UI_WIDGETS_T;
 
 static UI_WIDGETS_T s_ui = {0};
@@ -156,8 +164,14 @@ static void build_screen(void)
 
     /* Key hints */
     s_ui.hint_label = make_label(screen, &lv_font_gbk_12, COLOR_TEXT_DIM);
-    lv_label_set_text(s_ui.hint_label, "KEY_UP: play/pause    KEY0: next    KEY2: prev");
+    lv_label_set_text(s_ui.hint_label,
+                      "KEY_UP: play/pause    KEY0: next    KEY1: volume    KEY2: prev");
     lv_obj_align(s_ui.hint_label, LV_ALIGN_BOTTOM_MID, 0, -30);
+
+    /* Volume read-out, right aligned on the same row as the hint */
+    s_ui.volume_label = make_label(screen, &lv_font_gbk_16, COLOR_TEXT_DIM);
+    lv_label_set_text(s_ui.volume_label, "");
+    lv_obj_align(s_ui.volume_label, LV_ALIGN_BOTTOM_LEFT, 40, -28);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -169,14 +183,27 @@ static void refresh_from_status(void)
     char                  name[96];
     char                  time_text[40];
     char                  format_text[32];
+    char                  volume_text[16];
     int32_t               bar_value = 0;
     uint8_t               state     = (uint8_t)status->state;
+    uint8_t               volume    = bsp_wm8978_volume_level();
 
-    if (status->track != s_ui.shown_track)
+    /* Compare the text, not the playlist index: the first track is index 0, so
+     * an index comparison against the zero-initialised cache would never fire
+     * on the very first track and the name label would stay empty. */
+    if ((status->name[0] != '\0') && (strcmp(status->name, s_ui.shown_name) != 0))
     {
         (void)snprintf(name, sizeof(name), "%s", status->name);
         lv_label_set_text(s_ui.name_label, name);
-        s_ui.shown_track = status->track;
+        (void)snprintf(s_ui.shown_name, sizeof(s_ui.shown_name), "%s", status->name);
+    }
+
+    if (volume != s_ui.shown_volume)
+    {
+        (void)snprintf(volume_text, sizeof(volume_text), "VOL %u/%u",
+                       (unsigned)volume, (unsigned)WM8978_VOLUME_LEVELS);
+        lv_label_set_text(s_ui.volume_label, volume_text);
+        s_ui.shown_volume = volume;
     }
 
     if (status->total_seconds != 0U)
@@ -256,6 +283,13 @@ static void ui_task(void *arg)
         case BSP_KEY_EVENT_PREV:
             audio_player_prev();
             break;
+        case BSP_KEY_EVENT_VOLUME: {
+            uint8_t level = bsp_wm8978_volume_step();
+
+            PRINT_LOG("[KEY ] KEY1 -> volume %u/%u\r\n",
+                      (unsigned)level, (unsigned)WM8978_VOLUME_LEVELS);
+            break;
+        }
         default:
             break;
         }

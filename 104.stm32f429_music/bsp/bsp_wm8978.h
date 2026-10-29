@@ -49,6 +49,28 @@ void bsp_wm8978_set_hp_volume(uint8_t left, uint8_t right);
 void bsp_wm8978_set_spk_volume(uint8_t volume);
 void bsp_wm8978_set_eq3d(uint8_t depth);
 
+/* Volume ladder driven by KEY1.
+ *
+ * The codec's 6-bit volume field runs 0 = -57 dB, 57 = 0 dB, 63 = +6 dB.  The
+ * ladder below spans 1 = -12 dB .. 5 = +4 dB and deliberately stops one code
+ * short of the maximum, where the on-board speaker starts to clip.
+ *
+ * Stepping bounces at both ends (1 -> 5, then 5 -> 1) instead of wrapping, so a
+ * single key press can never jump from the loudest setting straight to the
+ * quietest one. */
+#define WM8978_VOLUME_LEVELS 5U
+#define WM8978_VOLUME_LEVEL_MIN 1U
+#define WM8978_VOLUME_LEVEL_DEF 3U
+
+/** Apply a 1-based level; values outside 1..WM8978_VOLUME_LEVELS are clamped. */
+void bsp_wm8978_set_volume_level(uint8_t level);
+
+/** Current 1-based volume level. */
+uint8_t bsp_wm8978_volume_level(void);
+
+/** Advance one step (bouncing at both ends) and return the new level. */
+uint8_t bsp_wm8978_volume_step(void);
+
 #ifdef __cplusplus
 }
 #endif

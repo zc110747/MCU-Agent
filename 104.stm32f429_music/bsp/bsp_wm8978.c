@@ -160,3 +160,68 @@ void bsp_wm8978_set_eq3d(uint8_t depth)
 {
     bsp_wm8978_write_reg(41U, (uint16_t)(depth & 0x0FU));
 }
+
+/* -------------------------------------------------------------------------- */
+/* Volume ladder (KEY1)                                                       */
+/* -------------------------------------------------------------------------- */
+/* 6-bit code -> gain: 0 = -57 dB, 57 = 0 dB, 63 = +6 dB (1 dB per step).
+ *   45 -> -12 dB   51 -> -6 dB   55 -> -2 dB   58 -> +1 dB   61 -> +4 dB */
+static const uint8_t s_volume_ladder[WM8978_VOLUME_LEVELS] = {
+    45U, 51U, 55U, 58U, 61U};
+
+typedef struct
+{
+    uint8_t level; /* 1-based index into s_volume_ladder */
+    int8_t  dir;   /* +1 while climbing, -1 while descending */
+} WM8978_VOLUME_STATE_T;
+
+static WM8978_VOLUME_STATE_T s_volume = {WM8978_VOLUME_LEVEL_DEF, 1};
+
+void bsp_wm8978_set_volume_level(uint8_t level)
+{
+    uint8_t code;
+
+    if (level < WM8978_VOLUME_LEVEL_MIN)
+    {
+        level = WM8978_VOLUME_LEVEL_MIN;
+    }
+    if (level > WM8978_VOLUME_LEVELS)
+    {
+        level = WM8978_VOLUME_LEVELS;
+    }
+
+    s_volume.level = level;
+    code           = s_volume_ladder[level - 1U];
+
+    /* Headphone (R52/R53) and speaker (R54/R55) follow the same ladder: on this
+     * board both are active, and keeping them equal avoids a level jump when
+     * the headphones are plugged in. */
+    bsp_wm8978_set_hp_volume(code, code);
+    bsp_wm8978_set_spk_volume(code);
+}
+
+uint8_t bsp_wm8978_volume_level(void)
+{
+    return s_volume.level;
+}
+
+uint8_t bsp_wm8978_volume_step(void)
+{
+    int8_t next = (int8_t)s_volume.level + s_volume.dir;
+
+    if (next > (int8_t)WM8978_VOLUME_LEVELS)
+    {
+        /* Clamp at the top and turn round: 5 -> 4, never 5 -> 1. */
+        s_volume.dir = -1;
+        next         = (int8_t)WM8978_VOLUME_LEVELS - 1;
+    }
+    else if (next < (int8_t)WM8978_VOLUME_LEVEL_MIN)
+    {
+        /* Same at the bottom: 1 -> 2. */
+        s_volume.dir = 1;
+        next         = (int8_t)WM8978_VOLUME_LEVEL_MIN + 1;
+    }
+
+    bsp_wm8978_set_volume_level((uint8_t)next);
+    return s_volume.level;
+}

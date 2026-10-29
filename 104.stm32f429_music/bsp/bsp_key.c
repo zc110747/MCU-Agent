@@ -116,6 +116,10 @@ BSP_KEY_EVENT_T bsp_key_scan(void)
         {
             event = BSP_KEY_EVENT_NEXT;
         }
+        else if ((i == KEY_IDX_K1) && (event == BSP_KEY_EVENT_NONE))
+        {
+            event = BSP_KEY_EVENT_VOLUME;
+        }
         else if ((i == KEY_IDX_K2) && (event == BSP_KEY_EVENT_NONE))
         {
             event = BSP_KEY_EVENT_PREV;
