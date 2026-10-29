@@ -46,6 +46,7 @@
 build/
 Build/
 build-*/
+build_*/
 *.log
 
 # CMake generated files
