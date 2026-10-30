@@ -14,6 +14,7 @@
  */
 #include "bsp_wm8978.h"
 #include "bsp_iic.h"
+#include "bsp_delay.h"
 
 #define WM8978_REG_COUNT 58U
 
@@ -69,9 +70,21 @@ uint8_t bsp_wm8978_init(void)
         return 1U;
     }
 
+    /* Mute everything *before* any analog block comes up.  At this point the
+     * SAI is not configured yet, so there is no MCLK: a DAC that is enabled
+     * without a clock free-runs on noise and the speaker reproduces it, which
+     * is exactly the burst heard at every power-on. */
+    bsp_wm8978_set_dac(0U);
+    bsp_wm8978_set_output(0U);
+    bsp_wm8978_set_hp_volume(0U, 0U);
+    bsp_wm8978_set_spk_volume(0U);
+
     bsp_wm8978_write_reg(1U, 0x1B);     /* MICEN, BIASEN, VMIDSEL = 11 (5k)   */
+    bsp_delay_ms(50U);                  /* let VMID / bias settle before the
+                                         * output stages are switched on      */
     bsp_wm8978_write_reg(2U, 0x1B0);    /* ROUT1/LOUT1 + boost enabled        */
     bsp_wm8978_write_reg(3U, 0x6C);     /* LOUT2/ROUT2 (speaker) + mixers     */
+    bsp_delay_ms(50U);
     bsp_wm8978_write_reg(6U, 0x00);     /* MCLK from the SAI, not PLL         */
     bsp_wm8978_write_reg(43U, 1U << 4); /* INVROUT2: non-inverting speaker    */
     bsp_wm8978_write_reg(47U, 1U << 8); /* PGA boost L +20 dB                */
@@ -80,6 +93,13 @@ uint8_t bsp_wm8978_init(void)
     bsp_wm8978_write_reg(49U, 1U << 2); /* speaker boost 1.5x                 */
     bsp_wm8978_write_reg(10U, 1U << 3); /* DAC oversampling 128x              */
     bsp_wm8978_write_reg(14U, 1U << 3); /* ADC oversampling 128x              */
+
+    /* R2/R3 just enabled the output stages; make sure the signal path is still
+     * shut so the codec stays silent until the first real PCM buffer plays. */
+    bsp_wm8978_set_dac(0U);
+    bsp_wm8978_set_output(0U);
+    bsp_wm8978_set_hp_volume(0U, 0U);
+    bsp_wm8978_set_spk_volume(0U);
     return 0U;
 }
 
@@ -224,4 +244,37 @@ uint8_t bsp_wm8978_volume_step(void)
 
     bsp_wm8978_set_volume_level((uint8_t)next);
     return s_volume.level;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Output gate                                                                */
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief  Close the signal path: volumes to mute, then mixer, then DAC.
+ *
+ *  Called at power-on and every time the stream stops.  Order matters: the DAC
+ *  and the output mixer must never be left running without MCLK (the board's
+ *  speaker turns that into a burst of noise) and the mixer must not be opened
+ *  on a stale DC level.
+ */
+void bsp_wm8978_mute(void)
+{
+    bsp_wm8978_set_hp_volume(0U, 0U);
+    bsp_wm8978_set_spk_volume(0U);
+    bsp_wm8978_set_output(0U);
+    bsp_wm8978_set_dac(0U);
+}
+
+/**
+ * @brief  Open the signal path again at the last volume level.
+ *
+ *  Must only be called once MCLK runs and the SAI is fed with real samples
+ *  (after bsp_sai_play()), otherwise the DAC converts whatever the empty FIFO
+ *  holds.
+ */
+void bsp_wm8978_unmute(void)
+{
+    bsp_wm8978_set_dac(1U);
+    bsp_wm8978_set_output(1U);
+    bsp_wm8978_set_volume_level(s_volume.level);
 }

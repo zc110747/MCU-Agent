@@ -100,6 +100,14 @@ LVGL 8.3.11 (SDRAM 堆) -> lv_port_disp -> lcd_color_fill() -> FMC -> NT35510
 - **音频缓冲**：每半缓冲 4096 B，DMA 传输完成中断 `DMA2_Stream3_IRQHandler` →
   `bsp_sai_dma_irq_handler()` → 应用回调释放信号量；实际填充在任务上下文做（FatFs 不可重入）。
 - **暂停**：不停止 SAI/时钟链，而是向空闲半缓冲写 0 —— 恢复时无爆音、无重新同步开销。
+- **上电静音 / 播放才打开**：`bsp_wm8978_init()` 结束时把信号链**全部关掉**
+  （R3 的 DAC 位、R50/R51 混合器、R52~R55 音量全置静音）。原因很直接：SAI 要等到
+  第一首曲子才配置，那时**没有 MCLK**，一个已使能的 DAC 会自由振荡、把噪声直接送进喇叭——
+  这就是每次开机听到的那一下杂音。播放路径在 `bsp_sai_play()` 之后 20 ms
+  （`AUDIO_UNMUTE_DELAY_MS`，先让输出级稳定在真正的 0 采样上）才调
+  `bsp_wm8978_unmute()` 打开；每首结束先 `bsp_wm8978_mute()` 再 `bsp_sai_stop()`，
+  避免下一首 `HAL_SAI_DeInit()` 抽掉时钟时又冒一下。R1 (VMIDSEL/BIASEN) 之后留
+  50 ms 让 VMID 稳定再开输出级，压掉上电"啪"声。
 - **单声道处理**：SAI 配置为 stereo master（2 slot/帧），单声道源会被复制到左右两个 slot，
   否则每帧吃掉 2 个源采样 → **2 倍速**。WAV 与 MP3 共用这条规则。
 - **播完切歌**：读到 EOF 后先 `vTaskDelay` 让最后半缓冲播完，再切下一首（循环列表）。
@@ -211,8 +219,23 @@ FatFs 与 SDIO 轮询驱动都不可重入，且 SD 卡同一时刻只能有一�
 
 ### 7.3 断开检测
 
-主判据是 `tud_umount_cb()`（总线复位 / 拔线）。任务循环里还每 20 ms 查一次
-`tud_mounted()` 兜底：即使漏了事件，也不会出现"卡被 PC 锁住、播放器永远拿不回来"。
+三条判据，任一条成立就把卡还给播放器：
+
+| 判据 | 覆盖的场景 |
+|---|---|
+| `tud_umount_cb()` | 总线复位 / 拔线，事件式，最可靠 |
+| 每 20 ms 轮询 `tud_mounted()` | 漏了 umount 事件的兜底 |
+| **6 s 内没有任何 SCSI 命令** | Windows 里"弹出"卷、主机不再访问、半死的线缆 |
+
+第三条必须**整场会话都有效**——一旦在"主机已挂载卷"之后把它关掉，弹出的卷本来就
+不再发命令，定时器永远不会到点，画面就永远卡在传输页（这正是之前的 bug）。
+
+阈值实测依据：Windows 对可移动卷约每 0.3~1 s 发一次 TEST UNIT READY，6 s 有 6 倍以上
+余量；反过来，能攒够 6 s 静默就说明主机真的不再用了。
+
+反向自愈：释放后 2 s 内忽略主机命令（那是"在途"命令），之后若主机又开始发命令，
+说明这次是误判（PC 休眠 / 忙），`note_host_command()` 会置 `s_evt_reenter`，
+任务循环重新走一遍四步交接把卡拿回来——不需要拔插线缆。
 
 ### 7.4 传输页面
 
@@ -345,7 +368,7 @@ openocd -f openocd.cfg -c "program build/stm32f429_music.elf verify" -c "reset h
 [SD  ] SDIO init OK (30436 MB, block=512)
 [SD  ] mounted 0:
 [FONT] GBK glyph files loaded from SD
-[CODEC] WM8978 configured (volume 3/5)
+[CODEC] WM8978 configured, output muted (volume 3/5)
 [UI  ] LVGL 8.3.11 screen up (800x480)
 [PLAY] 12/12 file(s) playable in 0:/MUSIC
 [WAV ] 22050 Hz 1 ch 16 bit, 37 s

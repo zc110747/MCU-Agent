@@ -72,11 +72,17 @@
 #define USB_TASK_IDLE_MS 20U
 
 /* "The host is done with us" when no SCSI command has arrived for this long.
- * Covers the two cases the bus state alone cannot see: the volume was ejected
- * in Windows (bus still mounted, traffic stops) and a cable that keeps VBUS up
- * without enumerating again.  Short values cut a still-active host off between
- * two write bursts, so this is deliberately generous. */
-#define USB_HOST_IDLE_MS 10000U
+ * Covers the cases the bus state alone cannot see: the volume was ejected in
+ * Windows (bus still mounted, traffic stops completely), the user pulled the
+ * drive and Windows never sent START STOP UNIT, and a cable that keeps VBUS up
+ * without enumerating again.  This timer runs for the whole session, mounted or
+ * not -- disarming it once Windows had mounted the volume is exactly what left
+ * the transfer page on screen forever after an eject. */
+#define USB_HOST_IDLE_MS 6000U
+
+/* Ignore host commands for this long after handing the card back, so a command
+ * that was already in flight cannot bounce the session straight back on. */
+#define USB_REENTER_HOLDOFF_MS 2000U
 
 #define USB_SECTOR_SIZE 512U
 #define USB_EP0_SIZE 64U
@@ -95,6 +101,7 @@ static volatile uint32_t s_used_mb = 0U;
 static volatile bool s_evt_mount = false;
 static volatile bool s_evt_umount = false;
 static volatile bool s_evt_eject = false;
+static volatile bool s_evt_reenter = false;
 static volatile bool s_io_error_logged = false;
 
 /* Last time the host actually talked to the volume.  Written from the MSC
@@ -102,18 +109,31 @@ static volatile bool s_io_error_logged = false;
  * so no locking is needed. */
 static volatile TickType_t s_last_cmd_tick = 0U;
 
+/* When the card was last handed back to the player.  A command arriving sooner
+ * than USB_REENTER_HOLDOFF_MS afterwards is ignored: that is the host finishing
+ * whatever it was doing, not a reason to take the card away again. */
+static volatile TickType_t s_leave_tick = 0U;
+
 /* Set once the host has read a sector, i.e. Windows has really mounted the
- * volume and walked its FAT.  From that point on, silence means "the PC is
- * idle", not "the PC is gone": a mounted volume can go minutes without a SCSI
- * command, so the idle timeout must not apply any more (that is what made the
- * drive vanish a few seconds after it appeared).  Removal is still detected --
- * by tud_umount_cb() for the cable and by the eject request for "safe
- * remove". */
+ * volume and walked its FAT.  Only used to word the release log: the idle
+ * timeout applies either way. */
 static volatile bool s_host_mounted = false;
 
 static void note_host_command(void)
 {
     s_last_cmd_tick = xTaskGetTickCount();
+
+    /* The host is talking to us again after an idle release.  That release is a
+     * heuristic -- a sleeping or very busy PC looks exactly like a removed
+     * drive -- so take the card back instead of leaving the host with a dead
+     * volume until someone replugs the cable.  The request is only raised here
+     * and served from the task loop: usb_session_enter() blocks waiting for the
+     * player to park, which must never happen inside a SCSI callback. */
+    if ((s_state == USB_MSC_STATE_IDLE) && (s_owned == 0U) && tud_mounted() &&
+        ((xTaskGetTickCount() - s_leave_tick) >= pdMS_TO_TICKS(USB_REENTER_HOLDOFF_MS)))
+    {
+        s_evt_reenter = true;
+    }
 }
 
 /* Bounce sector for the rare unaligned / partial-block request.  Owned by the
@@ -362,7 +382,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
     if (!s_host_mounted)
     {
         s_host_mounted = true;
-        PRINT_LOG("[USB ] host mounted the volume (%lu MB), idle timeout disarmed\r\n",
+        PRINT_LOG("[USB ] host mounted the volume (%lu MB)\r\n",
                   (unsigned long)s_total_mb);
     }
     return (int32_t)bufsize;
@@ -593,7 +613,8 @@ static void usb_session_leave(void)
     /* 3. Give the player its card back, and only then report IDLE: the UI
      *    re-opens the GBK font files when it sees this state. */
     audio_player_set_usb_mode(false);
-    s_state = USB_MSC_STATE_IDLE;
+    s_state      = USB_MSC_STATE_IDLE;
+    s_leave_tick = xTaskGetTickCount();
 
     PRINT_LOG("[USB ] host released the card, back to the player\r\n");
 }
@@ -625,13 +646,26 @@ static void usb_task(void *arg)
             s_evt_eject = false;
             usb_session_leave();
         }
+        if (s_evt_reenter)
+        {
+            s_evt_reenter = false;
+            if (s_state == USB_MSC_STATE_IDLE)
+            {
+                PRINT_LOG("[USB ] host is talking again, taking the card back\r\n");
+                usb_session_enter();
+            }
+        }
 
         /* Three ways to decide the host is gone, checked here so a missed event
          * cannot leave the card parked forever:
-         *   1. tud_umount_cb() set s_evt_umount,
-         *   2. the stack itself reports "not mounted" (cable pulled),
-         *   3. no SCSI command for USB_HOST_IDLE_MS -- the volume was ejected,
-         *      or the PC stopped using it. */
+         *   1. tud_umount_cb() set s_evt_umount (cable pulled / host reset),
+         *   2. the stack itself reports "not mounted",
+         *   3. no SCSI command and no bulk traffic for USB_HOST_IDLE_MS -- the
+         *      host ejected the volume or stopped using it.  Case 3 is the only
+         *      one that catches "ejected in Windows" and a half-dead cable, and
+         *      it must stay armed after the volume was mounted: an ejected
+         *      volume is silent by definition, so a disarmed timer never fires
+         *      and the transfer page stays up forever. */
         if (s_state == USB_MSC_STATE_ACTIVE)
         {
             bool mounted = tud_mounted();
@@ -640,14 +674,13 @@ static void usb_task(void *arg)
             {
                 usb_session_leave();
             }
-            else if ((s_host_mounted == false) &&
-                     ((xTaskGetTickCount() - s_last_cmd_tick) >=
-                      pdMS_TO_TICKS(USB_HOST_IDLE_MS)))
+            else if ((xTaskGetTickCount() - s_last_cmd_tick) >=
+                     pdMS_TO_TICKS(USB_HOST_IDLE_MS))
             {
-                /* Enumerated but never touched: no volume to lose, so the
-                 * player may have the card back. */
-                PRINT_LOG("[USB ] no host traffic for %u s, releasing the card\r\n",
-                          (unsigned)(USB_HOST_IDLE_MS / 1000U));
+                PRINT_LOG("[USB ] no host traffic for %u s (%s), releasing the card\r\n",
+                          (unsigned)(USB_HOST_IDLE_MS / 1000U),
+                          (s_host_mounted != false) ? "volume was mounted"
+                                                    : "volume never mounted");
                 usb_session_leave();
             }
         }

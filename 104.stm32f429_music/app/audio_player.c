@@ -50,6 +50,11 @@
 /* One DMA half buffer.  4 KB is what the ALIENTEK reference uses; it is also
  * the smallest size that stayed glitch-free at 24-bit / 192 kHz there. */
 #define AUDIO_BUF_BYTES 4096U
+
+/* Silence the codec stays muted for after the stream starts, so its output
+ * stage settles on real zero samples before the speaker is opened.  Long enough
+ * to swallow the power-up step, short enough to be inaudible. */
+#define AUDIO_UNMUTE_DELAY_MS 20U
 /* The task stack also carries a FIL (with its long-filename buffer), the path
  * and the decoder's return path, so 6 KB rather than the 3 KB a WAV-only player
  * needed.  The MP3 decoder's own 16 KB scratch buffer deliberately does NOT
@@ -272,6 +277,13 @@ static TRACK_RESULT_T play_one_track(void)
     s_audio.status.state = AUDIO_STATE_PLAYING;
     bsp_sai_play();
 
+    /* MCLK is running and the DMA feeds real samples now, so the DAC has
+     * something valid to convert.  Only then is the analog output opened: the
+     * codec is left muted across boot and between tracks precisely so that it
+     * never amplifies a clock-less DAC or a stale DC level. */
+    vTaskDelay(pdMS_TO_TICKS(AUDIO_UNMUTE_DELAY_MS));
+    bsp_wm8978_unmute();
+
     PRINT_LOG("[PLAY] now playing: %s\r\n", s_audio.status.name);
 
     for (;;)
@@ -350,6 +362,10 @@ static TRACK_RESULT_T play_one_track(void)
                   (unsigned long)((played != 0U) ? ((used * 100U) / (played * 1000U)) : 0U));
     }
 
+    /* Close the analog path first: bsp_sai_configure() for the next track tears
+     * the SAI clock down, and a DAC still enabled at that moment would convert
+     * the missing MCLK into an audible burst. */
+    bsp_wm8978_mute();
     bsp_sai_stop();
     track_decoder_close();
     fs_lock();

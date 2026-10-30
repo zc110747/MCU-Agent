@@ -33,11 +33,27 @@ extern "C" {
 #define WM8978_WLEN_32 3U
 
 /**
- * @brief  Reset the codec and apply the playback-only configuration
- *         (DAC on, ADC off, speaker + headphone enabled).
+ * @brief  Reset the codec and apply the playback-only configuration.
+ *
+ *  The output path is left MUTED (DAC off, mixer off, volumes muted) so the
+ *  codec stays silent while the SAI has no clock.  Playback opens it through
+ *  bsp_wm8978_unmute() once real PCM data is running.
+ *
  * @retval 0 on success, 1 if the chip did not acknowledge the reset.
  */
 uint8_t bsp_wm8978_init(void);
+
+/**
+ * @brief  Close the signal path (volumes muted, mixer off, DAC off).
+ *         Call before stopping the SAI clock.
+ */
+void bsp_wm8978_mute(void);
+
+/**
+ * @brief  Open the signal path at the current volume level.
+ *         Call only after bsp_sai_play(), i.e. once MCLK and PCM data are up.
+ */
+void bsp_wm8978_unmute(void);
 
 uint8_t  bsp_wm8978_write_reg(uint8_t reg, uint16_t value);
 uint16_t bsp_wm8978_read_reg(uint8_t reg);

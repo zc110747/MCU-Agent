@@ -126,15 +126,21 @@ int main(void)
         PRINT_LOG("[SD  ] no card at boot, player will retry\r\n");
     }
 
-    /* WM8978: playback path only (DAC -> HP + speaker). */
+    /* WM8978: playback path only (DAC -> HP + speaker).
+     *
+     * init() leaves the codec MUTED on purpose.  The SAI is not configured until
+     * the first track starts, so there is no MCLK yet, and a DAC without a clock
+     * converts noise straight into the speaker -- the burst heard at every
+     * power-on.  The path is opened by bsp_wm8978_unmute() right after
+     * bsp_sai_play(), i.e. when the first PCM buffer is actually running. */
     if (bsp_wm8978_init() != 0U)
     {
         PRINT_LOG("[CODEC] WM8978 not responding (I2C)\r\n");
     }
+    /* Pre-load the level so the first unmute() starts at the right gain. */
     bsp_wm8978_set_volume_level(WM8978_VOLUME_LEVEL_DEF);
-    bsp_wm8978_set_dac(1U);
-    bsp_wm8978_set_output(1U);
-    PRINT_LOG("[CODEC] WM8978 configured (volume %u/%u)\r\n",
+    bsp_wm8978_mute();
+    PRINT_LOG("[CODEC] WM8978 configured, output muted (volume %u/%u)\r\n",
               (unsigned)bsp_wm8978_volume_level(),
               (unsigned)WM8978_VOLUME_LEVELS);
 
