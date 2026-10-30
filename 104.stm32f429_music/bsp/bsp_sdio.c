@@ -17,7 +17,10 @@
  */
 #include "bsp_sdio.h"
 
+#include <stdbool.h>
 #include <stdio.h>
+
+#include "log.h"
 
 SD_HandleTypeDef hsd_card;
 
@@ -101,25 +104,51 @@ uint8_t bsp_sdio_is_ready(void)
     return s_ready;
 }
 
-HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint32_t nblocks)
+/* Polled transfers and interrupts do not mix: the 32-word RX FIFO overruns if
+ * the CPU is away for more than ~10 us, and with the USB device stack up there
+ * is always another interrupt waiting to happen.  A burst that lost that race
+ * also leaves the data path stalled, so one collision used to poison every
+ * later read until the volume was remounted.
+ *
+ * Two countermeasures, both inside the existing polled design:
+ *   - cap each HAL burst at 8 blocks (4 KB).  Shorter bursts mean a smaller
+ *     window in which an ISR can steal the CPU.
+ *   - on failure, HAL_SD_Abort() to tear the data path down and retry the same
+ *     chunk.  Reads are idempotent, so a retry is always safe. */
+#define SDIO_CHUNK_BLOCKS 8U
+#define SDIO_IO_RETRIES 3U
+
+/* Enough to see the pattern on a scope/serial log without turning a large copy
+ * into a wall of text. */
+#define SDIO_RETRY_LOG_LIMIT 8U
+static uint32_t s_retry_logs = 0U;
+
+/**
+ * @brief  One burst, plus the wait for the card to report TRANSFER again.
+ */
+static HAL_StatusTypeDef sdio_transfer_chunk(uint8_t *buf, uint32_t start_block,
+                                             uint32_t nblocks, bool write)
 {
     HAL_StatusTypeDef st;
-    uint32_t          waited = 0;
+    uint32_t          waited = 0U;
 
-    if (!s_ready)
+    if (write)
     {
-        return HAL_ERROR;
+        st = HAL_SD_WriteBlocks(&hsd_card, buf, start_block, nblocks, SDIO_RW_TIMEOUT_MS);
+    }
+    else
+    {
+        st = HAL_SD_ReadBlocks(&hsd_card, buf, start_block, nblocks, SDIO_RW_TIMEOUT_MS);
     }
 
-    st = HAL_SD_ReadBlocks(&hsd_card, buf, start_block, nblocks, SDIO_RW_TIMEOUT_MS);
     if (st != HAL_OK)
     {
         return st;
     }
 
-    /* The polled transfer is complete once RxXferCplt sets, but the card itself
-     * may still be busy (write-back / internal state machine).  Wait until it
-     * reports TRANSFER so the next command is not issued too early. */
+    /* The polled transfer is complete once the data counter runs out, but the
+     * card itself may still be busy (write-back / internal state machine).
+     * Waiting here keeps the next command from being issued too early. */
     while (HAL_SD_GetCardState(&hsd_card) != HAL_SD_CARD_TRANSFER)
     {
         if (waited++ >= SDIO_RW_TIMEOUT_MS)
@@ -132,33 +161,68 @@ HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint3
     return HAL_OK;
 }
 
-HAL_StatusTypeDef bsp_sdio_write_blocks(const uint8_t *buf, uint32_t start_block, uint32_t nblocks)
+static HAL_StatusTypeDef sdio_transfer(uint8_t *buf, uint32_t start_block,
+                                       uint32_t nblocks, bool write)
 {
-    HAL_StatusTypeDef st;
-    uint32_t          waited = 0;
+    HAL_StatusTypeDef st = HAL_OK;
 
     if (!s_ready)
     {
         return HAL_ERROR;
     }
 
-    st = HAL_SD_WriteBlocks(&hsd_card, (uint8_t *)buf, start_block, nblocks,
-                            SDIO_RW_TIMEOUT_MS);
-    if (st != HAL_OK)
+    while (nblocks > 0U)
     {
-        return st;
-    }
+        uint32_t chunk = (nblocks > SDIO_CHUNK_BLOCKS) ? SDIO_CHUNK_BLOCKS : nblocks;
+        uint32_t tries = 0U;
 
-    while (HAL_SD_GetCardState(&hsd_card) != HAL_SD_CARD_TRANSFER)
-    {
-        if (waited++ >= SDIO_RW_TIMEOUT_MS)
+        for (;;)
         {
-            return HAL_TIMEOUT;
+            st = sdio_transfer_chunk(buf, start_block, chunk, write);
+            if (st == HAL_OK)
+            {
+                break;
+            }
+
+            /* One line per failed attempt, but only the first few: a copy run
+             * produces a collision every few hundred KB, and a blocking UART
+             * print in the middle of it would cost more than the retry.  The
+             * error code is still meaningful here -- HAL_SD_Abort() clears it. */
+            if (s_retry_logs < SDIO_RETRY_LOG_LIMIT)
+            {
+                s_retry_logs++;
+                PRINT_LOG("[SD  ] %s blk=%lu n=%lu st=%d err=0x%08lX retry=%lu\r\n",
+                          (write != false) ? "write" : "read",
+                          (unsigned long)start_block, (unsigned long)chunk, (int)st,
+                          (unsigned long)hsd_card.ErrorCode, (unsigned long)(tries + 1U));
+            }
+
+            (void)HAL_SD_Abort(&hsd_card);
+            HAL_Delay(2U);
+
+            tries++;
+            if (tries >= SDIO_IO_RETRIES)
+            {
+                return st;
+            }
         }
-        HAL_Delay(1);
+
+        buf += chunk * 512U;
+        start_block += chunk;
+        nblocks -= chunk;
     }
 
     return HAL_OK;
+}
+
+HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint32_t nblocks)
+{
+    return sdio_transfer(buf, start_block, nblocks, false);
+}
+
+HAL_StatusTypeDef bsp_sdio_write_blocks(const uint8_t *buf, uint32_t start_block, uint32_t nblocks)
+{
+    return sdio_transfer((uint8_t *)buf, start_block, nblocks, true);
 }
 
 GLOBAL_TYPE_T bsp_sdio_get_info(uint32_t *block_count, uint16_t *block_size)

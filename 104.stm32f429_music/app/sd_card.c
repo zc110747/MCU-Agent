@@ -101,7 +101,7 @@ GLOBAL_TYPE_T sd_card_remount(void)
 GLOBAL_TYPE_T sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb)
 {
     uint32_t cluster_bytes;
-    uint32_t total_bytes;
+    uint64_t total_bytes; /* 64-bit: clusters * cluster_bytes overflows at 4 GB */
     uint32_t total_clusters;
     uint32_t free_clusters;
     FRESULT  rc;
@@ -123,7 +123,7 @@ GLOBAL_TYPE_T sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb)
      * constant and fs->ssize does not even exist in this configuration. */
     cluster_bytes  = (uint32_t)s_sd_fs.csize * 512U;
     total_clusters = (uint32_t)s_sd_fs.n_fatent - 2U;
-    total_bytes    = total_clusters * cluster_bytes;
+    total_bytes    = (uint64_t)total_clusters * (uint64_t)cluster_bytes;
     free_clusters  = (uint32_t)s_sd_fs.free_clst;
 
     if (free_clusters > total_clusters)
@@ -159,11 +159,11 @@ GLOBAL_TYPE_T sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb)
 
     if (total_mb != NULL)
     {
-        *total_mb = total_bytes >> 20;
+        *total_mb = (uint32_t)(total_bytes >> 20);
     }
     if (used_mb != NULL)
     {
-        *used_mb = (total_bytes - (free_clusters * cluster_bytes)) >> 20;
+        *used_mb = (uint32_t)((total_bytes - ((uint64_t)free_clusters * (uint64_t)cluster_bytes)) >> 20);
     }
     return RT_OK;
 }

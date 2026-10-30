@@ -94,12 +94,22 @@ static volatile uint32_t s_total_mb = 0U;
 static volatile uint32_t s_used_mb = 0U;
 static volatile bool s_evt_mount = false;
 static volatile bool s_evt_umount = false;
+static volatile bool s_evt_eject = false;
 static volatile bool s_io_error_logged = false;
 
 /* Last time the host actually talked to the volume.  Written from the MSC
  * callbacks (all of which run inside the USB task) and read by the same task,
  * so no locking is needed. */
 static volatile TickType_t s_last_cmd_tick = 0U;
+
+/* Set once the host has read a sector, i.e. Windows has really mounted the
+ * volume and walked its FAT.  From that point on, silence means "the PC is
+ * idle", not "the PC is gone": a mounted volume can go minutes without a SCSI
+ * command, so the idle timeout must not apply any more (that is what made the
+ * drive vanish a few seconds after it appeared).  Removal is still detected --
+ * by tud_umount_cb() for the cable and by the eject request for "safe
+ * remove". */
+static volatile bool s_host_mounted = false;
 
 static void note_host_command(void)
 {
@@ -316,6 +326,20 @@ static bool msc_write(const uint8_t *src, uint32_t lba, uint32_t offset, uint32_
 /*--------------------------------------------------------------------*/
 /* MSC callbacks (called from tud_task, i.e. the USB task)             */
 /*--------------------------------------------------------------------*/
+void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16],
+                        uint8_t product_rev[4])
+{
+    (void)lun;
+
+    /* Space padded, deliberately NOT NUL terminated -- SCSI wants fixed width.
+     * Without this callback TinyUSB's weak stub leaves the fields zeroed, which
+     * is why Windows lists the drive as "USB Device" (VEN_&PROD_&REV_) and can
+     * be much slower to pick a driver for it. */
+    (void)memcpy(vendor_id, "MCU-AGT ", 8U);
+    (void)memcpy(product_id, "F429 MUSIC DISK ", 16U);
+    (void)memcpy(product_rev, "1.00", 4U);
+}
+
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                           void *buffer, uint32_t bufsize)
 {
@@ -323,12 +347,23 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 
     if ((lun != 0U) || (s_owned == 0U))
     {
-        return -1; /* TUD_MSC_RET_ERROR: the host gets "medium not present" */
+        /* Same "becoming ready" answer as TEST UNIT READY: a bare error here
+         * makes the host mark the whole device failed instead of retrying. */
+        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x04, 0x01);
+        return -1;
     }
     if (!msc_read((uint8_t *)buffer, lba, offset, bufsize))
     {
         report_io_error("read10");
         return -1;
+    }
+    /* A successful READ(10) is proof that Windows mounted us and parsed the FAT;
+     * see s_host_mounted. */
+    if (!s_host_mounted)
+    {
+        s_host_mounted = true;
+        PRINT_LOG("[USB ] host mounted the volume (%lu MB), idle timeout disarmed\r\n",
+                  (unsigned long)s_total_mb);
     }
     return (int32_t)bufsize;
 }
@@ -340,6 +375,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 
     if ((lun != 0U) || (s_owned == 0U))
     {
+        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x04, 0x01);
         return -1;
     }
     if (!msc_write(buffer, lba, offset, bufsize))
@@ -410,11 +446,18 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun)
 {
     note_host_command();
 
-    /* Keeps the host retrying instead of failing the drive while the hand-over
-     * handshake is still running. */
     if ((lun != 0U) || (s_owned == 0U))
     {
-        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
+        /* NOT_READY / "becoming ready", NOT "medium not present".
+         *
+         * This is the difference between the volume showing up and Windows
+         * deciding the slot is empty: on 0x3A (MEDIUM NOT PRESENT) the disk
+         * class driver concludes there is no card, stops polling with TEST
+         * UNIT READY and never looks again -- the drive stays "No Media" with
+         * 0 bytes until the cable is replugged.  0x04/0x01 means "still
+         * spinning up", which the host retries a few hundred ms later, by
+         * which time the hand-over has completed. */
+        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x04, 0x01);
         return false;
     }
     return true;
@@ -430,8 +473,11 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
 
     if (load_eject)
     {
-        /* "Safely remove hardware" only asks us to flush; the card stays. */
-        PRINT_LOG("[USB ] host ejected the volume (card still present)\r\n");
+        /* Windows' "eject" asks us to let go of the volume.  That is a much
+         * sharper signal than an idle timeout, so act on it right away: the
+         * player gets the card back and the transfer page goes away. */
+        PRINT_LOG("[USB ] host ejected the volume, releasing the card\r\n");
+        s_evt_eject = true;
     }
     return true;
 }
@@ -513,6 +559,7 @@ static void usb_session_enter(void)
     fs_usb_session_begin();
 
     s_io_error_logged = false;
+    s_host_mounted    = false;
     s_owned           = 1U;
     s_state           = USB_MSC_STATE_ACTIVE;
     /* The 10 s idle clock starts now, not at the last command: enumeration alone
@@ -531,7 +578,8 @@ static void usb_session_leave(void)
     }
 
     /* 1. Stop answering SCSI before the card changes hands. */
-    s_owned = 0U;
+    s_owned        = 0U;
+    s_host_mounted = false;
     fs_usb_session_end();
 
     /* 2. The host may have created, overwritten or deleted anything: drop
@@ -572,6 +620,11 @@ static void usb_task(void *arg)
             s_evt_umount = false;
             usb_session_leave();
         }
+        if (s_evt_eject)
+        {
+            s_evt_eject = false;
+            usb_session_leave();
+        }
 
         /* Three ways to decide the host is gone, checked here so a missed event
          * cannot leave the card parked forever:
@@ -587,9 +640,12 @@ static void usb_task(void *arg)
             {
                 usb_session_leave();
             }
-            else if ((xTaskGetTickCount() - s_last_cmd_tick) >=
-                     pdMS_TO_TICKS(USB_HOST_IDLE_MS))
+            else if ((s_host_mounted == false) &&
+                     ((xTaskGetTickCount() - s_last_cmd_tick) >=
+                      pdMS_TO_TICKS(USB_HOST_IDLE_MS)))
             {
+                /* Enumerated but never touched: no volume to lose, so the
+                 * player may have the card back. */
                 PRINT_LOG("[USB ] no host traffic for %u s, releasing the card\r\n",
                           (unsigned)(USB_HOST_IDLE_MS / 1000U));
                 usb_session_leave();

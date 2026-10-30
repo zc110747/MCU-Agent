@@ -77,7 +77,7 @@
         <tvExpOptDlg>0</tvExpOptDlg>
         <IsCurrentTarget>1</IsCurrentTarget>
       </OPTFL>
-      <CpuCode>19</CpuCode>
+      <CpuCode>18</CpuCode>
       <DebugOpt>
         <uSim>0</uSim>
         <uTrg>1</uTrg>
@@ -186,7 +186,8 @@
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>1</GroupNumber>
       <FileNumber>1</FileNumber>
       <FileType>2</FileType>
@@ -199,12 +200,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Application/User</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>2</GroupNumber>
       <FileNumber>2</FileNumber>
       <FileType>1</FileType>
@@ -385,12 +388,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Drivers/BSP</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>3</GroupNumber>
       <FileNumber>17</FileNumber>
       <FileType>1</FileType>
@@ -583,12 +588,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Drivers/STM32F4xx_HAL_Driver</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>4</GroupNumber>
       <FileNumber>33</FileNumber>
       <FileType>1</FileType>
@@ -841,12 +848,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Drivers/CMSIS</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>5</GroupNumber>
       <FileNumber>54</FileNumber>
       <FileType>1</FileType>
@@ -859,12 +868,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/FreeRTOS</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>6</GroupNumber>
       <FileNumber>55</FileNumber>
       <FileType>1</FileType>
@@ -961,12 +972,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/minimp3</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>7</GroupNumber>
       <FileNumber>63</FileNumber>
       <FileType>1</FileType>
@@ -979,12 +992,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/TinyUSB</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>8</GroupNumber>
       <FileNumber>64</FileNumber>
       <FileType>1</FileType>
@@ -1057,12 +1072,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/FatFs</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>9</GroupNumber>
       <FileNumber>70</FileNumber>
       <FileType>1</FileType>
@@ -1099,12 +1116,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/core</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>10</GroupNumber>
       <FileNumber>73</FileNumber>
       <FileType>1</FileType>
@@ -1285,12 +1304,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>11</GroupNumber>
       <FileNumber>88</FileNumber>
       <FileType>1</FileType>
@@ -1447,12 +1468,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/arm2d</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>12</GroupNumber>
       <FileNumber>101</FileNumber>
       <FileType>1</FileType>
@@ -1465,12 +1488,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/nxp</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>13</GroupNumber>
       <FileNumber>102</FileNumber>
       <FileType>1</FileType>
@@ -1603,12 +1628,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/renesas</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>14</GroupNumber>
       <FileNumber>113</FileNumber>
       <FileType>1</FileType>
@@ -1633,12 +1660,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/sdl</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>15</GroupNumber>
       <FileNumber>115</FileNumber>
       <FileType>1</FileType>
@@ -1807,12 +1836,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/stm32_dma2d</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>16</GroupNumber>
       <FileNumber>129</FileNumber>
       <FileType>1</FileType>
@@ -1825,12 +1856,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/sw</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>17</GroupNumber>
       <FileNumber>130</FileNumber>
       <FileType>1</FileType>
@@ -1975,12 +2008,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/draw/swm341_dma2d</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>18</GroupNumber>
       <FileNumber>142</FileNumber>
       <FileType>1</FileType>
@@ -1993,12 +2028,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/extra</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>19</GroupNumber>
       <FileNumber>143</FileNumber>
       <FileType>1</FileType>
@@ -2011,12 +2048,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/extra/layouts</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>20</GroupNumber>
       <FileNumber>144</FileNumber>
       <FileType>1</FileType>
@@ -2041,12 +2080,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/extra/libs</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>21</GroupNumber>
       <FileNumber>146</FileNumber>
       <FileType>1</FileType>
@@ -2263,12 +2304,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/extra/others</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>22</GroupNumber>
       <FileNumber>164</FileNumber>
       <FileType>1</FileType>
@@ -2365,12 +2408,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/extra/themes</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>23</GroupNumber>
       <FileNumber>172</FileNumber>
       <FileType>1</FileType>
@@ -2407,12 +2452,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/extra/widgets</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>24</GroupNumber>
       <FileNumber>175</FileNumber>
       <FileType>1</FileType>
@@ -2641,12 +2688,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/font</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>25</GroupNumber>
       <FileNumber>194</FileNumber>
       <FileType>1</FileType>
@@ -3007,12 +3056,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/hal</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>26</GroupNumber>
       <FileNumber>224</FileNumber>
       <FileType>1</FileType>
@@ -3049,12 +3100,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/misc</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>27</GroupNumber>
       <FileNumber>227</FileNumber>
       <FileType>1</FileType>
@@ -3319,12 +3372,14 @@
       <bShared>0</bShared>
     </File>
   </Group>
+
   <Group>
     <GroupName>Middlewares/LVGL/widgets</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>    <File>
+    <RteFlg>0</RteFlg>
+    <File>
       <GroupNumber>28</GroupNumber>
       <FileNumber>249</FileNumber>
       <FileType>1</FileType>
