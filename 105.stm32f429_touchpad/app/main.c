@@ -9,7 +9,7 @@
   *   - LVGL images      0:/IMG/<name>.bin  (wallpaper + icons)
   *   - FreeRTOS heap (heap_5, single region) lives in external SDRAM
   *   - HAL 1 ms time base on TIM7 (SysTick belongs to FreeRTOS)
-  *   - USART3 (PB10/PB11) debug console, 115200 8N1
+  *   - USART1 (PA9/PA10) debug console, on-board CH340, 115200 8N1
   *
   *   INIT ORDER (hard constraints):
   *     - SDRAM + FreeRTOS heap MUST exist before any FreeRTOS object

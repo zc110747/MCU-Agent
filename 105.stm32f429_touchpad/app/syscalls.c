@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    syscalls.c
  * @brief   Minimal newlib syscalls for STM32 + FreeRTOS.
- *          _write() is provided in bsp_uart.c (retarget to USART3).
+ *          _write() is provided in bsp_uart.c (retarget to USART1).
   ******************************************************************************
   */
 #include <sys/stat.h>

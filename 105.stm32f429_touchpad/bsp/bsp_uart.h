@@ -3,7 +3,13 @@
 
 #include "stm32f4xx_hal.h"
 
-/* Debug console on USART3: PB10(TX) / PB11(RX), 115200 8N1.
+/* Debug console on USART1: PA9(TX) / PA10(RX), 115200 8N1.
+ *
+ * USART1 - not USART3 - because that is what the on-board CH340 USB-serial
+ * bridge is wired to on this board.  With USART3 (PB10/PB11) the firmware ran
+ * and the transmitter reported TC=1, but no cable was attached to those pins,
+ * so no log ever reached the host.
+ *
  * IMPORTANT: BSP_UART_Init() creates NO FreeRTOS object.  This project brings
  * the console up BEFORE the SDRAM and therefore before vPortDefineHeapRegions()
  * (see main.c), so anything that allocates from ucHeap here would corrupt the
@@ -12,7 +18,7 @@
  * printf() is retargeted through syscalls _write -> uart_write(), but
  * application code must log through PRINT_LOG() (app/log.h) instead - that is
  * what the global PRINT_LOG_ENABLE switch controls. */
-extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart1;
 
 /* 2048, not 512.  uart_write() DROPS bytes when the ring is full, and at
  * 115200 baud (11.5 kB/s) a 512 byte ring overflows as soon as one task
@@ -20,11 +26,11 @@ extern UART_HandleTypeDef huart3;
  * tasks (the SD/USB loader messages, for example).  Must stay a power of
  * two: the head/tail wrap relies on it. */
 #define UART_TX_BUF_SIZE   2048
-#define UART_RX_BUF_SIZE   64   /* small, polled-drain; not used by the demo */
+#define UART_RX_BUF_SIZE   128  /* command channel, drained by ui_task      */
 
 /**
-  * @brief  Initialize USART3 (PB10/PB11) at 115200 8N1 and the TX ring.
-  *         No FreeRTOS object is created here (see the note above).
+  * @brief  Initialize USART1 (PA9/PA10) at 115200 8N1, the TX ring and the
+  *         RX interrupt.  No FreeRTOS object is created here (see above).
   */
 void BSP_UART_Init(void);
 
@@ -44,14 +50,20 @@ int  uart_write(const uint8_t *data, int len);
 int  uart_puts(const char *s);
 
 /**
-  * @brief  Block until the TX ring is fully drained by the USART3 ISR
+  * @brief  Take up to max bytes out of the RX ring (filled by the USART1 ISR).
+  * @return number of bytes actually copied; 0 when nothing was received.
+  */
+int  uart_read(uint8_t *buf, int max);
+
+/**
+  * @brief  Block until the TX ring is fully drained by the USART1 ISR
   *         (transmitter idle).  Use before a reset/reboot so the last message
   *         really reaches the wire.  Has a bounded wait so a stuck transmitter
   *         can never hang the caller.
   */
 void uart_flush(void);
 
-/* USART3 interrupt service routine (defined in bsp_uart.c). */
+/* USART1 interrupt service routine (defined in bsp_uart.c). */
 void BSP_UART_IRQHandler(void);
 
 #endif /* __BSP_UART_H */

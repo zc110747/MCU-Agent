@@ -1,7 +1,12 @@
 /**
   ******************************************************************************
   * @file    bsp_uart.c
-  * @brief   USART3 (PB10/PB11) debug console with a scheduler-aware TX path.
+  * @brief   USART1 (PA9/PA10) debug console with a scheduler-aware TX path.
+  *
+  *  USART1 is the port wired to the on-board CH340 USB-serial bridge.  The
+  *  previous USART3 (PB10/PB11) build transmitted correctly (SR showed TC=1,
+  *  TXE=1, AF7 on PB10/PB11, BRR=0x16C) but nothing was physically attached
+  *  to those pins, so the log never reached a host.
   *
   *  Transmit paths
   *  --------------
@@ -31,7 +36,7 @@
 
 void Error_Handler(void);  /* defined in main.c */
 
-UART_HandleTypeDef huart3;
+UART_HandleTypeDef huart1;
 
 /* ---- TX: ring buffer + critical section ---- */
 static uint8_t g_tx_buf[UART_TX_BUF_SIZE];
@@ -39,6 +44,11 @@ static volatile uint16_t g_tx_head = 0;   /* written by uart_write */
 static volatile uint16_t g_tx_tail = 0;   /* read by IRQ */
 static volatile uint8_t  g_tx_busy = 0;   /* transmitter active */
 static volatile uint8_t  g_uart_ready = 0;
+
+/* ---- RX: ring buffer filled by the ISR, drained by ui_task ---- */
+static uint8_t g_rx_buf[UART_RX_BUF_SIZE];
+static volatile uint16_t g_rx_head = 0;   /* written by IRQ   */
+static volatile uint16_t g_rx_tail = 0;   /* read by uart_read */
 
 /* Serialises concurrent uart_write() callers once the scheduler is up.
  * NULL until the first post-scheduler write (see the file header). */
@@ -71,34 +81,39 @@ void BSP_UART_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-  __HAL_RCC_USART3_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_USART1_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  GPIO_InitStruct.Pin       = GPIO_PIN_10 | GPIO_PIN_11;
+  GPIO_InitStruct.Pin       = GPIO_PIN_9 | GPIO_PIN_10;   /* PA9=TX PA10=RX */
   GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull      = GPIO_NOPULL;
   GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  huart3.Instance          = USART3;
-  huart3.Init.BaudRate     = 115200;
-  huart3.Init.WordLength   = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits     = UART_STOPBITS_1;
-  huart3.Init.Parity       = UART_PARITY_NONE;
-  huart3.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
-  huart3.Init.Mode         = UART_MODE_TX_RX;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
+  huart1.Instance          = USART1;
+  huart1.Init.BaudRate     = 115200;
+  huart1.Init.WordLength   = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits     = UART_STOPBITS_1;
+  huart1.Init.Parity       = UART_PARITY_NONE;
+  huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+  huart1.Init.Mode         = UART_MODE_TX_RX;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
   {
     Error_Handler();
   }
 
-  /* Enable TXE interrupt so the ring drains in the ISR.  Priority below
-   * configMAX_SYSCALL_INTERRUPT_PRIORITY is not required for TX (no FreeRTOS
-   * API used), but keep it modest. */
-  HAL_NVIC_SetPriority(USART3_IRQn, 6, 0);
-  HAL_NVIC_EnableIRQ(USART3_IRQn);
+  /* Enable TXE interrupt so the ring drains in the ISR, and RXNE so incoming
+   * command bytes land in g_rx_buf.  Priority below
+   * configMAX_SYSCALL_INTERRUPT_PRIORITY is not required (no FreeRTOS API is
+   * called from the ISR), but keep it modest. */
+  HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(USART1_IRQn);
+
+  /* RXNEIE drains received bytes into the ring from now on. */
+  SET_BIT(huart1.Instance->CR1, USART_CR1_RXNEIE);
+
   g_uart_ready = 1;
 }
 
@@ -118,7 +133,7 @@ int uart_write(const uint8_t *data, int len)
     {
       return 0;                                   /* nothing to transmit on */
     }
-    HAL_UART_Transmit(&huart3, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart1, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
     return len;
   }
 
@@ -145,7 +160,7 @@ int uart_write(const uint8_t *data, int len)
   if (g_tx_busy == 0 && g_tx_head != g_tx_tail)
   {
     g_tx_busy = 1;
-    SET_BIT(huart3.Instance->CR1, USART_CR1_TXEIE);
+    SET_BIT(huart1.Instance->CR1, USART_CR1_TXEIE);
   }
   taskEXIT_CRITICAL();
 
@@ -178,33 +193,62 @@ void uart_flush(void)
   }
 }
 
-/* Real USART3 vector: overrides the weak Default_Handler in the startup .s. */
-void USART3_IRQHandler(void)
+int uart_read(uint8_t *buf, int max)
+{
+  int n = 0;
+
+  if ((buf == NULL) || (max <= 0))
+  {
+    return 0;
+  }
+
+  taskENTER_CRITICAL();
+  while ((n < max) && (g_rx_tail != g_rx_head))
+  {
+    buf[n] = g_rx_buf[g_rx_tail];
+    g_rx_tail = (uint16_t)((g_rx_tail + 1) & (UART_RX_BUF_SIZE - 1));
+    n++;
+  }
+  taskEXIT_CRITICAL();
+
+  return n;
+}
+
+/* Real USART1 vector: overrides the weak Default_Handler in the startup .s. */
+void USART1_IRQHandler(void)
 {
   BSP_UART_IRQHandler();
 }
 
 void BSP_UART_IRQHandler(void)
 {
-  uint32_t sr = READ_REG(huart3.Instance->SR);
+  uint32_t sr = READ_REG(huart1.Instance->SR);
 
   if ((sr & USART_SR_TXE) != 0)
   {
     if (g_tx_tail != g_tx_head)
     {
-      huart3.Instance->DR = g_tx_buf[g_tx_tail];
+      huart1.Instance->DR = g_tx_buf[g_tx_tail];
       g_tx_tail = (uint16_t)((g_tx_tail + 1) & (UART_TX_BUF_SIZE - 1));
     }
     else
     {
-      CLEAR_BIT(huart3.Instance->CR1, USART_CR1_TXEIE);
+      CLEAR_BIT(huart1.Instance->CR1, USART_CR1_TXEIE);
       g_tx_busy = 0;
     }
   }
 
-  /* RX: clear RXNE to avoid a sticky interrupt; not consumed by the demo. */
+  /* RX: push into the command ring.  Reading DR also clears ORE, which would
+   * otherwise keep the vector asserted forever after an overrun. */
   if ((sr & USART_SR_RXNE) != 0)
   {
-    (void)huart3.Instance->DR;
+    uint8_t  byte = (uint8_t)(huart1.Instance->DR & 0xFFU);
+    uint16_t next = (uint16_t)((g_rx_head + 1) & (UART_RX_BUF_SIZE - 1));
+
+    if (next != g_rx_tail)          /* full -> drop, caller keeps its old data */
+    {
+      g_rx_buf[g_rx_head] = byte;
+      g_rx_head = next;
+    }
   }
 }

@@ -32,6 +32,18 @@ void app_ui_create(void);
  */
 void app_ui_poll(void);
 
+/**
+ * @brief  Execute one serial-console command (USART1, one char per command).
+ *
+ *         Mirrors the four on-screen buttons plus a status dump, so the whole
+ *         UI can be exercised from a host without touching the panel:
+ *           c = clear   k = next colour   w = next width
+ *           b = toggle wallpaper         s / ? = status   h = help
+ *
+ *         Must be called from the UI task: it performs LVGL calls.
+ */
+void app_ui_command(char c);
+
 #ifdef __cplusplus
 }
 #endif

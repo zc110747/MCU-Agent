@@ -3,19 +3,24 @@
  * @file    app_ui.c
  * @brief   Touchpad demo screen: an ink area plus a live gesture monitor.
  *
- *  Layout (800x480 landscape)
- *  --------------------------
- *      +--------------------------------------------------+
- *      | title                                     SD/FPS |  header
- *      +---------------------------+----------------------+
- *      |                           |  gesture name        |
- *      |      drawing area         |  counters            |  body
- *      |      (strokes)            |  brush colour/width  |
- *      +---------------------------+----------------------+
- *      | [clear] [colour] [width] [wallpaper]              |  buttons
- *      +--------------------------------------------------+
- *      | storage status                                    |  footer
- *      +--------------------------------------------------+
+ *  Layout (480x800 portrait)
+ *  -------------------------
+ *      +----------------------------------+
+ *      | title                      SD/FPS |  header  (48 px)
+ *      +----------------------------------+
+ *      |                                  |
+ *      |         drawing area             |  canvas  (456x400)
+ *      |         (strokes)                |
+ *      |                                  |
+ *      +----------------------------------+
+ *      | gesture name                     |
+ *      | counters / brush colour & width  |  monitor (456x220)
+ *      | key hints                        |
+ *      +----------------------------------+
+ *      | [clear] [colour] [width] [paper] |  buttons (108x44)
+ *      +----------------------------------+
+ *      | storage / font / gesture hints   |  footer  (2 lines)
+ *      +----------------------------------+
  *
  *  Everything here runs in the UI task (the only task allowed to touch LVGL).
  *  Strokes arrive as gesture events queued by the touch task, so no LVGL call
@@ -40,32 +45,47 @@
 #include "image_sd.h"
 #include "sd_card.h"
 #include "bsp_key.h"
+#include "bsp_lcd.h"
 #include "bsp_lcd_text.h"
+#include "bsp_touch.h"
 #include "log.h"
 
 /* -------------------------------------------------------------------------- */
 /* Geometry                                                                   */
 /* -------------------------------------------------------------------------- */
-#define SCR_W           800
-#define SCR_H           480
+/*  The NT35510 on this board comes up with a 480x800 (portrait) GRAM window:
+ *  see DFT_SCAN_DIR / lcd_scan_dir() in bsp_lcd.c and the boot log line
+ *  "[LCD ] active GRAM window 480x800 (panel spec 800x480)".  102 derives its
+ *  whole layout from that value; this file used to hardcode 800x480 landscape
+ *  and therefore drew its right-hand 320 px straight off the panel.
+ *
+ *  Everything below is expressed for 480x800.  app_ui_create() logs a warning
+ *  if the live window ever disagrees with SCR_W / SCR_H. */
+#define SCR_W           480
+#define SCR_H           800
 
 #define HDR_H           48
 
+/* Drawing area: full width, upper part. */
 #define CV_X            12
 #define CV_Y            56
-#define CV_W            536
-#define CV_H            336
+#define CV_W            (SCR_W - 2 * CV_X)        /* 456 */
+#define CV_H            400
 
-#define PN_X            (CV_X + CV_W + 12)
-#define PN_W            (SCR_W - PN_X - 12)
-#define PN_H            CV_H
+/* Gesture monitor: full width, right below the drawing area. */
+#define PN_X            12
+#define PN_Y            468
+#define PN_W            (SCR_W - 2 * PN_X)        /* 456 */
+#define PN_H            220
 
-#define BTN_Y           400
+/* Button row: four buttons across the full width. */
+#define BTN_Y           700
 #define BTN_H           44
-#define BTN_W           188
 #define BTN_GAP         8
+#define BTN_W           ((SCR_W - 2 * CV_X - 3 * BTN_GAP) / 4)   /* 108 */
 
-#define FTR_Y           452
+/* Footer: two lines of 12 px text. */
+#define FTR_Y           748
 
 /* -------------------------------------------------------------------------- */
 /* Palette                                                                    */
@@ -526,6 +546,15 @@ void app_ui_create(void)
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(C_BG), 0);
     lv_obj_clear_flag(s_scr, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* The constants above assume the 480x800 portrait window this panel
+     * reports.  Say so loudly if that ever changes, instead of silently
+     * drawing the layout half off-screen. */
+    if ((LCD_Width != SCR_W) || (LCD_Height != SCR_H))
+    {
+        PRINT_LOG("[UI  ] WARN layout is %dx%d but the panel is %lux%lu\r\n",
+                  SCR_W, SCR_H, (unsigned long)LCD_Width, (unsigned long)LCD_Height);
+    }
+
     /* Screen is rebuilt when the card shows up later: the widgets are gone but
      * the point buffers are ours, so hand them back and drop the pointers. */
     strokes_forget();
@@ -553,7 +582,7 @@ void app_ui_create(void)
     lv_obj_add_flag(s_canvas, LV_OBJ_FLAG_CLICKABLE);
 
     /* ---- Gesture monitor ------------------------------------------------- */
-    card = make_card(s_scr, PN_X, CV_Y, PN_W, PN_H);
+    card = make_card(s_scr, PN_X, PN_Y, PN_W, PN_H);
 
     label = make_label(card, &lv_font_gbk_16, C_DIM);
     lv_label_set_text(label, "手势识别");
@@ -561,24 +590,24 @@ void app_ui_create(void)
 
     s_gesture_label = make_label(card, &lv_font_gbk_24, C_ACCENT);
     lv_label_set_text(s_gesture_label, "等待触摸…");
-    lv_obj_set_pos(s_gesture_label, 0, 30);
+    lv_obj_set_pos(s_gesture_label, 0, 24);
     lv_obj_set_width(s_gesture_label, PN_W - 16);
 
     s_stat_pts = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_stat_pts, 0, 78);
+    lv_obj_set_pos(s_stat_pts, 0, 58);
 
     s_stat_taps = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_stat_taps, 0, 108);
+    lv_obj_set_pos(s_stat_taps, 0, 82);
 
     s_stat_moves = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_stat_moves, 0, 138);
+    lv_obj_set_pos(s_stat_moves, 0, 106);
 
     label = make_label(card, &lv_font_gbk_16, C_DIM);
     lv_label_set_text(label, "画笔");
-    lv_obj_set_pos(label, 0, 186);
+    lv_obj_set_pos(label, 0, 132);
 
     s_swatch = lv_obj_create(card);
-    lv_obj_set_pos(s_swatch, 0, 214);
+    lv_obj_set_pos(s_swatch, 0, 156);
     lv_obj_set_size(s_swatch, 40, 24);
     lv_obj_set_style_radius(s_swatch, 6, 0);
     lv_obj_set_style_border_color(s_swatch, lv_color_hex(C_BORDER), 0);
@@ -586,11 +615,11 @@ void app_ui_create(void)
     lv_obj_clear_flag(s_swatch, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
     s_brush_label = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_brush_label, 0, 246);
+    lv_obj_set_pos(s_brush_label, 52, 158);
 
     label = make_label(card, &lv_font_gbk_12, C_DIM);
-    lv_label_set_text(label, "KEY0 清屏  KEY1 颜色\nKEY2 粗细  KEY_UP 壁纸");
-    lv_obj_set_pos(label, 0, 288);
+    lv_label_set_text(label, "KEY0 清屏 KEY1 色 KEY2 粗细 KEY_UP 壁纸");
+    lv_obj_set_pos(label, 0, 186);
 
     /* ---- Buttons --------------------------------------------------------- */
     (void)make_button(s_scr, "清屏",   CV_X, cb_clear);
@@ -618,7 +647,8 @@ void app_ui_create(void)
     }
 
     label = make_label(s_scr, &lv_font_gbk_12, C_DIM);
-    lv_label_set_text(label, "字库 0:/SYSTEM/FONT  图片 0:/IMG  手势 双击/双指滚动/双指平移");
+    lv_label_set_text(label, "字库 0:/SYSTEM/FONT  图片 0:/IMG\n"
+                             "手势 双击/双指滚动/双指平移");
     lv_obj_set_pos(label, 12, FTR_Y);
 
     refresh_stats();
@@ -693,5 +723,103 @@ void app_ui_poll(void)
     {
         s_stat_mark = now;
         refresh_stats();
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Serial command channel (USART1 console)                                    */
+/* -------------------------------------------------------------------------- */
+/*  One character per command, executed from the UI task so every LVGL call
+ *  stays on the task that owns the display.  Responses go through PRINT_LOG so
+ *  the global PRINT_LOG_ENABLE switch still controls the binary size.        */
+
+#if PRINT_LOG_ENABLE
+static void report_status(void)
+{
+    gesture_status_t st;
+    uint32_t total_mb = 0U;
+    uint32_t used_mb  = 0U;
+
+    gesture_get_status(&st);
+    (void)sd_card_usage_mb(&total_mb, &used_mb);
+
+    PRINT_LOG("[SD  ] %s %lu/%lu MB\r\n",
+              (sd_card_is_ready() != 0) ? "0: mounted" : "0: absent",
+              (unsigned long)used_mb, (unsigned long)total_mb);
+    PRINT_LOG("[FONT] src=%s mask=0x%02lX\r\n",
+              lcd_driver_font_source(),
+              (unsigned long)lcd_driver_font_status());
+    PRINT_LOG("[TOUCH] irq=%lu ready=%d\r\n",
+              (unsigned long)bsp_touch_irq_count(), bsp_touch_is_ready());
+    PRINT_LOG("[GEST] fingers=%u press=%lu tap=%lu multi=%lu scroll=%lu pan=%lu drop=%lu\r\n",
+              (unsigned int)st.fingers,
+              (unsigned long)st.presses, (unsigned long)st.taps,
+              (unsigned long)st.multi_taps, (unsigned long)st.scrolls,
+              (unsigned long)st.pans, (unsigned long)st.dropped);
+    PRINT_LOG("[BRUSH] color=%u/%u width=%u px\r\n",
+              (unsigned int)(s_color_idx + 1U), (unsigned int)BRUSH_COLOR_COUNT,
+              (unsigned int)k_brush_widths[s_width_idx]);
+    PRINT_LOG("[UI  ] screen=%d gesture_label=%d\r\n",
+              (s_scr != NULL) ? 1 : 0, (s_gesture_label != NULL) ? 1 : 0);
+}
+
+static void report_help(void)
+{
+    PRINT_LOG("[CMD ] c=clear k=colour w=width b=wallpaper s=status h=help\r\n");
+}
+#endif /* PRINT_LOG_ENABLE */
+
+void app_ui_command(char c)
+{
+    if ((s_scr == NULL) || (s_gesture_label == NULL))
+    {
+        PRINT_LOG("[CMD ] screen not ready\r\n");
+        return;
+    }
+
+    switch (c)
+    {
+    case 'c':
+    case 'C':
+        strokes_clear();
+        set_gesture_text("串口: 清屏");
+        PRINT_LOG("[CMD ] clear\r\n");
+        break;
+
+    case 'k':
+    case 'K':
+        action_color();
+        PRINT_LOG("[CMD ] colour -> %u/%u\r\n",
+                  (unsigned int)(s_color_idx + 1U), (unsigned int)BRUSH_COLOR_COUNT);
+        break;
+
+    case 'w':
+    case 'W':
+        action_width();
+        PRINT_LOG("[CMD ] width -> %u px\r\n", (unsigned int)k_brush_widths[s_width_idx]);
+        break;
+
+    case 'b':
+    case 'B':
+        action_wallpaper();
+        PRINT_LOG("[CMD ] wallpaper toggle\r\n");
+        break;
+
+#if PRINT_LOG_ENABLE
+    case 's':
+    case 'S':
+    case '?':
+        report_status();
+        break;
+
+    case 'h':
+    case 'H':
+        report_help();
+        break;
+#endif
+
+    default:
+        PRINT_LOG("[CMD ] unknown '%c' (h for help)\r\n", c);
+        break;
     }
 }

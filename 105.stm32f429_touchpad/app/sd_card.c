@@ -80,9 +80,10 @@ int sd_card_is_ready(void)
 GlobalType_t sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb)
 {
     uint32_t cluster_bytes;
-    uint32_t total_bytes;
     uint32_t total_clusters;
     uint32_t free_clusters;
+    uint64_t total_bytes;
+    uint64_t free_bytes;
     FRESULT  rc;
 
     if (total_mb != NULL) { *total_mb = 0U; }
@@ -96,8 +97,12 @@ GlobalType_t sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb)
      * constant and fs->ssize does not even exist in this configuration. */
     cluster_bytes  = (uint32_t)s_sd_fs.csize * 512U;
     total_clusters = (uint32_t)s_sd_fs.n_fatent - 2U;
-    total_bytes    = total_clusters * cluster_bytes;
     free_clusters  = (uint32_t)s_sd_fs.free_clst;
+
+    /* Byte counts MUST be 64-bit: a 32 GB FAT32 card has ~1.9M clusters of
+     * 16 KB, i.e. ~3.0e10 bytes.  In uint32_t that wrapped modulo 4 GiB and a
+     * 29.7 GB card was reported as 1744 MB (with a bogus 136 MB "used"). */
+    total_bytes = (uint64_t)total_clusters * (uint64_t)cluster_bytes;
 
     if ((free_clusters > total_clusters) || (free_clusters == 0U))
     {
@@ -124,8 +129,12 @@ GlobalType_t sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb)
         }
     }
 
-    if (total_mb != NULL) { *total_mb = total_bytes >> 20; }
-    if (used_mb  != NULL) { *used_mb  = (total_bytes - (free_clusters * cluster_bytes)) >> 20; }
+    free_bytes = (uint64_t)free_clusters * (uint64_t)cluster_bytes;
+
+    /* >> 20 needs no 64-bit division (only __aeabi_lshift), so this stays
+     * cheap even with the soft-float library in use. */
+    if (total_mb != NULL) { *total_mb = (uint32_t)(total_bytes >> 20); }
+    if (used_mb  != NULL) { *used_mb  = (uint32_t)((total_bytes - free_bytes) >> 20); }
     return RT_OK;
 }
 

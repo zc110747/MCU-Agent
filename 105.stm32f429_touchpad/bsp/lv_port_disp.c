@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file    lv_port_disp.c
-  * @brief   LVGL display port for the NT35510 800x480 panel on FMC Bank1 NE1
+  * @brief   LVGL display port for the NT35510 480x800 panel on FMC Bank1 NE1
   *          (8080 16-bit, memory-mapped).
   *
   *  Pixel format
@@ -23,14 +23,14 @@
 #include <stdio.h>
 #include "log.h"
 
-/* Rows kept in the draw buffer.  800 x 60 px x 2 B = 96 kB, i.e. an eighth of
+/* Rows kept in the draw buffer.  480 x 60 px x 2 B = 57 kB, i.e. an eighth of
  * the screen - well above the 1/10 LVGL asks for, and it keeps the number of
  * FMC transactions per full redraw down to eight. */
 #define DISP_BUF_LINES      60U
 
 static lv_disp_draw_buf_t   s_draw_buf_dsc;
 static lv_disp_drv_t        s_disp_drv;
-/* Draw buffer lives in SDRAM (pvPortMalloc) so an 800 px wide partial buffer
+/* Draw buffer lives in SDRAM (pvPortMalloc) so a full-width partial buffer
  * does not consume the 256 KB internal SRAM. */
 static lv_color_t          *s_draw_buf = NULL;
 

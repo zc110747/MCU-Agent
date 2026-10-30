@@ -38,6 +38,7 @@
 #include "image_sd.h"
 #include "app_ui.h"
 #include "ui_task.h"
+#include "bsp_uart.h"
 #include "log.h"
 
 #define UI_SPLASH_PROBE   "booting: probing sdcard 0: ..."
@@ -81,16 +82,16 @@ void ui_task(void *arg)
         /* ---- Storage probe ---------------------------------------------- */
         if ((storage_ok == 0U) && (sd_card_init() == RT_OK))
         {
-            uint32_t mask;
-
             storage_ok = 1U;
 
             if (lcd_driver_font_init(FS_VOL_SD) == RT_OK)
             {
                 lv_font_gbk_reset_cache();
-                mask = lcd_driver_font_status();
+                /* Read the status inline (not into a local) so -Wunused-but-set
+                 * -variable stays quiet when PRINT_LOG is compiled out. */
                 PRINT_LOG("[UI  ] GBK glyph files: %s (mask=0x%02lX)\r\n",
-                          lcd_driver_font_source(), (unsigned long)mask);
+                          lcd_driver_font_source(),
+                          (unsigned long)lcd_driver_font_status());
             }
             else
             {
@@ -123,6 +124,24 @@ void ui_task(void *arg)
         {
             app_ui_boot((HAL_GetTick() - boot_ms >= 3000U) ? UI_SPLASH_NOCARD
                                                            : UI_SPLASH_PROBE);
+        }
+
+        /* ---- Serial console commands (USART1, one char each) ------------- */
+        {
+            uint8_t rx[16];
+            int     n = uart_read(rx, (int)sizeof(rx));
+
+            for (int i = 0; i < n; i++)
+            {
+                uint8_t ch = rx[i];
+
+                /* Ignore CR/LF and other control bytes: commands are single
+                 * characters, so a host may send "s\r\n" or just "s". */
+                if ((ch >= ' ') && (ch < 0x7FU))
+                {
+                    app_ui_command((char)ch);
+                }
+            }
         }
 
         /* ---- Pump -------------------------------------------------------- */

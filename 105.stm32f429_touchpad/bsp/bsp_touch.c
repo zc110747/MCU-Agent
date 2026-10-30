@@ -80,6 +80,13 @@ static int touch_exti_init(void)
 {
     EXTI_ConfigTypeDef cfg;
 
+    /* SYSCFG must be clocked before HAL_EXTI_SetConfigLine() can write
+     * SYSCFG->EXTICR.  Without it the write is silently dropped, EXTI7 keeps
+     * its reset mapping (port A) and PH7 edges never reach the NVIC - the
+     * touch task then waits on s_touch_sem forever.  Measured before the fix:
+     * RCC_APB2ENR bit14 == 0 and SYSCFG->EXTICR[1] == 0x00000000. */
+    __HAL_RCC_SYSCFG_CLK_ENABLE();
+
     (void)HAL_EXTI_GetHandle(&g_touch_exti, EXTI_LINE_7);
 
     cfg.Line    = EXTI_LINE_7;

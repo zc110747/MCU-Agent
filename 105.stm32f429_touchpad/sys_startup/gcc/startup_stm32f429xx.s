@@ -35,6 +35,23 @@
 Reset_Handler:
   ldr   sp, =_estack      /* set stack pointer */
 
+/* Point VTOR at the application's vector table before anything can fault.
+ *
+ * This project never defined USER_VECT_TAB_ADDRESS, so SystemInit() leaves
+ * VTOR at its reset value and the code silently depends on "VTOR == 0, which
+ * aliases 0x08000000".  That assumption breaks whenever the core is started
+ * from the ST system-memory bootloader instead of a real power-on reset: VTOR
+ * is then 0x1FFF0000, and FreeRTOS's prvPortStartFirstTask() - which reads the
+ * initial MSP *through VTOR* - picks up the bootloader's stack, so the first
+ * `svc` faults.  Measured symptom: CFSR = 0x00018200 (PRECISERR|UNDEFINSTR),
+ * PC parked in prvPortStartFirstTask, and the app never prints a single task
+ * log line. */
+  ldr   r0, =0xE000ED08   /* SCB->VTOR                     */
+  ldr   r1, =0x08000000   /* FLASH_BASE, where .isr_vector lives */
+  str   r1, [r0]
+  dsb
+  isb
+
 /* Copy the .data segment initializers from flash to SRAM */
   ldr   r0, =_sdata
   ldr   r1, =_edata
