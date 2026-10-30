@@ -22,14 +22,24 @@
  * one core at this rate.  Do not go below 4 ms: the bus is polled, not DMA'd. */
 #define TOUCH_POLL_MS            5U
 
-/* Consecutive empty polls before the contact counts as finished (4 x 5 ms).
- * Three was too tight: the controller can report a stale contact for one
- * frame after the finger is gone, which produced phantom 1 px jumps. */
+/* Consecutive *valid* release frames before the contact counts as finished
+ * (4 x 5 ms).  Only a frame whose status register had the buffer-ready bit set
+ * and reported zero points counts here - a poll that merely found no new frame
+ * is not a release (see BSP_TOUCH_NO_FRAME). */
 #define TOUCH_RELEASE_POLLS      4U
 
-/* Upper bound on one contact (800 x 5 ms = 4 s) so a phantom contact can never
- * keep this task spinning for ever. */
-#define TOUCH_MAX_POLLS          800U
+/* How long the controller may stay silent mid-contact before the contact is
+ * declared lost.  The GT9xx normally reports every ~10 ms, so this only fires
+ * when a finger was resting perfectly still and the chip stopped refreshing,
+ * or when a frame got lost.  It must stay well above the report period, and
+ * low enough that a stale contact cannot turn the next touch into a jump. */
+#define TOUCH_STALL_MS           120U
+
+/* Upper bound on one contact (3000 x 5 ms = 15 s) so a phantom contact can
+ * never keep this task spinning for ever.  It used to be 800 polls (4 s), which
+ * a normal slow drag exceeds - the loop then "aborted" a perfectly good stroke
+ * and re-armed the interrupt in the middle of it. */
+#define TOUCH_MAX_POLLS          3000U
 
 /* Safety-net wake-up while idle.  The T_PEN interrupt is the real trigger; this
  * timeout keeps touch working (slower) if the INT line is not wired. */

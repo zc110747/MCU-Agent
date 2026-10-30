@@ -84,15 +84,30 @@ int bsp_touch_is_ready(void);
   */
 int bsp_touch_wait(TickType_t ticks);
 
+/* bsp_touch_scan() return value for "the controller had no new frame".  It is
+ * deliberately distinct from 0 (= every finger is up): a poll between two
+ * controller frames also reads a cleared status register, and treating it as a
+ * release would end the contact after a single sample. */
+#define BSP_TOUCH_NO_FRAME      (-2)
+
 /**
   * @brief  Poll the controller once and map up to @p max contacts onto the
   *         LCD canvas.  Masks the T_PEN interrupt for the duration of the
   *         bit-banged transaction and leaves it masked; the caller re-arms it
   *         with bsp_touch_irq_rearm() once it stops polling.
   *  @retval number of contacts written into @p pts (0 = released),
+  *          BSP_TOUCH_NO_FRAME (-2) when no new frame is pending (keep the
+  *          previous state, poll again),
   *          -1 when the controller is not ready / not answering.
   */
 int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max);
+
+/**
+  * @brief  Frame accounting for diagnostics: how many polls returned a new
+  *         frame, how many found nothing new, and how many reported a release.
+  *         Any of the pointers may be NULL.
+  */
+void bsp_touch_frame_stats(uint32_t *frames, uint32_t *empty, uint32_t *releases);
 
 /**
   * @brief  Latest single-contact snapshot, for the LVGL pointer driver.

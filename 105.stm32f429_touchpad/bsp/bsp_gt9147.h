@@ -80,6 +80,14 @@ uint8_t bsp_gt9147_addr(void);
 uint8_t bsp_gt9147_cfg_version(void);
 
 /**
+  * @brief  Raw value of the touch status register (0x814E) from the most recent
+  *         read.  Bit 7 = buffer ready, bits 3..0 = contact count.  Diagnostic
+  *         only: it tells "no new frame" (0x00) apart from "all fingers up"
+  *         (0x80) when the pointer does not move.
+  */
+uint8_t bsp_gt9147_last_status(void);
+
+/**
   * @brief  Touch resolution the chip is currently configured for.  These come
   *         out of the configuration block (0x8048..0x804B) and are the ranges
   *         the raw coordinates in gt9147_point_t are expressed in.
@@ -87,14 +95,27 @@ uint8_t bsp_gt9147_cfg_version(void);
 uint16_t bsp_gt9147_panel_x(void);
 uint16_t bsp_gt9147_panel_y(void);
 
+/* Returned by bsp_gt9147_read() when the controller had nothing new to say.
+ * This is NOT the same thing as a release: the GT9xx only sets bit 7 of
+ * 0x814E once it has a fresh frame, and a poll that lands between two frames
+ * reads a cleared status register.  Treating that as "finger lifted" cuts a
+ * stroke into one-frame contacts and the cursor never moves. */
+#define GT9147_NO_FRAME     (-2)
+
 /**
-  * @brief  Read the touch status register and, when contacts are present, all
-  *         reported coordinates.  Clears the status register afterwards so the
-  *         chip can raise the next interrupt.
+  * @brief  Read the touch status register and, when a new frame is pending,
+  *         all reported coordinates.  Clears the status register afterwards so
+  *         the chip can raise the next interrupt.
+  *
+  *  The status register is only consumed when bit 7 (buffer ready) is set:
+  *    - bit 7 set, count 0  -> the finger(s) really went up
+  *    - bit 7 set, count n  -> a new coordinate frame
+  *    - bit 7 clear         -> nothing new, register left untouched
   *
   *  @param points  destination array of at least GT9147_MAX_POINTS entries
   *  @param max     number of entries available in @p points
-  *  @retval number of contacts written into @p points (0 = no touch),
+  *  @retval number of contacts written into @p points (0 = released),
+  *          GT9147_NO_FRAME (-2) when no new frame is pending,
   *          or -1 when the chip is not initialised / not answering.
   */
 int bsp_gt9147_read(gt9147_point_t *points, uint8_t max);

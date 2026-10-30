@@ -56,6 +56,7 @@ void touch_task(void *arg)
     {
         uint32_t polls = 0U;
         uint32_t idle  = 0U;
+        uint32_t last_frame_ms = 0U;
 
         (void)bsp_touch_wait(pdMS_TO_TICKS(TOUCH_IDLE_POLL_MS));
 
@@ -81,6 +82,11 @@ void touch_task(void *arg)
         }
 
         /* ---- Track the contact until release ---------------------------- */
+        /* Anchor the silence watchdog at the wake-up, otherwise the first
+         * between-frames poll would compare against the boot tick and declare
+         * the contact lost immediately. */
+        last_frame_ms = HAL_GetTick();
+
         while ((idle < TOUCH_RELEASE_POLLS) && (polls < TOUCH_MAX_POLLS))
         {
             int n = bsp_touch_scan(raw, (uint8_t)BSP_TOUCH_MAX_POINTS);
@@ -88,6 +94,31 @@ void touch_task(void *arg)
             uint8_t cnt;
 
             polls++;
+
+            /* ---- No new frame from the controller ----------------------- *
+             * The GT9xx only updates 0x814E once per report period (~10 ms),
+             * while this loop samples every 5 ms, so half of the polls land
+             * between two frames.  That is neither a press nor a release: the
+             * finger simply has not moved into a new frame yet.  Treating it
+             * as a release (which is what returning 0 used to mean) ended the
+             * stroke after a single sample, so every contact produced one
+             * zero-length delta and the pointer never moved. */
+            if (n == BSP_TOUCH_NO_FRAME)
+            {
+                if ((HAL_GetTick() - last_frame_ms) >= TOUCH_STALL_MS)
+                {
+                    /* Really silent for too long: the controller lost the
+                     * contact (or the finger lifted without a release frame).
+                     * Close the stroke so the host does not keep a button
+                     * stuck and the next touch cannot look like a big jump. */
+                    trackpad_feed(0U, 0U, 0U);
+                    gesture_feed(HAL_GetTick(), NULL, 0U);
+                    idle = TOUCH_RELEASE_POLLS;
+                }
+
+                vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_MS));
+                continue;
+            }
 
             if (n < 0)
             {
@@ -106,6 +137,10 @@ void touch_task(void *arg)
                 trackpad_feed(0U, 0U, 0U);
                 break;
             }
+
+            /* A real frame arrived: it carries either new coordinates or the
+             * definitive "all fingers up" of the release. */
+            last_frame_ms = HAL_GetTick();
 
             cnt = (uint8_t)n;
             for (i = 0U; i < cnt; i++)
@@ -145,9 +180,11 @@ void touch_task(void *arg)
 
         /* Hit the contact cap without ever seeing a release, or the controller
          * died mid-contact: still close any open stroke so the UI is not left
-         * with a line that never ends. */
+         * with a line that never ends, and release the virtual contact so the
+         * pointer does not stay "pressed" across the gap. */
         if (idle < TOUCH_RELEASE_POLLS)
         {
+            trackpad_feed(0U, 0U, 0U);
             gesture_feed(HAL_GetTick(), NULL, 0U);
             PRINT_LOG("[TOUCH] contact aborted after %lu polls\r\n",
                       (unsigned long)polls);

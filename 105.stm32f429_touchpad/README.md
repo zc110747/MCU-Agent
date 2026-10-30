@@ -147,7 +147,7 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 
 ```
 [PERF] ui=172Hz touch_scan=2717 us=793 send=17181 ep_busy=0 lat=1ms clk=168MHz
-[PAD ] feeds=2716 moves=0 clicks=0 drop=0
+[PAD ] feeds=2716 moves=2410 clicks=1 drop=0
 ```
 
 `us` 是单次 `bsp_touch_scan()` 的平均耗时，`lat` 是从 `usb_mouse_move*()` 到报告
@@ -155,6 +155,58 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 
 > 再往下压只能改 GT911 的刷新率寄存器（默认 10 ms）或把 I2C 半周期从 3 µs 调到
 > 2 µs，收益都在 20 % 以内，且要动芯片配置表，暂不做。
+
+#### 回归修复：`moves=0`，滑动时鼠标完全不动
+
+**现象**：触摸区滑动光标不动，状态卡"位移 X / Y"恒为 0：
+
+```
+[PAD ] feeds=10203 moves=0 clicks=865 drop=0
+[MOVE] x=0 y=0
+```
+
+`feeds` 一直在涨说明采样在跑，`clicks=865` 说明触点被判成"按下了 865 次"，
+`moves=0` 说明每次触点只拿到**一帧**坐标，第二帧就被当成松手 —— delta 恒为 0。
+
+**根因**：GT911 的 `0x814E` 状态寄存器，bit7 = 坐标缓冲已更新，低 4 位才是触点数。
+`bsp_gt9147_read()` 只取了低 4 位，而采样周期 5 ms 快于芯片 ~10 ms 的报告周期，
+落在两帧之间的那次读取得到 `0x00`。**空帧被当成了松手**，笔画被切成一片片单帧。
+（`GT_BUFFER_READY` 宏早就定义了，但从没被用过。）
+
+**修法**：三层都区分"空帧"与"真抬起"：
+
+| 层 | 值 | 含义 |
+|---|---|---|
+| `bsp_gt9147_read()` | `GT9147_NO_FRAME` (-2) | bit7=0，无新帧，**不清状态寄存器**，不报 0 触点 |
+| `bsp_touch_scan()` | `BSP_TOUCH_NO_FRAME` (-2) | 原样上传，`s_last_pressed` 保持不变 |
+| `touch_task` | — | 空帧只 `vTaskDelay` 后继续等；距最后一帧 `TOUCH_STALL_MS = 120` 才算接触丢失 |
+
+同时修掉两处连带问题：
+
+- `TOUCH_MAX_POLLS` 800 → 3000：4 s 的接触上限太短，正常慢速拖拽会被
+  `contact aborted` 打断并重新 rearm 中断；
+- abort 分支补 `trackpad_feed(0,0,0)`，否则指针会在逻辑上一直保持按下。
+
+修后（手指按住并滑动）：
+
+```
+[PERF] ui=170Hz touch_scan=1423 us=454 send=4563 ep_busy=0 lat=1ms clk=168MHz
+[PAD ] feeds=543 moves=503 clicks=1 drop=0        <- 93 % 的采样产生位移
+[MOVE] x=-403 y=60
+[TOUCH] irq=25 ready=1 fingers=1 st=0x81 pos=253,241 press=1 frame=531 empty=1365 release=3
+```
+
+`st=0x81` 就是"bit7 + 1 个触点"，`empty` 是空帧计数（约 2/3，符合 5 ms 采样对
+10 ms 报告周期）。空闲时 `st=0x00 press=0 fingers=0`，不会自己漂移。
+
+#### 界面反馈：轨迹提交节流
+
+轨迹线覆盖整个触摸区（456×380 ≈ 350 KB 像素），每次更新都会让 NT35510 重绘约
+35 ms。原来每个轨迹点都调一次 `lv_line_set_points()`（一帧最多 24 次），手指
+滑动时 UI 循环被压到 **13 Hz**，看起来像"界面不刷新"。
+
+改为：点只进数组，每 `TRAIL_COMMIT_MS = 60 ms` 提交一次整条线；光标圆点仍是
+每帧更新（26×26，代价可忽略）。触摸时不再整屏重绘，空闲态实测 **170 Hz**。
 
 
 ### 3.4 三个玻璃键（左 / 中 / 右）

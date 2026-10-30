@@ -50,6 +50,7 @@
 #include "bsp_lcd.h"
 #include "bsp_lcd_text.h"
 #include "bsp_touch.h"
+#include "bsp_gt9147.h"
 #include "usb_mouse.h"
 #include "trackpad.h"
 #include "log.h"
@@ -89,6 +90,13 @@
 #define TRAIL_MAX       64
 #define TRAIL_LINGER_MS 600U
 
+/* The trail line spans the whole touch surface, so every update invalidates
+ * ~456x380 px = 350 KB of pixels (the NT35510 then needs ~35 ms to push it).
+ * Committing it on every LVGL pass therefore pinned the UI at 13 Hz while a
+ * finger moved.  The dot is only 26x26 and stays per-pass; the trail is
+ * published at this interval instead, which keeps the pump responsive. */
+#define TRAIL_COMMIT_MS 60U
+
 /* -------------------------------------------------------------------------- */
 /* Palette                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -125,6 +133,7 @@ static lv_obj_t *s_rate_label;
 static lv_point_t s_trail_pts[TRAIL_MAX];
 static uint16_t   s_trail_n = 0U;
 static uint32_t   s_trail_clear_at = 0U;
+static uint32_t   s_trail_commit_at = 0U;
 
 /* A serial command can "tap" a button: hold it for a moment, then release. */
 static uint8_t  s_pulse_mask  = 0U;
@@ -171,9 +180,22 @@ static lv_obj_t *make_card(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
 static void trail_reset(void)
 {
     s_trail_n = 0U;
+    s_trail_commit_at = 0U;     /* publish the next point immediately */
     if (s_trail_line != NULL)
     {
         lv_line_set_points(s_trail_line, s_trail_pts, 0);
+    }
+}
+
+/* Points are collected in the array and published once per poll.  Calling
+ * lv_line_set_points() from trail_add() meant up to 24 invalidations of the
+ * whole 456x380 line object per pass, which is what dragged the UI pump down
+ * to 13 Hz while a finger was moving. */
+static void trail_commit(void)
+{
+    if (s_trail_line != NULL)
+    {
+        lv_line_set_points(s_trail_line, s_trail_pts, s_trail_n);
     }
 }
 
@@ -196,7 +218,6 @@ static void trail_add(int32_t x, int32_t y)
     s_trail_pts[s_trail_n].y = (lv_coord_t)y;
     s_trail_n++;
 
-    lv_line_set_points(s_trail_line, s_trail_pts, s_trail_n);
     s_trail_clear_at = 0U;
 }
 
@@ -252,6 +273,17 @@ static void poll_trackpad(uint32_t now)
     for (i = 0U; i < vis.n; i++)
     {
         trail_add(vis.tx[i], vis.ty[i]);
+    }
+
+    /* Publish the accumulated trail on a timer, not on every point: see
+     * TRAIL_COMMIT_MS.  A release or a new contact commits immediately so the
+     * line never lags behind the state change. */
+    if ((vis.n > 0U)
+        && ((vis.started != 0U) || (vis.ended != 0U)
+            || ((int32_t)(now - s_trail_commit_at) >= 0)))
+    {
+        trail_commit();
+        s_trail_commit_at = now + TRAIL_COMMIT_MS;
     }
 
     if (vis.active != 0U)
@@ -543,12 +575,15 @@ void app_ui_create(void)
 
     s_btn_label = make_label(card, &lv_font_gbk_16, C_TEXT);
     lv_obj_set_pos(s_btn_label, 0, 58);
+    lv_obj_set_width(s_btn_label, PAD_W - 16);
 
     s_move_label = make_label(card, &lv_font_gbk_16, C_TEXT);
     lv_obj_set_pos(s_move_label, 0, 86);
+    lv_obj_set_width(s_move_label, PAD_W - 16);
 
     s_touch_label = make_label(card, &lv_font_gbk_16, C_TEXT);
     lv_obj_set_pos(s_touch_label, 0, 114);
+    lv_obj_set_width(s_touch_label, PAD_W - 16);
 
     s_gesture_label = make_label(card, &lv_font_gbk_16, C_ACCENT);
     lv_label_set_text(s_gesture_label, "等待触摸…");
@@ -685,10 +720,18 @@ static void report_status(void)
     trackpad_stats_t   tp;
     uint32_t total_mb = 0U;
     uint32_t used_mb  = 0U;
+    uint32_t f_new = 0U;
+    uint32_t f_empty = 0U;
+    uint32_t f_release = 0U;
+    uint16_t touch_x = 0U;
+    uint16_t touch_y = 0U;
+    uint8_t  touch_pressed = 0U;
 
     gesture_get_status(&st);
     usb_mouse_get_status(&ms);
     trackpad_get_stats(&tp);
+    bsp_touch_frame_stats(&f_new, &f_empty, &f_release);
+    bsp_touch_get(&touch_x, &touch_y, &touch_pressed);
     (void)sd_card_usage_mb(&total_mb, &used_mb);
 
     PRINT_LOG("[USB ] mounted=%u suspended=%u buttons=0x%02X reports=%lu\r\n",
@@ -711,9 +754,15 @@ static void report_status(void)
     PRINT_LOG("[FONT] src=%s mask=0x%02lX\r\n",
               lcd_driver_font_source(),
               (unsigned long)lcd_driver_font_status());
-    PRINT_LOG("[TOUCH] irq=%lu ready=%d fingers=%u\r\n",
+    PRINT_LOG("[TOUCH] irq=%lu ready=%d fingers=%u st=0x%02X pos=%u,%u press=%u "
+              "frame=%lu empty=%lu release=%lu\r\n",
               (unsigned long)bsp_touch_irq_count(), bsp_touch_is_ready(),
-              (unsigned int)st.fingers);
+              (unsigned int)st.fingers,
+              (unsigned int)bsp_gt9147_last_status(),
+              (unsigned int)touch_x, (unsigned int)touch_y,
+              (unsigned int)touch_pressed,
+              (unsigned long)f_new, (unsigned long)f_empty,
+              (unsigned long)f_release);
     PRINT_LOG("[GEST] press=%lu tap=%lu multi=%lu scroll=%lu pan=%lu drop=%lu\r\n",
               (unsigned long)st.presses, (unsigned long)st.taps,
               (unsigned long)st.multi_taps, (unsigned long)st.scrolls,

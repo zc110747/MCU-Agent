@@ -21,6 +21,11 @@
 #include <stdio.h>
 #include "log.h"
 
+/* The two layers exchange one sentinel; keep them in lockstep. */
+#if BSP_TOUCH_NO_FRAME != GT9147_NO_FRAME
+#error "BSP_TOUCH_NO_FRAME and GT9147_NO_FRAME must agree"
+#endif
+
 EXTI_HandleTypeDef g_touch_exti;
 
 static SemaphoreHandle_t s_touch_sem = NULL;
@@ -38,6 +43,12 @@ static volatile uint32_t s_win_count  = 0U;
 static volatile uint32_t s_win_cycles = 0U;
 static volatile uint32_t s_scan_us    = 0U;
 static uint8_t s_dwt_ready = 0U;
+
+/* Frame accounting: proves whether the controller is really quiet or whether
+ * the task is mis-reading "no new frame" as a release. */
+static volatile uint32_t s_frame_new     = 0U;
+static volatile uint32_t s_frame_empty   = 0U;
+static volatile uint32_t s_frame_release = 0U;
 
 static void touch_dwt_enable(void)
 {
@@ -310,12 +321,22 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
      * across it so the crosstalk it induces cannot fire the touch interrupt. */
     touch_exti_mask();
     n = bsp_gt9147_read(raw, limit);
+    if (n == BSP_TOUCH_NO_FRAME)
+    {
+        /* Between two controller frames.  Keep s_last_pressed untouched: the
+         * contact has neither moved nor ended. */
+        s_frame_empty++;
+        touch_scan_account(t0);
+        return n;
+    }
     if (n < 0)
     {
         s_last_pressed = 0U;
         touch_scan_account(t0);
         return -1;
     }
+
+    s_frame_new++;
 
     touch_refresh_geometry();
 
@@ -332,6 +353,7 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
     }
     else
     {
+        s_frame_release++;
         s_last_pressed = 0U;
     }
 
@@ -360,4 +382,11 @@ uint32_t bsp_touch_scan_count(void)
 uint32_t bsp_touch_scan_avg_us(void)
 {
     return s_scan_us;
+}
+
+void bsp_touch_frame_stats(uint32_t *frames, uint32_t *empty, uint32_t *releases)
+{
+    if (frames != NULL)   { *frames   = s_frame_new; }
+    if (empty != NULL)    { *empty    = s_frame_empty; }
+    if (releases != NULL) { *releases = s_frame_release; }
 }

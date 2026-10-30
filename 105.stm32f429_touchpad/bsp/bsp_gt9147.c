@@ -92,6 +92,9 @@ static uint16_t s_panel_x = 0U;     /* touch resolution, from the config    */
 static uint16_t s_panel_y = 0U;
 static char     s_id[GT9147_ID_LEN + 1U] = "?";
 
+/* Raw status byte of the most recent read, for the diagnostics line. */
+static uint8_t  s_last_status = 0U;
+
 /* -------------------------------------------------------------------------- */
 /* Bus transactions                                                           */
 /* -------------------------------------------------------------------------- */
@@ -355,6 +358,11 @@ uint8_t bsp_gt9147_cfg_version(void)
     return s_ver;
 }
 
+uint8_t bsp_gt9147_last_status(void)
+{
+    return s_last_status;
+}
+
 uint16_t bsp_gt9147_panel_x(void)
 {
     return s_panel_x;
@@ -381,6 +389,19 @@ int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
     if (gt_read(GT_GSTID_REG, &status, 1U) != 0)
     {
         return -1;
+    }
+
+    s_last_status = status;
+
+    /* Nothing new since the last poll: do NOT clear the register and do NOT
+     * report "zero contacts".  The GT9xx raises bit 7 only once it has a fresh
+     * frame; sampling every 5 ms against a ~10 ms report period means roughly
+     * every other poll sees a cleared register.  Returning 0 here used to look
+     * like a release to touch_task, which ended the stroke after one frame and
+     * made the pointer stand still (measured: feeds=10203, moves=0). */
+    if ((status & GT_BUFFER_READY) == 0U)
+    {
+        return GT9147_NO_FRAME;
     }
 
     count = (uint8_t)(status & 0x0FU);
