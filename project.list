@@ -13,6 +13,7 @@
 013.stm32h743_virtual_uart
 101.stm32f429_net
 102.stm32f429_tinyusb_ui
+105.stm32f429_touchpad
 201.esp32s3_rtos
 202.esp32s3_hw_detect
 203.esp32s3_wireless_debug
