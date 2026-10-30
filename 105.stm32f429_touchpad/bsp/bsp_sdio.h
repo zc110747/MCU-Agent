@@ -58,6 +58,11 @@ typedef enum {
 #define SDIO_BLOCK_SIZE 512u
 #define SDIO_RW_TIMEOUT_MS 1000u
 
+/* Extra attempts after the first failure.  Each one aborts the stuck transfer
+ * (CMD12 through HAL_SD_Abort) before retrying, because a card left in the
+ * data state fails every subsequent command as well. */
+#define SDIO_RW_RETRIES 2u
+
 /* SDIOCLK = 48 MHz (PLLQ=7).  Card clock = 48 MHz / (ClockDiv + 2).
  * 2 -> 12 MHz: rock solid for the first bring-up and for long cables. */
 #define SDIO_CLOCK_DIV 2u

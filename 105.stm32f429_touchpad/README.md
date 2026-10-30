@@ -230,9 +230,10 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 |------|------|------|------|
 | `l` | 点一下左键（150 ms 后自动松开） | `s` / `?` | 状态快照（USB / 位移 / SD / 字库 / 触摸 / 界面） |
 | `m` | 点一下中键 | `h` | 命令帮助 |
-| `r` | 点一下右键 | 其它字符 | `[CMD ] unknown '<c>' (h for help)` |
-| `x` | 光标右移（10×4 px 的"手指"位移） | `c` | 清触摸轨迹 |
-| `y` | 光标下移 | | |
+| `r` | 点一下右键 | `c` | 清触摸轨迹 |
+| `x` | 光标右移（10×4 px 的"手指"位移） | `f` | 字库自检：逐字验证 12/16/24 px 字形能否读到 |
+| `y` | 光标下移 | `k` | 裸扇区读测试（SDIO 层，绕开 FatFs） |
+| 其它字符 | `[CMD ] unknown '<c>' (h for help)` | | |
 
 ```
 $ python tools/serial_verify.py --port COM3 --reset
@@ -248,6 +249,44 @@ PASS 17 / FAIL 0
 
 `serial_verify.py` 同时验证两层：**固件有没有执行命令**（串口回显）+ **主机有没有真的收到
 HID 输出**（`user32!GetCursorPos` 前后对比、`reports=` 计数）。
+
+### 3.5.1 界面中文显示不全：SDIO 读失败后不会恢复
+
+状态卡里的中文时不时缺字，看起来像"字库不全"。用 `f` 命令逐字验证后真相是：
+
+```
+[FONT] 16px U+89E6 GBK=B4A5 FAIL seek=0 read=1 off=313280 got=0/32 slot=2
+[FONT] check done: 118 CJK chars, map-miss=0 glyph-miss=354
+```
+
+- `read=1` 就是 FatFs 的 `FR_DISK_ERR`，`got=0` 一个字节都没读回；
+- **偏移没有越界**（313 280 < 766 080），所以不是索引算错，也不是字库被裁剪；
+- `k` 命令（裸扇区读，绕开 FatFs）当场成功 → 卡和 SDIO 控制器都能读。
+
+根因在 `bsp_sdio_read_blocks()`：一次数据块传输失败后，SDIO 的 **DPSM 停在数据状态**，
+之后每一条命令都会失败，而原实现只是把错误返回，没有任何恢复动作。于是第一次抖动
+之后，所有字形读取永久失败。
+
+修法（读写对称）：
+
+| 位置 | 改动 |
+|---|---|
+| `bsp_sdio_read_blocks()` / `write_blocks()` | 失败后 `HAL_SD_Abort()`（内部发 CMD12）复位数据通路，再重试，最多 2 次（`SDIO_RW_RETRIES`） |
+| 同上 | 等卡回到 `HAL_SD_CARD_TRANSFER` 超时也先 Abort 再返回，避免把卡留在忙状态 |
+| `bsp_lcd_text.c` | 字模读取保持单次：重试只在 SDIO 层做，两层叠加会把一次卡死放大成 9 次 1 s 超时 |
+
+修后实测：
+
+```
+[FONT] 12px file=574560 B, full GBK=574560 B
+[FONT] 16px file=766080 B, full GBK=766080 B
+[FONT] 24px file=1723680 B, full GBK=1723680 B
+[FONT] check done: 118 CJK chars, map-miss=0 glyph-miss=0
+```
+
+> 字库布局：`.FON` 是 126 个 lead byte（0x81..0xFE）× 190 个 trail 槽 = **23 940 个字形**，
+> 索引 `(qh - 0x81) * 190 + ql'`。16 px 每字 32 B → 766 080 B，三个尺寸都能整除，
+> 说明卡上的字库是完整的。
 
 ### 3.6 向量表：为什么不靠"VTOR 默认是 0"
 

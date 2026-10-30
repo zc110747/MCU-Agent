@@ -103,15 +103,31 @@ uint8_t bsp_sdio_is_ready(void)
 
 HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint32_t nblocks)
 {
-    HAL_StatusTypeDef st;
-    uint32_t          waited = 0;
+    HAL_StatusTypeDef st = HAL_ERROR;
+    uint32_t          waited;
+    uint8_t           attempt;
 
     if (!s_ready)
     {
         return HAL_ERROR;
     }
 
-    st = HAL_SD_ReadBlocks(&hsd_card, buf, start_block, nblocks, SDIO_RW_TIMEOUT_MS);
+    /* A failed data transfer leaves the SDIO data path state machine stuck:
+     * every following command then fails as well, which is exactly what "all
+     * 354 glyph reads return FR_DISK_ERR" looks like.  Abort the transfer and
+     * retry twice before giving the error back to the caller. */
+    for (attempt = 0U; attempt <= SDIO_RW_RETRIES; attempt++)
+    {
+        st = HAL_SD_ReadBlocks(&hsd_card, buf, start_block, nblocks, SDIO_RW_TIMEOUT_MS);
+        if (st == HAL_OK)
+        {
+            break;
+        }
+
+        (void)HAL_SD_Abort(&hsd_card);
+        HAL_Delay(1U);
+    }
+
     if (st != HAL_OK)
     {
         return st;
@@ -120,10 +136,12 @@ HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint3
     /* The polled transfer is complete once RxXferCplt sets, but the card itself
      * may still be busy (write-back / internal state machine).  Wait until it
      * reports TRANSFER so the next command is not issued too early. */
+    waited = 0U;
     while (HAL_SD_GetCardState(&hsd_card) != HAL_SD_CARD_TRANSFER)
     {
         if (waited++ >= SDIO_RW_TIMEOUT_MS)
         {
+            (void)HAL_SD_Abort(&hsd_card);
             return HAL_TIMEOUT;
         }
         HAL_Delay(1);
@@ -134,25 +152,41 @@ HAL_StatusTypeDef bsp_sdio_read_blocks(uint8_t *buf, uint32_t start_block, uint3
 
 HAL_StatusTypeDef bsp_sdio_write_blocks(const uint8_t *buf, uint32_t start_block, uint32_t nblocks)
 {
-    HAL_StatusTypeDef st;
-    uint32_t          waited = 0;
+    HAL_StatusTypeDef st = HAL_ERROR;
+    uint32_t          waited;
+    uint8_t           attempt;
 
     if (!s_ready)
     {
         return HAL_ERROR;
     }
 
-    st = HAL_SD_WriteBlocks(&hsd_card, (uint8_t *)buf, start_block, nblocks,
-                            SDIO_RW_TIMEOUT_MS);
+    /* Same retry policy as the read path: abort the stuck transfer first, then
+     * try again (see bsp_sdio_read_blocks). */
+    for (attempt = 0U; attempt <= SDIO_RW_RETRIES; attempt++)
+    {
+        st = HAL_SD_WriteBlocks(&hsd_card, (uint8_t *)buf, start_block, nblocks,
+                                SDIO_RW_TIMEOUT_MS);
+        if (st == HAL_OK)
+        {
+            break;
+        }
+
+        (void)HAL_SD_Abort(&hsd_card);
+        HAL_Delay(1U);
+    }
+
     if (st != HAL_OK)
     {
         return st;
     }
 
+    waited = 0U;
     while (HAL_SD_GetCardState(&hsd_card) != HAL_SD_CARD_TRANSFER)
     {
         if (waited++ >= SDIO_RW_TIMEOUT_MS)
         {
+            (void)HAL_SD_Abort(&hsd_card);
             return HAL_TIMEOUT;
         }
         HAL_Delay(1);

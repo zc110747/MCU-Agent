@@ -68,6 +68,14 @@ static char s_font_volume[4];
 /* Scratch buffer for the raw (unconverted) glyph */
 static uint8_t read_buffer[FONT_MAX_BYTES];
 
+/* Result of the most recent font_read_raw() attempt, for the console. */
+static uint8_t  s_last_code[2];
+static uint32_t s_last_offset;
+static uint16_t s_last_bytes;
+static uint8_t  s_last_index;
+static int      s_last_seek_res;
+static int      s_last_read_res;
+
 const char *lcd_driver_font_source(void)
 {
     return s_font_volume;
@@ -244,13 +252,24 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
 {
     uint8_t  qh, ql;
     uint32_t foffset;
-    UINT     bytes_read;
+    UINT     bytes_read = 0U;
     FRESULT  res;
     uint8_t  file_index;
+
+    /* Diagnostics: keep the reason of the most recent failure so the console
+     * can tell "the offset is out of range" apart from "the card short-read". */
+    s_last_code[0]  = code[0];
+    s_last_code[1]  = code[1];
+    s_last_offset   = 0U;
+    s_last_bytes    = 0U;
+    s_last_seek_res = 0;
+    s_last_read_res = 0;
+    s_last_index    = 0xFFU;
 
     /* Guard against a descriptor that would overrun the scratch buffer */
     if (font->Sizes == 0 || font->Sizes > FONT_MAX_BYTES)
     {
+        s_last_seek_res = -1;
         return RT_FAIL;
     }
 
@@ -260,6 +279,7 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
     /* Not a valid GBK lead/trail byte pair */
     if (qh < 0x81 || qh == 0xFF || ql < 0x40 || ql == 0xFF)
     {
+        s_last_seek_res = -2;
         return RT_FAIL;
     }
 
@@ -267,18 +287,27 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
     ql -= (ql < 0x7F) ? 0x40 : 0x41;
     qh -= 0x81;
     foffset = ((uint32_t)190 * qh + ql) * font->Sizes;
+    s_last_offset = foffset;
 
     file_index = font_index_from_height(font->Height);
+    s_last_index = file_index;
     if (file_index == 0xFF || !g_lcd_fs_info.fil_valid[file_index])
     {
+        s_last_seek_res = -3;
         return RT_FAIL;
     }
 
     fs_lock();
+    /* Retry lives in bsp_sdio_read_blocks() (abort + 2 retries), so keep this
+     * layer single-shot: stacking both would turn one stuck transfer into nine
+     * second-long timeouts on the UI thread. */
     res = f_lseek(&g_lcd_fs_info.fil_list[file_index], foffset);
+    s_last_seek_res = (int)res;
     if (res == FR_OK)
     {
         res = f_read(&g_lcd_fs_info.fil_list[file_index], dst, font->Sizes, &bytes_read);
+        s_last_read_res = (int)res;
+        s_last_bytes    = (uint16_t)bytes_read;
     }
     fs_unlock();
     if (res != FR_OK || bytes_read != font->Sizes)
@@ -287,6 +316,16 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
     }
 
     return RT_OK;
+}
+
+uint8_t lcd_driver_font_last_error(uint32_t *offset, uint16_t *bytes,
+                                   uint8_t *file_index, int8_t *read_res)
+{
+    if (offset != NULL)     { *offset = s_last_offset; }
+    if (bytes != NULL)      { *bytes = s_last_bytes; }
+    if (file_index != NULL) { *file_index = s_last_index; }
+    if (read_res != NULL)   { *read_res = (int8_t)s_last_read_res; }
+    return (uint8_t)((s_last_seek_res != 0) ? s_last_seek_res : s_last_read_res);
 }
 
 /**
@@ -342,6 +381,18 @@ GlobalType_t lcd_driver_get_hzmat_raw(const uint8_t *code, uint8_t *pbuffer, con
     }
 
     return RT_OK;
+}
+
+uint32_t lcd_driver_font_file_size(uint16_t height)
+{
+    uint8_t idx = font_index_from_height(height);
+
+    if (idx == 0xFF || g_lcd_fs_info.fil_valid[idx] == 0u)
+    {
+        return 0U;
+    }
+
+    return (uint32_t)f_size(&g_lcd_fs_info.fil_list[idx]);
 }
 
 /* ---------------------------------------------------------------------------

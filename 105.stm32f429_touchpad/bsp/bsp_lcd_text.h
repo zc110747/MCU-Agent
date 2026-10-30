@@ -89,6 +89,26 @@ GlobalType_t lcd_driver_get_hzmat(uint8_t *code, uint8_t *pbuffer, pFONT *font);
   */
 GlobalType_t lcd_driver_get_hzmat_raw(const uint8_t *code, uint8_t *pbuffer, const pFONT *font);
 
+/**
+  * @brief  Size in bytes of the .FON file backing the given pixel height.
+  *         A complete GBK file is 190 * 94 * glyph bytes, so a card carrying a
+  *         trimmed font shows up here immediately.
+  *  @param  height  12 / 16 / 24 / 32
+  *  @retval file size, or 0 when that size is not open.
+  */
+uint32_t lcd_driver_font_file_size(uint16_t height);
+
+/**
+  * @brief  Why the most recent lcd_driver_get_hzmat_raw() call failed.
+  *  @param  offset      byte offset the lookup computed (may be NULL)
+  *  @param  bytes       bytes actually read (may be NULL)
+  *  @param  file_index  font slot used, 0xFF = no slot (may be NULL)
+  *  @retval negative internal error, otherwise the FatFs FRESULT of the
+  *          failing call (seek result takes precedence over read result).
+  */
+uint8_t lcd_driver_font_last_error(uint32_t *offset, uint16_t *bytes,
+                                   uint8_t *file_index, int8_t *read_res);
+
 #ifdef __cplusplus
 }
 #endif

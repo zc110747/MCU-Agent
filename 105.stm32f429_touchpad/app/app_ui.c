@@ -40,6 +40,7 @@
 
 #include "lvgl.h"
 #include "lv_font_gbk.h"
+#include "lv_gbk_map.h"
 
 #include "FreeRTOS.h"
 
@@ -51,6 +52,7 @@
 #include "bsp_lcd_text.h"
 #include "bsp_touch.h"
 #include "bsp_gt9147.h"
+#include "bsp_sdio.h"
 #include "usb_mouse.h"
 #include "trackpad.h"
 #include "log.h"
@@ -713,6 +715,173 @@ void app_ui_poll(void)
 #define PULSE_MS   150U
 
 #if PRINT_LOG_ENABLE
+/* ---- Font self-test ------------------------------------------------------ *
+ * A glyph that is absent from the SD .FON file is drawn as a blank box, which
+ * is exactly what "中文没显示全" looks like on the glass.  This walks every
+ * string the UI can put on screen, converts it to GBK and verifies that a
+ * non-empty bitmap can actually be read for each size in use.  Distinguishes
+ * "the character is missing" from "the layout clipped it". */
+#define FONT_CHECK_BUF  128U
+
+static const char *k_ui_text[] =
+{
+    "USB 触摸板",
+    "在此滑动 = 移动鼠标",
+    "左键",
+    "中键",
+    "右键",
+    "USB 状态",
+    "HID 鼠标已连接",
+    "USB 未连接",
+    "左键 松开   中键 松开   右键 松开",
+    "位移 X 0  Y 0    报告 0",
+    "触点 1   单指 0   多指 0   滚动 0",
+    "等待触摸…",
+    "双指轻点",
+    "三指轻点",
+    "双指下滑 (滚轮未启用)",
+    "双指上滑 (滚轮未启用)",
+    "已清除轨迹",
+    "串口: 左键",
+    "SD: 无卡 (仅 ASCII)",
+    "触摸板 = 鼠标移动   下方三键 = 左/中/右",
+    "串口 l/m/r 模拟按键  x/y 移动  s 状态",
+};
+
+static const char *utf8_next(const char *s, uint32_t *cp)
+{
+    const uint8_t *p = (const uint8_t *)s;
+
+    if (p[0] < 0x80U)
+    {
+        *cp = p[0];
+        return s + 1;
+    }
+    if ((p[0] & 0xE0U) == 0xC0U)
+    {
+        *cp = ((uint32_t)(p[0] & 0x1FU) << 6) | (uint32_t)(p[1] & 0x3FU);
+        return s + 2;
+    }
+    if ((p[0] & 0xF0U) == 0xE0U)
+    {
+        *cp = ((uint32_t)(p[0] & 0x0FU) << 12)
+            | ((uint32_t)(p[1] & 0x3FU) << 6)
+            | (uint32_t)(p[2] & 0x3FU);
+        return s + 3;
+    }
+    *cp = p[0];
+    return s + 1;
+}
+
+static void font_check(void)
+{
+    static uint8_t bmp[FONT_CHECK_BUF];
+    pFONT *sizes[3] = { &CH_TEXT_Font12, &CH_TEXT_Font16, &CH_TEXT_Font24 };
+    static const uint16_t px[3] = { 12U, 16U, 24U };
+    uint32_t missing_map = 0U;
+    uint32_t missing_glyph = 0U;
+    uint32_t checked = 0U;
+    uint32_t shown = 0U;
+    uint32_t t;
+    uint32_t f;
+
+    /* A complete GBK dot-matrix file holds 126 lead bytes (0x81..0xFE) x 190
+     * trail slots, i.e. 23940 glyphs.  Printing the real size first separates
+     * "the card holds a trimmed font" from "the lookup arithmetic is wrong"
+     * without another round trip. */
+    for (f = 0U; f < 3U; f++)
+    {
+        uint32_t have = lcd_driver_font_file_size(px[f]);
+        uint32_t expect = 126U * 190U * sizes[f]->Sizes;
+
+        PRINT_LOG("[FONT] %upx file=%lu B, full GBK=%lu B%s\r\n",
+                  (unsigned int)px[f], (unsigned long)have, (unsigned long)expect,
+                  (have < expect) ? "  <-- TRIMMED" : "");
+    }
+
+    for (t = 0U; t < sizeof(k_ui_text) / sizeof(k_ui_text[0]); t++)
+    {
+        const char *p = k_ui_text[t];
+        uint32_t cp;
+
+        while (*p != '\0')
+        {
+            uint16_t gbk;
+
+            p = utf8_next(p, &cp);
+            if (cp < 0x80U)
+            {
+                continue;
+            }
+
+            checked++;
+
+            gbk = lv_gbk_from_unicode(cp);
+            if (gbk == 0U)
+            {
+                missing_map++;
+                PRINT_LOG("[FONT] no GBK mapping: U+%04lX\r\n", (unsigned long)cp);
+                continue;
+            }
+
+            for (f = 0U; f < 3U; f++)
+            {
+                uint8_t  code[2];
+                uint8_t  any = 0U;
+                uint32_t i;
+
+                code[0] = (uint8_t)(gbk >> 8);
+                code[1] = (uint8_t)(gbk & 0xFFU);
+
+                if (lcd_driver_get_hzmat_raw(code, bmp, sizes[f]) != RT_OK)
+                {
+                    uint32_t off = 0U;
+                    uint16_t got = 0U;
+                    uint8_t  slot = 0U;
+                    int8_t   rd = 0;
+                    uint8_t  err = lcd_driver_font_last_error(&off, &got, &slot, &rd);
+
+                    missing_glyph++;
+                    if (shown < 8U)
+                    {
+                        shown++;
+                        PRINT_LOG("[FONT] %upx U+%04lX GBK=%02X%02X FAIL seek=%d "
+                                  "read=%d off=%lu got=%u/%u slot=%u\r\n",
+                                  (unsigned int)px[f], (unsigned long)cp, code[0], code[1],
+                                  (int)err, (int)rd, (unsigned long)off, (unsigned int)got,
+                                  (unsigned int)sizes[f]->Sizes, (unsigned int)slot);
+                    }
+                    continue;
+                }
+
+                for (i = 0U; i < sizes[f]->Sizes; i++)
+                {
+                    if (bmp[i] != 0U)
+                    {
+                        any = 1U;
+                        break;
+                    }
+                }
+
+                if (any == 0U)
+                {
+                    missing_glyph++;
+                    if (shown < 12U)
+                    {
+                        shown++;
+                        PRINT_LOG("[FONT] %upx U+%04lX GBK=%02X%02X blank\r\n",
+                                  (unsigned int)px[f], (unsigned long)cp, code[0], code[1]);
+                    }
+                }
+            }
+        }
+    }
+
+    PRINT_LOG("[FONT] check done: %lu CJK chars, map-miss=%lu glyph-miss=%lu\r\n",
+              (unsigned long)checked, (unsigned long)missing_map,
+              (unsigned long)missing_glyph);
+}
+
 static void report_status(void)
 {
     gesture_status_t   st;
@@ -773,7 +942,7 @@ static void report_status(void)
 
 static void report_help(void)
 {
-    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  s=status  h=help\r\n");
+    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  s=status  f=font check  h=help\r\n");
 }
 #endif /* PRINT_LOG_ENABLE */
 
@@ -859,6 +1028,33 @@ void app_ui_command(char c)
     case 'H':
         report_help();
         break;
+
+    case 'f':
+    case 'F':
+        /* Verify every CJK glyph the UI can show exists in the SD .FON files.
+         * Blocks for a moment (one seek+read per character and size). */
+        font_check();
+        break;
+
+    case 'k':
+    case 'K':
+    {
+        /* Raw one-sector read, straight at the SDIO layer.  Separates "the
+         * card/controller cannot read at all" from "FatFs cannot read". */
+        static uint8_t sec[SDIO_BLOCK_SIZE];
+        static const uint32_t blocks[] = { 0U, 4096U, 65536U };
+        uint32_t i;
+
+        for (i = 0U; i < sizeof(blocks) / sizeof(blocks[0]); i++)
+        {
+            HAL_StatusTypeDef st = bsp_sdio_read_blocks(sec, blocks[i], 1U);
+
+            PRINT_LOG("[SDIO] block %lu -> %d  %02X %02X %02X %02X %02X %02X\r\n",
+                      (unsigned long)blocks[i], (int)st,
+                      sec[0], sec[1], sec[2], sec[3], sec[4], sec[5]);
+        }
+        break;
+    }
 #endif
 
     default:
