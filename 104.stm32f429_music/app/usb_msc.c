@@ -71,6 +71,13 @@
  * tud_mounted() fallback that catches a missed unplug event. */
 #define USB_TASK_IDLE_MS 20U
 
+/* "The host is done with us" when no SCSI command has arrived for this long.
+ * Covers the two cases the bus state alone cannot see: the volume was ejected
+ * in Windows (bus still mounted, traffic stops) and a cable that keeps VBUS up
+ * without enumerating again.  Short values cut a still-active host off between
+ * two write bursts, so this is deliberately generous. */
+#define USB_HOST_IDLE_MS 10000U
+
 #define USB_SECTOR_SIZE 512U
 #define USB_EP0_SIZE 64U
 #define USB_EP_BULK_SIZE 64U
@@ -88,6 +95,16 @@ static volatile uint32_t s_used_mb = 0U;
 static volatile bool s_evt_mount = false;
 static volatile bool s_evt_umount = false;
 static volatile bool s_io_error_logged = false;
+
+/* Last time the host actually talked to the volume.  Written from the MSC
+ * callbacks (all of which run inside the USB task) and read by the same task,
+ * so no locking is needed. */
+static volatile TickType_t s_last_cmd_tick = 0U;
+
+static void note_host_command(void)
+{
+    s_last_cmd_tick = xTaskGetTickCount();
+}
 
 /* Bounce sector for the rare unaligned / partial-block request.  Owned by the
  * USB task only (every caller of the helpers below runs inside tud_task). */
@@ -302,6 +319,8 @@ static bool msc_write(const uint8_t *src, uint32_t lba, uint32_t offset, uint32_
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                           void *buffer, uint32_t bufsize)
 {
+    note_host_command();
+
     if ((lun != 0U) || (s_owned == 0U))
     {
         return -1; /* TUD_MSC_RET_ERROR: the host gets "medium not present" */
@@ -317,6 +336,8 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                            uint8_t *buffer, uint32_t bufsize)
 {
+    note_host_command();
+
     if ((lun != 0U) || (s_owned == 0U))
     {
         return -1;
@@ -339,6 +360,8 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *buffer,
 {
     (void)buffer;
     (void)bufsize;
+
+    note_host_command();
 
     switch (scsi_cmd[0])
     {
@@ -365,6 +388,8 @@ void tud_msc_capacity_cb(uint8_t lun, uint32_t *block_count, uint16_t *block_siz
     uint32_t blocks = 0U;
     uint16_t bsize  = (uint16_t)USB_SECTOR_SIZE;
 
+    note_host_command();
+
     /* Geometry comes straight from the HAL card info, not from FatFs, so it is
      * safe to answer before the key hand-over -- and it means the host caches
      * the right size even for an unformatted card. */
@@ -383,6 +408,8 @@ void tud_msc_capacity_cb(uint8_t lun, uint32_t *block_count, uint16_t *block_siz
 
 bool tud_msc_test_unit_ready_cb(uint8_t lun)
 {
+    note_host_command();
+
     /* Keeps the host retrying instead of failing the drive while the hand-over
      * handshake is still running. */
     if ((lun != 0U) || (s_owned == 0U))
@@ -398,6 +425,8 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
     (void)lun;
     (void)power_condition;
     (void)start;
+
+    note_host_command();
 
     if (load_eject)
     {
@@ -486,6 +515,9 @@ static void usb_session_enter(void)
     s_io_error_logged = false;
     s_owned           = 1U;
     s_state           = USB_MSC_STATE_ACTIVE;
+    /* The 10 s idle clock starts now, not at the last command: enumeration alone
+     * can keep the bus quiet for a while before the first TEST UNIT READY. */
+    s_last_cmd_tick   = xTaskGetTickCount();
 
     PRINT_LOG("[USB ] storage exported: %lu MB total, %lu MB used\r\n",
               (unsigned long)total_mb, (unsigned long)used_mb);
@@ -541,11 +573,27 @@ static void usb_task(void *arg)
             usb_session_leave();
         }
 
-        /* Belt and braces: if the stack says "not mounted" while we still hold
-         * the card, the unplug event was missed -- release it anyway. */
-        if ((s_state == USB_MSC_STATE_ACTIVE) && (tud_mounted() == false))
+        /* Three ways to decide the host is gone, checked here so a missed event
+         * cannot leave the card parked forever:
+         *   1. tud_umount_cb() set s_evt_umount,
+         *   2. the stack itself reports "not mounted" (cable pulled),
+         *   3. no SCSI command for USB_HOST_IDLE_MS -- the volume was ejected,
+         *      or the PC stopped using it. */
+        if (s_state == USB_MSC_STATE_ACTIVE)
         {
-            usb_session_leave();
+            bool mounted = tud_mounted();
+
+            if (!mounted)
+            {
+                usb_session_leave();
+            }
+            else if ((xTaskGetTickCount() - s_last_cmd_tick) >=
+                     pdMS_TO_TICKS(USB_HOST_IDLE_MS))
+            {
+                PRINT_LOG("[USB ] no host traffic for %u s, releasing the card\r\n",
+                          (unsigned)(USB_HOST_IDLE_MS / 1000U));
+                usb_session_leave();
+            }
         }
     }
 }

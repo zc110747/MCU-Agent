@@ -72,6 +72,11 @@ typedef struct
     volatile uint8_t free_half; /* written by the DMA ISR */
     volatile uint8_t usb_mode;  /* set by the USB side: stop using the card */
     volatile uint8_t parked;    /* task reached the park state, card untouched */
+    volatile uint8_t armed;     /* 0 = "paused, waiting for KEY_UP" */
+    volatile uint8_t was_playing; /* state when the host took the card */
+    volatile uint8_t want_resume; /* re-select resume_index after a rescan */
+    volatile int16_t resume_index; /* track the host interrupted */
+    volatile uint8_t shown_idle; /* "waiting for KEY_UP" already logged */
 } AUDIO_RUNTIME_T;
 
 static AUDIO_RUNTIME_T s_audio = {0};
@@ -118,6 +123,82 @@ static void publish_track(const TRACK_INFO_T *info)
 /* -------------------------------------------------------------------------- */
 /* One track                                                                  */
 /* -------------------------------------------------------------------------- */
+static bool name_is_mp3(const char *name)
+{
+    static const char ext[4] = {'.', 'm', 'p', '3'};
+    size_t            len;
+    size_t            i;
+
+    if (name == NULL)
+    {
+        return false;
+    }
+
+    len = strlen(name);
+    if (len < 4U)
+    {
+        return false;
+    }
+
+    for (i = 0U; i < 4U; i++)
+    {
+        char c = name[len - 4U + i];
+
+        if ((c >= 'A') && (c <= 'Z'))
+        {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (c != ext[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief  Put the selected track on screen without touching the card.
+ *
+ *  Power-on and the moment the host releases the card both end in the same
+ *  visible state: track name and counters shown, PAUSED, SAI off.  Only the RAM
+ *  playlist is consulted, so this costs no FatFs call and cannot fail on a card
+ *  that is still settling.
+ */
+static void show_selected_track(void)
+{
+    int16_t     idx;
+    const char *name;
+
+    if (playlist_count() == 0U)
+    {
+        return;
+    }
+
+    idx = playlist_current();
+    if (idx < 0)
+    {
+        if (!playlist_select(0U))
+        {
+            return;
+        }
+        idx = playlist_current();
+    }
+    if (idx < 0)
+    {
+        return;
+    }
+
+    name = playlist_name((uint16_t)idx);
+    s_audio.status.track           = idx;
+    s_audio.status.current_seconds = 0U;
+    s_audio.status.total_seconds   = 0U;
+    s_audio.status.is_mp3          = name_is_mp3(name) ? 1U : 0U;
+    (void)snprintf(s_audio.status.name, sizeof(s_audio.status.name), "%s",
+                   (name != NULL) ? name : "?");
+    s_audio.status.state = AUDIO_STATE_PAUSED;
+}
+
 static TRACK_RESULT_T play_one_track(void)
 {
     FIL            fp;
@@ -321,11 +402,58 @@ static void audio_task(void *arg)
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 continue;
             }
-            (void)playlist_select(0U);
+
+            /* Coming back from a USB session: put the cursor back on the track
+             * the host interrupted instead of jumping to the first file. */
+            if (s_audio.want_resume != 0U)
+            {
+                s_audio.want_resume = 0U;
+                if ((s_audio.resume_index >= 0) &&
+                    playlist_select((uint16_t)s_audio.resume_index))
+                {
+                    PRINT_LOG("[PLAY] back on track %d after USB\r\n",
+                              (int)s_audio.resume_index);
+                }
+            }
+
+            if (playlist_current() < 0)
+            {
+                (void)playlist_select(0U);
+            }
         }
 
         s_audio.status.track_count = playlist_count();
         s_audio.status.dir_files   = playlist_dir_files();
+
+        if (s_audio.armed == 0U)
+        {
+            /* Next / previous still work while paused: they only move the
+             * selection.  Consuming them here keeps a press from being queued
+             * and then skipped the instant KEY_UP starts the clock. */
+            if (s_audio.req_next)
+            {
+                s_audio.req_next = false;
+                (void)playlist_step(1);
+            }
+            if (s_audio.req_prev)
+            {
+                s_audio.req_prev = false;
+                (void)playlist_step(-1);
+            }
+
+            /* Power-on and post-USB state: the selection is on screen and
+             * PAUSED, no file is open and the SAI clock is off.  Cheap to
+             * repeat, so it simply waits here for KEY_UP. */
+            show_selected_track();
+            if (s_audio.shown_idle == 0U)
+            {
+                s_audio.shown_idle = 1U;
+                PRINT_LOG("[PLAY] ready: %s paused at 0 s, press KEY_UP to play\r\n",
+                          s_audio.status.name);
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
 
         {
             TRACK_RESULT_T result = play_one_track();
@@ -392,6 +520,11 @@ void audio_player_start(void)
     s_audio.status.track = -1;
     s_audio.usb_mode     = 0U;
     s_audio.parked       = 0U;
+    s_audio.armed        = 0U; /* power-on is "paused, waiting for KEY_UP" */
+    s_audio.was_playing  = 0U;
+    s_audio.want_resume  = 0U;
+    s_audio.resume_index = -1;
+    s_audio.shown_idle   = 0U;
 
     bsp_sai_set_dma_callback(audio_dma_complete);
 
@@ -419,8 +552,13 @@ void audio_player_toggle_pause(void)
     }
     else if (s_audio.status.state == AUDIO_STATE_PAUSED)
     {
+        /* First press after power-on (or after the host gave the card back)
+         * opens the file and starts the clock; later presses only unmute. */
+        s_audio.armed        = 1U;
+        s_audio.shown_idle   = 0U;
         s_audio.status.state = AUDIO_STATE_PLAYING;
-        PRINT_LOG("[KEY ] KEY_UP -> resume at %us\r\n",
+        PRINT_LOG("[KEY ] KEY_UP -> %s at %us\r\n",
+                  (s_audio.status.current_seconds == 0U) ? "start" : "resume",
                   (unsigned)s_audio.status.current_seconds);
     }
 }
@@ -449,10 +587,17 @@ void audio_player_set_usb_mode(bool active)
 {
     if (active)
     {
+        /* Remember what the interruption cost, then let go.  The index has to be
+         * taken here: the USB side clears the playlist on the way out, so by the
+         * time we are called with active == false it is already gone. */
+        s_audio.resume_index = (int16_t)playlist_current();
+        s_audio.was_playing  = (s_audio.status.state == AUDIO_STATE_PLAYING) ? 1U : 0U;
+
         /* Clear "parked" first: the task is still inside the audio path and
          * the USB side waits for it to come back out. */
         s_audio.parked          = 0U;
         s_audio.usb_mode        = 1U;
+        s_audio.armed           = 0U;
         s_audio.status.state    = AUDIO_STATE_IDLE;
         s_audio.status.current_seconds = 0U;
         /* Abort a pending skip so it cannot fire before the abort check. */
@@ -461,7 +606,17 @@ void audio_player_set_usb_mode(bool active)
     }
     else
     {
-        s_audio.usb_mode = 0U;
+        /* The card is ours again but nothing starts by itself: the task shows
+         * the interrupted track, PAUSED, and waits for KEY_UP. */
+        s_audio.usb_mode    = 0U;
+        s_audio.armed       = 0U;
+        s_audio.shown_idle  = 0U;
+        s_audio.want_resume = 1U;
+        s_audio.status.state = AUDIO_STATE_IDLE;
+        s_audio.status.current_seconds = 0U;
+        PRINT_LOG("[PLAY] card released, track %d (%s), waiting for KEY_UP\r\n",
+                  (int)s_audio.resume_index,
+                  (s_audio.was_playing != 0U) ? "was playing" : "was paused");
     }
 }
 
