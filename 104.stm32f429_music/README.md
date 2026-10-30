@@ -195,6 +195,50 @@ Release  FLASH: 254800 B / 1 MB (24.30%)   RAM: 78824 B / 192 KB (40.09%)
 RAM 里 ~26 KB 是 MP3 解码器的静态状态（`s_mp3`：16 KB minimp3 scratch + 5 KB 输入窗 +
 4.5 KB PCM 暂存），Debug 版另含 FreeRTOS `configASSERT` 与日志字符串。
 
+### 7.1 MDK-ARM（Keil）
+
+工程文件不手工维护，单一真值仍是 `CMakeLists.txt`：
+
+```bash
+python MDK-ARM/gen_uvision.py    # 重写 .uvprojx / .uvoptx / .sct / startup
+```
+
+脚本先做一致性校验：`GROUPS` 里列的文件必须存在，`app/`（含 `app/ui/`，若存在）与
+`bsp/` 下每个 `.c` 都必须进工程（唯一例外是 `syscalls.c`，见下表），否则直接报错退出。
+**增删源文件后必须重跑一次**，否则 Keil 侧会与 GCC 侧悄悄漂移。
+
+构建（GUI 打开 `MDK-ARM/stm32f429_music.uvprojx`，或命令行）：
+
+```bash
+"C:\Keil_v5\UV4\UV4.exe" -b MDK-ARM/stm32f429_music.uvprojx -j0 -o build.log
+```
+
+当前占用（AC6 6.14、全量重编、零错误零警告，256 个文件 / 27 个分组）：
+
+```
+Code=159832  RO-data=63868  RW-data=352  ZI-data=601296
+FLASH 223936 B / 1 MB (21.4%)   RAM 77360 B / 192 KB (39.3%)   堆 512 KB 在 SDRAM
+```
+
+与 GCC 构建的差异（每条在脚本里都有注释）：
+
+| 项 | GCC | MDK-ARM |
+|---|---|---|
+| 启动文件 | `sys_startup/gcc/startup_stm32f429xx.s` | 脚本复制 `sys_startup/arm/…`，**不改向量表** |
+| 向量表指向 | `SVC_Handler` / `PendSV_Handler` / `SysTick_Handler` | 同左：`FreeRTOSConfig.h` 把 `vPortSVCHandler` 宏映射成 `SVC_Handler`，`port.o` 的强定义覆盖启动文件的 `[WEAK]` 桩 |
+| 标准库 | newlib-nano + `app/syscalls.c` | MicroLIB + `MDK-ARM/mdk_target.c`（禁 semihosting、`fputc`→`uart_write`），`syscalls.c` 不入工程 |
+| FLASH 驱动 | 只需 `hal_flash.c`（`-ffunction-sections --gc-sections` 丢掉未用函数） | 必须补 `hal_flash_ex.c`，否则 `FLASH_Erase_Sector` / `FLASH_FlushCaches` 未定义 |
+| 分散加载 | `sys_startup/STM32F429IGTx_FLASH.ld` | `MDK-ARM/stm32f429_music.sct`（脚本生成，`umfTarg=0` 才不会被 uVision 自动生成的覆盖） |
+
+`app/sdram_heap.c` 的堆段名按工具链分叉（`.freertos_heap` / `.bss.freertos_heap`），
+两侧链接脚本同时兼容两个名字：
+
+- **armclang** 只有看到 `.bss` 前缀才把段标成 ZI。否则生成 512 KB 的 PROGBITS 段，
+  armlink 会给它一个 `LR_IROM1` 内的加载地址，`__main` 在 FMC 初始化之前就把它拷到
+  `0xC0000000` → HardFault（`UNINIT` 只跳过 ZI 清零，拦不住 PROGBITS 拷贝）。
+- **GCC** 反而不能用 `.bss` 前缀：链接脚本 `.bss` 输出段的 `*(.bss*)` 会抢先把它收走，
+  实测 `region RAM overflowed by 406504 bytes`。
+
 ## 8. 烧录与调试
 
 ```bash
@@ -251,6 +295,8 @@ app/     main.c  system clock  FreeRTOSConfig.h  UI 播放引擎  track_decoder 
 bsp/     SDRAM  SDIO  LCD(FMC)  LCD 文字/字库  SAI  WM8978  IIC  KEY  LED  UART  delay
 third_party/  FreeRTOS V11.1.0  LVGL 8.3.11  FatFs  minimp3  CMSIS  HAL
 cmake/   arm-none-eabi-gcc.cmake（工具链文件）
+sys_startup/  GCC / ARM(Keil) / IAR 三套启动文件 + 链接脚本
+MDK-ARM/ gen_uvision.py（生成 Keil 工程） mdk_target.c（MicroLIB 胶水） .uvprojx/.sct
 ```
 
 ## 11. 踩过的坑（值得记住）

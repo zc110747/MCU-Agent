@@ -151,7 +151,11 @@ SECTIONS
   {
     . = ALIGN(32);
     __sdram_freertos_heap_start = .;
+    /* GCC emits the section as .freertos_heap; the .bss.* spelling is the
+     * one ARMCLANG needs to make it ZI (see app/sdram_heap.c).  Only one of
+     * the two ever exists in a given build. */
     KEEP(*(.freertos_heap))
+    KEEP(*(.bss.freertos_heap))
     . = ALIGN(32);
     __sdram_freertos_heap_end = .;
   } >SDRAM
