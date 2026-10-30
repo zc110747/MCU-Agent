@@ -16,8 +16,8 @@
         <TargetCommonOption>
           <Device>STM32F429IGTx</Device>
           <Vendor>STMicroelectronics</Vendor>
-          <PackID>Keil.STM32F4xx_DFP.2.16.0</PackID>
-          <PackURL>https://www.keil.com/pack/</PackURL>
+          <PackID>Keil.STM32F4xx_DFP.2.14.0</PackID>
+          <PackURL>http://www.keil.com/pack/</PackURL>
           <Cpu>IRAM(0x20000000,0x00030000) IRAM2(0x10000000,0x00010000) IROM(0x08000000,0x00100000) CLOCK(25000000) CPUTYPE("Cortex-M4") ELITTLE FPU2</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
@@ -55,7 +55,7 @@
           <CreateHexFile>1</CreateHexFile>
           <DebugInformation>1</DebugInformation>
           <BrowseInformation>1</BrowseInformation>
-          <ListingPath>.\Listings\</ListingPath>
+          <ListingPath></ListingPath>
           <HexFormatSelection>1</HexFormatSelection>
           <Merge32K>0</Merge32K>
           <CreateBatchFile>0</CreateBatchFile>
@@ -717,15 +717,6 @@
               <FileName>minimp3.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\minimp3\minimp3.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-O2 -w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -756,211 +747,76 @@
               <FileName>lv_disp.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_disp.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_event.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_event.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_group.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_group.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_indev.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_indev.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_indev_scroll.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_indev_scroll.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_class.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_class.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_draw.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_draw.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_pos.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_pos.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_scroll.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_scroll.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_style.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_style.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_style_gen.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_style_gen.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_obj_tree.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_obj_tree.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_refr.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_refr.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_theme.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\core\lv_theme.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -971,183 +827,66 @@
               <FileName>lv_draw.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_arc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_arc.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_img.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_img.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_label.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_label.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_layer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_layer.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_line.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_mask.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_mask.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_rect.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_rect.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_transform.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_transform.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_triangle.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_draw_triangle.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_img_buf.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_img_buf.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_img_cache.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_img_cache.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_img_decoder.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\lv_img_decoder.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1158,15 +897,6 @@
               <FileName>lv_gpu_arm2d.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\arm2d\lv_gpu_arm2d.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1177,155 +907,56 @@
               <FileName>lv_draw_pxp.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\pxp\lv_draw_pxp.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_pxp_blend.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\pxp\lv_draw_pxp_blend.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_gpu_nxp_pxp.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\pxp\lv_gpu_nxp_pxp.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_gpu_nxp_pxp_osa.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\pxp\lv_gpu_nxp_pxp_osa.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_vglite.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_draw_vglite.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_vglite_arc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_draw_vglite_arc.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_vglite_blend.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_draw_vglite_blend.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_vglite_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_draw_vglite_line.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_vglite_rect.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_draw_vglite_rect.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_vglite_buf.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_vglite_buf.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_vglite_utils.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\nxp\vglite\lv_vglite_utils.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1336,29 +967,11 @@
               <FileName>lv_gpu_d2_draw_label.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\renesas\lv_gpu_d2_draw_label.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_gpu_d2_ra6m3.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\renesas\lv_gpu_d2_ra6m3.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1369,197 +982,71 @@
               <FileName>lv_draw_sdl.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_arc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_arc.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_bg.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_bg.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_composite.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_composite.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_img.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_img.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_label.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_label.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_layer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_layer.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_line.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_mask.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_mask.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_polygon.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_polygon.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_rect.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_rect.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_stack_blur.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_stack_blur.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_texture_cache.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_texture_cache.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sdl_utils.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sdl\lv_draw_sdl_utils.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1570,15 +1057,6 @@
               <FileName>lv_gpu_stm32_dma2d.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\stm32_dma2d\lv_gpu_stm32_dma2d.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1589,169 +1067,61 @@
               <FileName>lv_draw_sw.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_arc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_arc.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_blend.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_blend.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_dither.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_dither.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_gradient.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_gradient.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_img.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_img.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_layer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_layer.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_letter.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_letter.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_line.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_polygon.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_polygon.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_rect.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_rect.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_draw_sw_transform.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\sw\lv_draw_sw_transform.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1762,15 +1132,6 @@
               <FileName>lv_gpu_swm341_dma2d.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\draw\swm341_dma2d\lv_gpu_swm341_dma2d.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1781,15 +1142,6 @@
               <FileName>lv_extra.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\lv_extra.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1800,29 +1152,11 @@
               <FileName>lv_flex.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\layouts\flex\lv_flex.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_grid.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\layouts\grid\lv_grid.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -1833,253 +1167,91 @@
               <FileName>lv_bmp.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\bmp\lv_bmp.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_ffmpeg.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\ffmpeg\lv_ffmpeg.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_freetype.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\freetype\lv_freetype.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fs_fatfs.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\fsdrv\lv_fs_fatfs.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fs_littlefs.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\fsdrv\lv_fs_littlefs.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fs_posix.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\fsdrv\lv_fs_posix.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fs_stdio.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\fsdrv\lv_fs_stdio.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fs_win32.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\fsdrv\lv_fs_win32.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>gifdec.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\gif\gifdec.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_gif.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\gif\lv_gif.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lodepng.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\png\lodepng.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_png.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\png\lv_png.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_qrcode.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\qrcode\lv_qrcode.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>qrcodegen.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\qrcode\qrcodegen.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_rlottie.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\rlottie\lv_rlottie.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_sjpg.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\sjpg\lv_sjpg.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>tjpgd.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\sjpg\tjpgd.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_tiny_ttf.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\libs\tiny_ttf\lv_tiny_ttf.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -2090,113 +1262,41 @@
               <FileName>lv_fragment.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\fragment\lv_fragment.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fragment_manager.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\fragment\lv_fragment_manager.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_gridnav.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\gridnav\lv_gridnav.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_ime_pinyin.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\ime\lv_ime_pinyin.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_imgfont.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\imgfont\lv_imgfont.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_monkey.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\monkey\lv_monkey.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_msg.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\msg\lv_msg.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_snapshot.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\others\snapshot\lv_snapshot.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -2207,43 +1307,16 @@
               <FileName>lv_theme_basic.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\themes\basic\lv_theme_basic.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_theme_default.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\themes\default\lv_theme_default.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_theme_mono.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\themes\mono\lv_theme_mono.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -2254,267 +1327,96 @@
               <FileName>lv_animimg.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\animimg\lv_animimg.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_calendar.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\calendar\lv_calendar.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_calendar_header_arrow.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\calendar\lv_calendar_header_arrow.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_calendar_header_dropdown.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\calendar\lv_calendar_header_dropdown.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_chart.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\chart\lv_chart.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_colorwheel.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\colorwheel\lv_colorwheel.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_imgbtn.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\imgbtn\lv_imgbtn.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_keyboard.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\keyboard\lv_keyboard.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_led.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\led\lv_led.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_list.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\list\lv_list.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_menu.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\menu\lv_menu.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_meter.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\meter\lv_meter.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_msgbox.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\msgbox\lv_msgbox.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_span.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\span\lv_span.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_spinbox.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\spinbox\lv_spinbox.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_spinner.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\spinner\lv_spinner.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_tabview.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\tabview\lv_tabview.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_tileview.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\tileview\lv_tileview.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_win.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\extra\widgets\win\lv_win.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -2525,421 +1427,151 @@
               <FileName>lv_font.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_dejavu_16_persian_hebrew.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_dejavu_16_persian_hebrew.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_fmt_txt.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_fmt_txt.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_loader.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_loader.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_10.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_10.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_12.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_12.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_12_subpx.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_12_subpx.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_14.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_14.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_16.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_16.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_18.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_18.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_20.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_20.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_22.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_22.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_24.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_24.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_26.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_26.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_28.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_28.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_28_compressed.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_28_compressed.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_30.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_30.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_32.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_32.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_34.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_34.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_36.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_36.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_38.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_38.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_40.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_40.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_42.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_42.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_44.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_44.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_46.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_46.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_48.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_48.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_montserrat_8.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_montserrat_8.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_simsun_16_cjk.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_simsun_16_cjk.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_unscii_16.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_unscii_16.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_font_unscii_8.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\font\lv_font_unscii_8.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -2950,43 +1582,16 @@
               <FileName>lv_hal_disp.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\hal\lv_hal_disp.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_hal_indev.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\hal\lv_hal_indev.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_hal_tick.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\hal\lv_hal_tick.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -2997,309 +1602,111 @@
               <FileName>lv_anim.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_anim.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_anim_timeline.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_anim_timeline.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_area.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_area.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_async.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_async.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_bidi.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_bidi.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_color.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_color.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_fs.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_fs.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_gc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_gc.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_ll.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_ll.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_log.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_log.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_lru.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_lru.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_math.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_math.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_mem.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_mem.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_printf.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_printf.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_style.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_style.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_style_gen.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_style_gen.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_templ.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_templ.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_timer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_timer.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_tlsf.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_tlsf.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_txt.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_txt.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_txt_ap.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_txt_ap.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_utils.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\misc\lv_utils.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>
@@ -3310,225 +1717,81 @@
               <FileName>lv_arc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_arc.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_bar.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_bar.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_btn.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_btn.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_btnmatrix.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_btnmatrix.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_canvas.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_canvas.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_checkbox.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_checkbox.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_dropdown.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_dropdown.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_img.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_img.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_label.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_label.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_line.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_objx_templ.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_objx_templ.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_roller.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_roller.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_slider.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_slider.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_switch.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_switch.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_table.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_table.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
             <File>
               <FileName>lv_textarea.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\third_party\lvgl\src\widgets\lv_textarea.c</FilePath>
-              <Option>
-                <CommonProperty>
-                  <Cads>
-                    <VariousControls>
-                      <MiscControls>-w</MiscControls>
-                    </VariousControls>
-                  </Cads>
-                </CommonProperty>
-              </Option>
             </File>
           </Files>
         </Group>

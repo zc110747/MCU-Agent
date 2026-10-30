@@ -1,0 +1,56 @@
+; ---------------------------------------------------------------------------
+; stm32h743.sct - scatter file for 014.stm32h743_mouse (Keil ARMCLANG)
+;
+; Mirrors sys_startup/stm32h743zi_flash.ld region for region, so the Keil and
+; the GCC builds describe the same memory map:
+;
+;   FLASH    0x08000000   2 MB : RESET vector table + .text + .rodata
+;   DTCMRAM  0x20000000 128 KB : .data / .bss / HEAP / STACK (core only)
+;   RAM_D1   0x24000000 512 KB : .dma_buf  - UART4 DMA staging
+;   RAM_D2   0x30000000 288 KB : .cam_buf  - DCMI frame ping-pong
+;
+; Why the two buffer regions are pinned:
+;   DTCMRAM (0x20000000) is NOT reachable by DMA1/DMA2. Every buffer a DMA
+;   engine writes into must therefore leave DTCM - the UART4 ring goes to AXI
+;   SRAM, the DCMI frames go to D2 SRAM (the closest DMA-capable memory to
+;   DCMI). Both sections are UNINIT: the C startup never touches them, so no
+;   cache line is dirty at the first transfer and a plain
+;   Invalidate-by-address can never drop data.
+;
+; Both regions start on a 32-byte boundary. Each object inside them is also
+; 32-byte aligned and sized in whole cache lines, so a by-address clean or
+; invalidate never touches a line owned by somebody else.
+;
+; Stack: 8 KB, reserved by the startup file (sys_startup/arm) inside DTCM.
+; ---------------------------------------------------------------------------
+
+LR_IROM1 0x08000000 0x00200000
+{
+  ER_IROM1 0x08000000 0x00200000
+  {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+
+  ; UART4 DMA staging - AXI SRAM, bus-master reachable, never initialised.
+  RW_DMA_BUF 0x24000000 UNINIT
+  {
+    *(.dma_buf)
+    *(.dma_buf*)
+  }
+
+  ; DCMI frame ping-pong - D2 SRAM, bus-master reachable, never initialised.
+  RW_CAM_BUF 0x30000000 UNINIT
+  {
+    *(.cam_buf)
+    *(.cam_buf*)
+  }
+
+  ; Everything else (data / bss / heap / stack) stays in DTCM: zero wait
+  ; state for the core, and out of the way of both DMA streams.
+  RW_IRAM1 0x20000000 0x00020000
+  {
+    .ANY (+RW +ZI)
+  }
+}
