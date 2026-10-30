@@ -42,6 +42,7 @@ include_directories(
   third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM4F
   third_party/FatFs
   third_party/minimp3
+  third_party/tinyusb/src
   # LVGL: the top dir resolves "lv_conf.h" from lvgl.h, src/ resolves the
   # internal "../lvgl.h" form used inside the library.
   third_party/lvgl
@@ -133,6 +134,19 @@ file(GLOB_RECURSE LVGL_SOURCES third_party/lvgl/src/*.c)
 # minimp3: single-file, public-domain MP3 decoder (see third_party/minimp3).
 set(MINIMP3_SOURCES third_party/minimp3/minimp3.c)
 
+# TinyUSB **device** stack: mass-storage class only, so the board shows up as a
+# U-disk on a PC.  CFG_TUSB_MCU / CFG_TUSB_OS / CFG_TUSB_RHPORT0_MODE all live in
+# app/tusb_config.h (which is why they are not repeated here: the MDK-ARM
+# project includes the same header and cannot drift).
+set(TINYUSB_SOURCES
+  third_party/tinyusb/src/tusb.c
+  third_party/tinyusb/src/device/usbd.c
+  third_party/tinyusb/src/class/msc/msc_device.c
+  third_party/tinyusb/src/portable/synopsys/dwc2/dwc2_common.c
+  third_party/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
+  third_party/tinyusb/src/common/tusb_fifo.c
+)
+
 # Keep the vendored library's warnings out of the build so the project's own
 # code stays strictly warning-clean under -Wall -Wextra.
 set_source_files_properties(${LVGL_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
@@ -148,6 +162,7 @@ add_executable(${PROJECT_NAME}.elf
   ${CMSIS_SOURCES}
   ${HAL_SOURCES}
   ${FREERTOS_SOURCES}
+  ${TINYUSB_SOURCES}
   ${FATFS_SOURCES}
   ${LVGL_SOURCES}
   ${MINIMP3_SOURCES}

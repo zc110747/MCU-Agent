@@ -49,6 +49,7 @@
 #include "fs_diskio.h"
 #include "log.h"
 #include "sd_card.h"
+#include "usb_msc.h"
 
 extern HeapRegion_t xHeapRegions[];
 
@@ -139,9 +140,14 @@ int main(void)
 
     bsp_key_init();
 
+    /* USB device side: exposes the SD card as a U-disk.  Needs the FreeRTOS
+     * heap (its OSAL queue) and, for the first hand-over, a mounted card. */
+    usb_msc_init();
+
     app_ui_init();
     audio_player_start();
     app_ui_start();
+    usb_msc_start();
 
     (void)xTaskCreate(led_task, "led", 256U, NULL, tskIDLE_PRIORITY + 1, NULL);
 

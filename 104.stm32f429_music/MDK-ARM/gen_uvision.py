@@ -71,6 +71,7 @@ GROUPS = [
         ("wav_decoder.c", C, "..\\app\\wav_decoder.c"),
         ("stm32f4xx_it.c", C, "..\\app\\stm32f4xx_it.c"),
         ("stm32f4xx_hal_timebase_tim.c", C, "..\\app\\stm32f4xx_hal_timebase_tim.c"),
+        ("usb_msc.c", C, "..\\app\\usb_msc.c"),
         ("mdk_target.c", C, "mdk_target.c"),
     ]),
     ("Drivers/BSP", [
@@ -83,6 +84,7 @@ GROUPS = [
         ("bsp_wm8978.c", C, "..\\bsp\\bsp_wm8978.c"),
         ("bsp_sdram.c", C, "..\\bsp\\bsp_sdram.c"),
         ("bsp_sdio.c", C, "..\\bsp\\bsp_sdio.c"),
+        ("bsp_usb_device.c", C, "..\\bsp\\bsp_usb_device.c"),
         ("bsp_lcd.c", C, "..\\bsp\\bsp_lcd.c"),
         ("bsp_lcd_text.c", C, "..\\bsp\\bsp_lcd_text.c"),
         ("lcd_ascii_font.c", C, "..\\bsp\\lcd_ascii_font.c"),
@@ -134,6 +136,18 @@ GROUPS = [
     ]),
     ("Middlewares/minimp3", [
         ("minimp3.c", C, "..\\third_party\\minimp3\\minimp3.c"),
+    ]),
+    # TinyUSB device stack, mass-storage class only (the board appears as a
+    # U-disk).  CFG_TUSB_MCU / CFG_TUSB_OS / CFG_TUSB_RHPORT0_MODE come from
+    # app/tusb_config.h, not from the toolchain define list, so both builds use
+    # exactly the same configuration.
+    ("Middlewares/TinyUSB", [
+        ("tusb.c", C, "..\\third_party\\tinyusb\\src\\tusb.c"),
+        ("usbd.c", C, "..\\third_party\\tinyusb\\src\\device\\usbd.c"),
+        ("msc_device.c", C, "..\\third_party\\tinyusb\\src\\class\\msc\\msc_device.c"),
+        ("dwc2_common.c", C, "..\\third_party\\tinyusb\\src\\portable\\synopsys\\dwc2\\dwc2_common.c"),
+        ("dcd_dwc2.c", C, "..\\third_party\\tinyusb\\src\\portable\\synopsys\\dwc2\\dcd_dwc2.c"),
+        ("tusb_fifo.c", C, "..\\third_party\\tinyusb\\src\\common\\tusb_fifo.c"),
     ]),
     ("Middlewares/FatFs", [
         ("ff.c", C, "..\\third_party\\FatFs\\ff.c"),
@@ -252,6 +266,7 @@ INCLUDE_PATH = ";".join([
     "..\\third_party\\FreeRTOS-Kernel\\portable\\GCC\\ARM_CM4F",
     "..\\third_party\\FatFs",
     "..\\third_party\\minimp3",
+    "..\\third_party\\tinyusb\\src",
     "..\\third_party\\lvgl",
     "..\\third_party\\lvgl\\src",
 ])

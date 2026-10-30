@@ -61,6 +61,24 @@ void audio_player_next(void);
 /** KEY2: jump to the previous track (wraps). */
 void audio_player_prev(void);
 
+/**
+ * @brief  Hand the SD card over to / take it back from the USB host.
+ *
+ *  When @p active is true the engine aborts the current track at the next DMA
+ *  boundary, closes the file, stops the SAI and parks without touching the card.
+ *  audio_player_is_parked() tells the USB side when that has happened; only then
+ *  may it take the card exclusively (fs_usb_session_begin()).
+ *
+ *  When @p active is false the engine resumes with the first track.
+ */
+void audio_player_set_usb_mode(bool active);
+
+/**
+ * @retval true when the engine holds no file handle and is not using the card.
+ * @note   Intended for the USB handshake; freshly started = not parked.
+ */
+bool audio_player_is_parked(void);
+
 #ifdef __cplusplus
 }
 #endif

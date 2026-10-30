@@ -2,7 +2,8 @@
 
 正点原子阿波罗 STM32F429IGT6（实验45 音乐播放实验）的 FreeRTOS + LVGL 重构版。
 从 SD 卡的 `0:/MUSIC` 目录读取 **WAV / MP3** 播放到 WM8978，屏幕显示曲名 / 进度条 / 时间 /
-目录文件数与可播曲目数，四个按键完成播放控制。构建与调试统一走
+目录文件数与可播曲目数，四个按键完成播放控制；插上 USB 线则变成**免驱 U 盘**，
+可以直接从电脑往卡里拷歌（见第 7 节）。构建与调试统一走
 **CMake + Ninja + arm-none-eabi-gcc + OpenOCD/ST-Link + GDB**。
 
 ---
@@ -16,6 +17,7 @@
 | SAI1_A I2S | PE2 MCLK_A, PE3 SD_A, PE4 FS_A, PE5 SCK_A, PE6 SD_B | AF6，master TX |
 | WM8978 控制 | PH4 (SCL) / PH5 (SDA) | 位操作 I2C，~250 kHz |
 | SDIO microSD | PC8..PC11 D0..D3, PC12 CK, PD2 CMD | AF12，4-bit，轮询（无 DMA） |
+| USB OTG FS | PA11 (DM) / PA12 (DP) | AF10，**Device 模式**，做虚拟 U 盘（12 Mbit/s） |
 | LCD NT35510 | FMC Bank1 NE1，16-bit 8080 | `LCD_BASE = 0x60000000 \| 0x0007FFFE`，`lcd_id = 0x8000` |
 | SDRAM W9825G6KH | FMC Bank2 (SDNE0)，32 MB | `SDRAM_BASE = 0xC0000000` |
 | KEY_UP | PA0 | 下拉输入，按下为高 → **播放 / 暂停** |
@@ -74,7 +76,8 @@ lcd_driver_init()               // FMC + NT35510 + 清屏 + 开背光
 sd_card_init() -> lcd_driver_font_init("0:")   // 挂载并从 SD 读 GBK 字库
 bsp_wm8978_init() + 音量 + DAC/输出使能
 bsp_key_init()
-app_ui_init() -> audio_player_start() -> app_ui_start()
+usb_msc_init()                  // OTG FS 引脚/时钟 + tusb_init()（要先有 heap）
+app_ui_init() -> audio_player_start() -> app_ui_start() -> usb_msc_start()
 __set_BASEPRI(0); __enable_irq(); vTaskStartScheduler()
 ```
 
@@ -169,7 +172,84 @@ KEY_UP: play/pause   KEY0: next   KEY1: volume   KEY2: prev      VOL 3/5
 - 曲名超长自动滚动；中文字形来自 SD 卡 `0:/SYSTEM/FONT/GBK{12,16,24,32}.FON`，
   ASCII 来自编译期字模表。
 
-## 7. 构建
+## 7. USB 虚拟 U 盘（数据传输模式）
+
+插上 USB 线，板子作为一个**免驱 U 盘**出现，电脑直接读写 `0:/MUSIC` 里的文件；
+拔线自动回到播放界面。TinyUSB 0.21 device 栈 + MSC 类，存储后端就是那张 SD 卡。
+
+```
+PC ──USB── OTG_FS(PA11/PA12, FS 12 Mbit/s) ── TinyUSB usbd + msc_device
+                                                  │ tud_msc_read10/write10_cb
+                                                  ▼
+                                          bsp_sdio_read/write_blocks（轮询，原始扇区）
+```
+
+### 7.1 状态机与四步交接
+
+| 步骤 | 谁做 | 动作 |
+|---|---|---|
+| 1 | `tud_mount_cb()` | 主机完成枚举（SET_CONFIGURATION）→ 只置标志，交接在 USB 任务里做 |
+| 2 | `audio_player_set_usb_mode(true)` | 播放引擎在下一个 DMA 边界（44.1 kHz/16 bit 下约 23 ms）中断当前曲目、关文件、停 SAI |
+| 3 | `audio_player_is_parked()` | 播放任务已完全退出 SD 访问（等不到就 2 s 超时强夺） |
+| 4 | `fs_usb_session_begin()` | **取走且在整场会话中一直持有 FatFs 互斥量**；任何其它任务的 `fs_lock()` 都会阻塞 |
+
+只有第 4 步完成后才置 `s_owned`，MSC 回调才开始应答；主机在此之前收到
+`TEST UNIT READY = not ready`，会自动重试，几十毫秒后就正常了——不会超时、不会复位。
+
+退出是同一张表倒着走：`s_owned=0` → `fs_usb_session_end()` → `sd_card_remount()`
+（主机可能改过 FAT）→ `playlist_clear()` → 放开播放引擎 → 状态才回 IDLE。
+
+### 7.2 为什么必须"持有互斥量"而不是"设个标志"
+
+FatFs 与 SDIO 轮询驱动都不可重入，且 SD 卡同一时刻只能有一个主人。用标志位只能
+挡住"讲规矩的"调用者，挡不住恰好已经进到 `f_read()` 里的那个；把互斥量一直攥在手里，
+才能保证会话期间**没有任何人**能碰到卡。代价是：会长时间用卡的模块（音频流）必须靠
+自己的标志提前撤出，卡在 `fs_lock()` 里的情况只是最后的兜底。
+
+顺带一个副作用：可选的读取方（GBK 字库）在 `fs_usb_session_active()` 时直接
+`RT_FAIL`，字形画成空白，而不是让 UI 任务阻塞整场传输。
+
+### 7.3 断开检测
+
+主判据是 `tud_umount_cb()`（总线复位 / 拔线）。任务循环里还每 20 ms 查一次
+`tud_mounted()` 兜底：即使漏了事件，也不会出现"卡被 PC 锁住、播放器永远拿不回来"。
+
+### 7.4 传输页面
+
+进入时抓一次快照，**不实时刷新**：会话期间 FAT 归主机，再去读既是错的也是总线冲突。
+
+容量用 `fs->free_clst`（挂载时从 FSInfo 读到的空闲簇数）直接算，**绝不在交接时扫 FAT**：
+16 GB 卡脏 FSInfo 时 `f_getfree()` 要读 ~16 MB 扇区，几十秒的轮询 SDIO 会把主机直接拖到超时。
+拿不到空闲簇数就只在簇数 ≤ 64K（即 FAT12/16 表 ≤ 128 KB，几百毫秒）时才退化成 `f_getfree()`，
+否则显示 `TOTAL -- MB`——宁可承认不知道，也不卡住交接。
+
+```
+USB STORAGE
+┌───────────────────────────────────────────────┐
+│ DATA TRANSFER                                 │
+│ The SD card is shared with your PC.           │
+│ TOTAL 7450 MB   USED 1234 MB                  │
+│ [███------------------------------------]     │
+└───────────────────────────────────────────────┘
+USB CONNECTED
+COPY FILES FROM YOUR PC.  UNPLUG THE USB CABLE TO RETURN TO THE PLAYER.
+```
+
+页面文字**故意只用 ASCII**：中文字形是画的时候从 SD 卡 `GBKxx.FON` 里取的，
+而这时卡在电脑手里——取不到就是空白（见 7.2）。
+
+### 7.5 代码位置
+
+| 文件 | 职责 |
+|---|---|
+| `app/tusb_config.h` | 设备模式 / FS / MSC / 4 KB 端点缓冲，**GCC 与 Keil 共用同一份** |
+| `app/usb_msc.c` | 描述符、MSC 回调（扇区读写 + 对齐/非整块弹跳）、交接状态机、USB 任务 |
+| `bsp/bsp_usb_device.c` | OTG FS 时钟、PA11/PA12(AF10)、NVIC（优先级 = `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY`） |
+| `app/fs_diskio.c` | `fs_usb_session_begin/end`、`fs_try_lock` |
+| `app/audio_player.c` | `usb_mode` / `parked` 协作与曲目中断 |
+| `app/app_ui.c` | 双屏切换；回播放页时重开字库文件 + 清字形缓存 |
+
+## 8. 构建
 
 ```bash
 # 依赖：arm-none-eabi-gcc >= 13、CMake >= 3.20、Ninja、OpenOCD、ST-Link 驱动
@@ -188,14 +268,15 @@ cmake --build build_rel
 当前占用（全量重编，双构零警告）：
 
 ```
-Debug    FLASH: 225268 B / 1 MB (21.48%)   RAM: 78808 B / 192 KB (40.08%)
-Release  FLASH: 254800 B / 1 MB (24.30%)   RAM: 78824 B / 192 KB (40.09%)
+Debug    FLASH: 250876 B / 1 MB (23.93%)   RAM: 87496 B / 192 KB (44.50%)
+Release  FLASH: 282220 B / 1 MB (26.91%)   RAM: 87512 B / 192 KB (44.51%)
 ```
 
 RAM 里 ~26 KB 是 MP3 解码器的静态状态（`s_mp3`：16 KB minimp3 scratch + 5 KB 输入窗 +
-4.5 KB PCM 暂存），Debug 版另含 FreeRTOS `configASSERT` 与日志字符串。
+4.5 KB PCM 暂存），~8 KB 是 USB 侧（4 KB MSC 端点缓冲 + 4 KB USB 任务栈），
+Debug 版另含 FreeRTOS `configASSERT` 与日志字符串。
 
-### 7.1 MDK-ARM（Keil）
+### 8.1 MDK-ARM（Keil）
 
 工程文件不手工维护，单一真值仍是 `CMakeLists.txt`：
 
@@ -213,11 +294,11 @@ python MDK-ARM/gen_uvision.py    # 重写 .uvprojx / .uvoptx / .sct / startup
 "C:\Keil_v5\UV4\UV4.exe" -b MDK-ARM/stm32f429_music.uvprojx -j0 -o build.log
 ```
 
-当前占用（AC6 6.14、全量重编、零错误零警告，256 个文件 / 27 个分组）：
+当前占用（AC6 6.14、全量重编、零错误零警告，264 个文件 / 28 个分组）：
 
 ```
-Code=159832  RO-data=63868  RW-data=352  ZI-data=601296
-FLASH 223936 B / 1 MB (21.4%)   RAM 77360 B / 192 KB (39.3%)   堆 512 KB 在 SDRAM
+Code=179612  RO-data=70356  RW-data=424  ZI-data=609880
+FLASH 250240 B（.bin）/ 1 MB（23.9%）   RAM 86016 B / 192 KB（43.8%）   堆 512 KB 在 SDRAM
 ```
 
 与 GCC 构建的差异（每条在脚本里都有注释）：
@@ -239,7 +320,7 @@ FLASH 223936 B / 1 MB (21.4%)   RAM 77360 B / 192 KB (39.3%)   堆 512 KB 在 SD
 - **GCC** 反而不能用 `.bss` 前缀：链接脚本 `.bss` 输出段的 `*(.bss*)` 会抢先把它收走，
   实测 `region RAM overflowed by 406504 bytes`。
 
-## 8. 烧录与调试
+## 9. 烧录与调试
 
 ```bash
 # 命令行烧录（务必用 .elf，OpenOCD 会自己算校验）
@@ -274,7 +355,7 @@ openocd -f openocd.cfg -c "program build/stm32f429_music.elf verify" -c "reset h
 
 正常播放期间串口是**静默**的（不逐帧打印），只在切歌 / 按键 / 出错时输出。
 
-## 9. SD 卡目录要求
+## 10. SD 卡目录要求
 
 ```
 0:/MUSIC/*.wav              // PCM 16/24 bit，单/双声道，任意常用采样率
@@ -288,18 +369,19 @@ openocd -f openocd.cfg -c "program build/stm32f429_music.elf verify" -c "reset h
 扩展名大小写不敏感。播放列表在启动时扫描一次（最多 64 首，按名字排序）；换卡后需复位。
 UI 上的 `FILES / MUSIC` 就是「扫描到的文件数 / 其中可播数」。
 
-## 10. 目录结构
+## 11. 目录结构
 
 ```
-app/     main.c  system clock  FreeRTOSConfig.h  UI 播放引擎  track_decoder  WAV/MP3 解析  播放列表  FatFs 胶水
-bsp/     SDRAM  SDIO  LCD(FMC)  LCD 文字/字库  SAI  WM8978  IIC  KEY  LED  UART  delay
-third_party/  FreeRTOS V11.1.0  LVGL 8.3.11  FatFs  minimp3  CMSIS  HAL
+app/     main.c  system clock  FreeRTOSConfig.h  UI 播放引擎  track_decoder  WAV/MP3 解析
+         播放列表  FatFs 胶水  usb_msc（U 盘）+ tusb_config.h
+bsp/     SDRAM  SDIO  LCD(FMC)  LCD 文字/字库  SAI  WM8978  USB(OTG FS)  IIC  KEY  LED  UART
+third_party/  FreeRTOS V11.1.0  LVGL 8.3.11  FatFs  minimp3  TinyUSB 0.21  CMSIS  HAL
 cmake/   arm-none-eabi-gcc.cmake（工具链文件）
 sys_startup/  GCC / ARM(Keil) / IAR 三套启动文件 + 链接脚本
 MDK-ARM/ gen_uvision.py（生成 Keil 工程） mdk_target.c（MicroLIB 胶水） .uvprojx/.sct
 ```
 
-## 11. 踩过的坑（值得记住）
+## 12. 踩过的坑（值得记住）
 
 1. **NT35510 是 480×800 面板**。横屏必须 `MADCTL(0x3600) = 0xA0`（MV=1 转置）
    且窗口设 800×480；若沿用 `MADCTL = 0x00` 又设 800 宽窗口，X 地址超过 479 会回卷，

@@ -262,7 +262,19 @@ static GLOBAL_TYPE_T font_read_raw(const uint8_t *code, uint8_t *dst, const FONT
         return RT_FAIL;
     }
 
-    fs_lock();
+    /* While the USB host owns the card, fs_lock() would block until the whole
+     * transfer session ends.  A missing glyph is a cosmetic gap; freezing the
+     * UI task for minutes is not, so fail fast instead. */
+    if (fs_usb_session_active() != 0)
+    {
+        return RT_FAIL;
+    }
+
+    if (fs_try_lock(20U) == 0)
+    {
+        return RT_FAIL;
+    }
+
     res = f_lseek(&s_font.fs_info.fil_list[file_index], foffset);
     if (res == FR_OK)
     {

@@ -26,6 +26,31 @@ GLOBAL_TYPE_T sd_card_init(void);
 /** Unmount and drop the SDIO state so the next init re-enumerates. */
 void sd_card_invalidate(void);
 
+/**
+ * @brief  Re-read the boot sector / FAT of an already mounted volume.
+ *
+ *  Used after a USB mass-storage session: the host may have written to the
+ *  card, so FatFs' cached FAT window and FSInfo are stale.  Open file objects
+ *  survive (same FATFS instance), and the SDIO peripheral is left untouched, so
+ *  this costs milliseconds instead of a full re-enumeration.
+ *
+ * @retval RT_OK / RT_FAIL   (RT_FAIL when no card is mounted)
+ */
+GLOBAL_TYPE_T sd_card_remount(void);
+
+/**
+ * @brief  Volume capacity and usage in MiB, for the transfer screen.
+ *
+ *  Reads the FSInfo/free-cluster count, so it must be called while the volume is
+ *  mounted and NOT during a USB session.  Cost is one FAT walk on a dirty
+ *  FSInfo, otherwise a cached read.
+ *
+ * @param  total_mb  total capacity in MiB, 0 when unknown
+ * @param  used_mb   used space in MiB, 0 when unknown
+ * @retval RT_OK / RT_FAIL
+ */
+GLOBAL_TYPE_T sd_card_usage_mb(uint32_t *total_mb, uint32_t *used_mb);
+
 /** @retval 1 when the volume is mounted and usable. */
 int sd_card_is_ready(void);
 

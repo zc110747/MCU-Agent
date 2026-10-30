@@ -61,6 +61,7 @@ typedef enum {
     TRACK_RESULT_NEXT = 0,
     TRACK_RESULT_PREV,
     TRACK_RESULT_ERROR,
+    TRACK_RESULT_USB, /* the host asked for the card: abort and park */
 } TRACK_RESULT_T;
 
 typedef struct
@@ -69,6 +70,8 @@ typedef struct
     volatile bool    req_next;
     volatile bool    req_prev;
     volatile uint8_t free_half; /* written by the DMA ISR */
+    volatile uint8_t usb_mode;  /* set by the USB side: stop using the card */
+    volatile uint8_t parked;    /* task reached the park state, card untouched */
 } AUDIO_RUNTIME_T;
 
 static AUDIO_RUNTIME_T s_audio = {0};
@@ -204,6 +207,15 @@ static TRACK_RESULT_T play_one_track(void)
             break;
         }
 
+        if ((s_audio.usb_mode != 0U) || (fs_usb_session_active() != 0))
+        {
+            /* The PC wants the card.  Stop feeding the DAC and drop the file so
+             * the USB side can take the filesystem over without waiting for a
+             * whole track.  Nothing is lost: the index is resumed on release. */
+            result = TRACK_RESULT_USB;
+            break;
+        }
+
         if (s_audio.req_prev)
         {
             s_audio.req_prev = false;
@@ -281,6 +293,16 @@ static void audio_task(void *arg)
 
     for (;;)
     {
+        /* The USB host owns the card until it is unplugged.  Park here -- no
+         * FatFs call, no SAI, nothing -- and report that to the USB side. */
+        if (s_audio.usb_mode != 0U)
+        {
+            s_audio.parked = 1U;
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        s_audio.parked = 0U;
+
         if (sd_card_is_ready() == 0)
         {
             if (sd_card_init() != RT_OK)
@@ -307,6 +329,14 @@ static void audio_task(void *arg)
 
         {
             TRACK_RESULT_T result = play_one_track();
+
+            if (result == TRACK_RESULT_USB)
+            {
+                /* Card handed over mid-track: not an error and not a skip --
+                 * park at the top of the loop, keep the selected index. */
+                error_streak = 0U;
+                continue;
+            }
 
             if (result == TRACK_RESULT_ERROR)
             {
@@ -360,6 +390,8 @@ void audio_player_start(void)
 
     s_audio.status.state = AUDIO_STATE_IDLE;
     s_audio.status.track = -1;
+    s_audio.usb_mode     = 0U;
+    s_audio.parked       = 0U;
 
     bsp_sai_set_dma_callback(audio_dma_complete);
 
@@ -374,6 +406,11 @@ const AUDIO_STATUS_T *audio_player_status(void)
 
 void audio_player_toggle_pause(void)
 {
+    if (s_audio.usb_mode != 0U)
+    {
+        return; /* the card belongs to the PC, keys do nothing */
+    }
+
     if (s_audio.status.state == AUDIO_STATE_PLAYING)
     {
         s_audio.status.state = AUDIO_STATE_PAUSED;
@@ -390,12 +427,45 @@ void audio_player_toggle_pause(void)
 
 void audio_player_next(void)
 {
+    if (s_audio.usb_mode != 0U)
+    {
+        return; /* queued requests would fire right after the USB session */
+    }
     s_audio.req_next = true;
     PRINT_LOG("[KEY ] KEY0 -> next track\r\n");
 }
 
 void audio_player_prev(void)
 {
+    if (s_audio.usb_mode != 0U)
+    {
+        return;
+    }
     s_audio.req_prev = true;
     PRINT_LOG("[KEY ] KEY2 -> previous track\r\n");
+}
+
+void audio_player_set_usb_mode(bool active)
+{
+    if (active)
+    {
+        /* Clear "parked" first: the task is still inside the audio path and
+         * the USB side waits for it to come back out. */
+        s_audio.parked          = 0U;
+        s_audio.usb_mode        = 1U;
+        s_audio.status.state    = AUDIO_STATE_IDLE;
+        s_audio.status.current_seconds = 0U;
+        /* Abort a pending skip so it cannot fire before the abort check. */
+        s_audio.req_next = false;
+        s_audio.req_prev = false;
+    }
+    else
+    {
+        s_audio.usb_mode = 0U;
+    }
+}
+
+bool audio_player_is_parked(void)
+{
+    return (s_audio.parked != 0U) ? true : false;
 }

@@ -14,6 +14,8 @@
 #include "stm32f4xx_it.h"
 #include "stm32f4xx_hal.h"
 
+#include "tusb.h"
+
 #include "bsp_sai.h"
 
 /* TIM12 time base handle, defined in stm32f4xx_hal_timebase_tim.c */
@@ -76,4 +78,17 @@ void TIM8_BRK_TIM12_IRQHandler(void)
 void DMA2_Stream3_IRQHandler(void)
 {
     bsp_sai_dma_irq_handler();
+}
+
+/**
+ * @brief  USB OTG FS -> TinyUSB device stack.
+ *
+ *  Everything stays inside TinyUSB: the handler only queues an event, and the
+ *  actual work (including our MSC callbacks) runs in the USB task.  The NVIC
+ *  priority is set in bsp_usb_device_init() to the FreeRTOS max-syscall level,
+ *  which is what the OSAL's FromISR calls require.
+ */
+void OTG_FS_IRQHandler(void)
+{
+    tud_int_handler(0);
 }

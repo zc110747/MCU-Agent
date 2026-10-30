@@ -27,6 +27,11 @@
 
 static SemaphoreHandle_t s_fs_lock = NULL;
 
+/* Set while the USB host owns the card.  Purely informational (the lock is what
+ * actually excludes other tasks) -- it lets optional readers such as the glyph
+ * loader bail out instead of blocking for the whole session. */
+static volatile uint8_t s_usb_session = 0U;
+
 int fs_diskio_init(void)
 {
     s_fs_lock = xSemaphoreCreateMutex();
@@ -47,6 +52,44 @@ void fs_unlock(void)
     {
         (void)xSemaphoreGive(s_fs_lock);
     }
+}
+
+int fs_try_lock(uint32_t timeout_ms)
+{
+    if (s_fs_lock == NULL)
+    {
+        return 1;
+    }
+    return (xSemaphoreTake(s_fs_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? 1 : 0;
+}
+
+void fs_usb_session_begin(void)
+{
+    if (s_fs_lock == NULL)
+    {
+        s_usb_session = 1U;
+        return;
+    }
+
+    /* Drain whoever is inside FatFs right now, then keep the mutex: from here
+     * on every other fs_lock() blocks until fs_usb_session_end(). */
+    (void)xSemaphoreTake(s_fs_lock, portMAX_DELAY);
+    s_usb_session = 1U;
+}
+
+void fs_usb_session_end(void)
+{
+    s_usb_session = 0U;
+
+    if (s_fs_lock != NULL)
+    {
+        (void)xSemaphoreGive(s_fs_lock);
+    }
+}
+
+int fs_usb_session_active(void)
+{
+    return (int)s_usb_session;
 }
 
 /* Bounce buffer for unaligned callers.  One sector is enough: unaligned reads

@@ -1,9 +1,9 @@
 /**
  ******************************************************************************
  * @file    app_ui.c
- * @brief   Minimal dark player screen: track name, progress bar, time, state.
+ * @brief   Two-screen UI: the player page and the USB transfer page.
  *
- *  Layout (800x480 landscape):
+ *  Player page (800x480 landscape):
  *
  *      +---------------------------------------------------+
  *      |  MUSIC PLAYER                                     |
@@ -18,6 +18,18 @@
  *      |  KEY_UP: play/pause  KEY0: next  KEY1: vol  KEY2: prev   [VOL 3/5]
  *      +---------------------------------------------------+
  *
+ *  Transfer page (shown while the PC owns the card):
+ *
+ *      +---------------------------------------------------+
+ *      |  USB STORAGE                                      |
+ *      |  DATA TRANSFER                                    |
+ *      |  The SD card is shared with your PC.              |
+ *      |  TOTAL 7450 MB   USED 1234 MB   FREE 6216 MB      |
+ *      |  [===========-----------------------------]       |
+ *      |  USB CONNECTED                                    |
+ *      |  COPY FILES FROM YOUR PC. UNPLUG THE CABLE TO RETURN.
+ *      +---------------------------------------------------+
+ *
  *  Only the widgets that actually change are refreshed, and only when their
  *  value changed, so the FMC 8080 panel (polled, no LTDC) is not asked to push
  *  pixels it has already shown.
@@ -30,6 +42,11 @@
  *  Note on file names: LVGL's built-in Montserrat faces cover Latin-1 only, so
  *  non-ASCII bytes in a track name are replaced with '?' here.  Feeding them
  *  through unchanged would render as blank boxes.
+ *
+ *  Note on the transfer page: its text is deliberately ASCII only.  CJK glyphs
+ *  are fetched from GBKxx.FON on the SD card at draw time, and during a USB
+ *  session that card belongs to the PC -- bsp_lcd_text.c refuses the read (the
+ *  glyph would render as a gap), so a Chinese label there would come out blank.
  ******************************************************************************
  */
 #include <stdio.h>
@@ -44,9 +61,14 @@
 #include "audio_player.h"
 #include "bsp_key.h"
 #include "bsp_lcd.h"
+#include "bsp_lcd_text.h"
 #include "bsp_wm8978.h"
+#include "fs_diskio.h"
+#include "lv_font_gbk.h"
 #include "lv_port_disp.h"
 #include "log.h"
+#include "sd_card.h"
+#include "usb_msc.h"
 
 #define UI_TASK_STACK 1024U
 #define UI_TASK_PRIO (tskIDLE_PRIORITY + 2)
@@ -86,6 +108,24 @@ typedef struct
 
 static UI_WIDGETS_T s_ui = {0};
 
+/* Transfer page.  Everything here is refreshed exactly once, when the page is
+ * about to be shown -- the requirement is a snapshot, not a live gauge, and the
+ * FAT is unreadable while the host owns it anyway. */
+typedef struct
+{
+    lv_obj_t *capacity_label;
+    lv_obj_t *free_label;
+    lv_obj_t *bar;
+} UI_USB_T;
+
+static UI_USB_T s_usb = {0};
+
+static lv_obj_t *s_screen_player = NULL;
+static lv_obj_t *s_screen_usb = NULL;
+
+/* Last USB state painted, so the screens are swapped on transition only. */
+static USB_MSC_STATE_T s_shown_usb_state = USB_MSC_STATE_IDLE;
+
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -108,9 +148,8 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t co
     return label;
 }
 
-static void build_screen(void)
+static void build_player_screen(lv_obj_t *screen)
 {
-    lv_obj_t *screen = lv_scr_act();
     lv_obj_t *panel;
 
     lv_obj_set_style_bg_color(screen, lv_color_hex(COLOR_BG), 0);
@@ -185,6 +224,115 @@ static void build_screen(void)
     lv_obj_align(s_ui.volume_label, LV_ALIGN_BOTTOM_LEFT, 40, -28);
 }
 
+static void build_usb_screen(lv_obj_t *screen)
+{
+    lv_obj_t *panel;
+
+    lv_obj_set_style_bg_color(screen, lv_color_hex(COLOR_BG), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Header */
+    lv_obj_t *title = make_label(screen, &lv_font_gbk_16, COLOR_TEXT_DIM);
+    lv_label_set_text(title, "USB STORAGE");
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 40, 28);
+
+    panel = lv_obj_create(screen);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, LCD_WIDTH - 80, 250);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_style_bg_color(panel, lv_color_hex(COLOR_PANEL), 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(panel, 12, 0);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Headline */
+    lv_obj_t *headline = make_label(panel, &lv_font_gbk_24, COLOR_TEXT);
+    lv_label_set_text(headline, "DATA TRANSFER");
+    lv_obj_align(headline, LV_ALIGN_TOP_LEFT, 40, 30);
+
+    lv_obj_t *sub = make_label(panel, &lv_font_gbk_16, COLOR_TEXT_DIM);
+    lv_label_set_text(sub, "The SD card is shared with your PC.");
+    lv_obj_align(sub, LV_ALIGN_TOP_LEFT, 40, 80);
+
+    /* Capacity snapshot: total and used, frozen for the whole session */
+    s_usb.capacity_label = make_label(panel, &lv_font_gbk_16, COLOR_TEXT);
+    lv_label_set_text(s_usb.capacity_label, "TOTAL -- MB   USED -- MB");
+    lv_obj_align(s_usb.capacity_label, LV_ALIGN_TOP_LEFT, 40, 130);
+
+    s_usb.free_label = make_label(panel, &lv_font_gbk_16, COLOR_TEXT_DIM);
+    lv_label_set_text(s_usb.free_label, "");
+    lv_obj_align(s_usb.free_label, LV_ALIGN_TOP_LEFT, 40, 160);
+
+    /* Used / total ratio, same visual language as the progress bar */
+    s_usb.bar = lv_bar_create(panel);
+    lv_obj_set_size(s_usb.bar, LCD_WIDTH - 160, 12);
+    lv_obj_align(s_usb.bar, LV_ALIGN_TOP_LEFT, 40, 200);
+    lv_bar_set_range(s_usb.bar, 0, BAR_RANGE);
+    lv_bar_set_value(s_usb.bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_usb.bar, lv_color_hex(COLOR_BAR_BG), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_usb.bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_usb.bar, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_usb.bar, lv_color_hex(COLOR_BAR_VALUE), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_usb.bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_usb.bar, 6, LV_PART_INDICATOR);
+
+    /* Connection state */
+    lv_obj_t *state = make_label(screen, &lv_font_gbk_16, COLOR_TEXT_DIM);
+    lv_label_set_text(state, "USB CONNECTED");
+    lv_obj_align(state, LV_ALIGN_BOTTOM_LEFT, 40, -28);
+
+    /* Instruction line */
+    lv_obj_t *hint = make_label(screen, &lv_font_gbk_12, COLOR_TEXT_DIM);
+    lv_label_set_text(hint,
+                      "COPY FILES FROM YOUR PC.  UNPLUG THE USB CABLE TO RETURN TO THE PLAYER.");
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -8);
+}
+
+/**
+ * @brief  Fill the transfer page with the capacity snapshot taken when the
+ *         session started.  Called once, right before the page is shown.
+ */
+static void update_usb_screen(void)
+{
+    char     text[96];
+    uint32_t total_mb = 0U;
+    uint32_t used_mb = 0U;
+    uint32_t free_mb;
+    int32_t  ratio = 0;
+
+    usb_msc_capacity_mb(&total_mb, &used_mb);
+
+    if (total_mb == 0U)
+    {
+        /* The FSInfo did not carry a free-cluster count and FatFs refused to
+         * walk the whole FAT (see sd_card_usage_mb).  Say so instead of
+         * printing a fake 0 MB. */
+        lv_label_set_text(s_usb.capacity_label, "TOTAL -- MB   USED -- MB");
+        lv_label_set_text(s_usb.free_label, "");
+        lv_bar_set_value(s_usb.bar, 0, LV_ANIM_OFF);
+        return;
+    }
+
+    free_mb = (total_mb > used_mb) ? (total_mb - used_mb) : 0U;
+
+    (void)snprintf(text, sizeof(text), "TOTAL %lu MB   USED %lu MB",
+                   (unsigned long)total_mb, (unsigned long)used_mb);
+    lv_label_set_text(s_usb.capacity_label, text);
+
+    (void)snprintf(text, sizeof(text), "FREE %lu MB", (unsigned long)free_mb);
+    lv_label_set_text(s_usb.free_label, text);
+
+    if (total_mb != 0U)
+    {
+        ratio = (int32_t)(((uint32_t)used_mb * BAR_RANGE) / total_mb);
+        if (ratio > BAR_RANGE)
+        {
+            ratio = BAR_RANGE;
+        }
+    }
+    lv_bar_set_value(s_usb.bar, ratio, LV_ANIM_OFF);
+}
 /* -------------------------------------------------------------------------- */
 /* Refresh                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -312,7 +460,44 @@ static void ui_task(void *arg)
 
     for (;;)
     {
+        USB_MSC_STATE_T usb_state;
+
         lv_timer_handler();
+
+        /* The transfer page follows the USB hand-over state: it appears as soon
+         * as the host has enumerated us, and goes away when the cable is
+         * pulled.  Both edges are the only place the pages are swapped. */
+        usb_state = usb_msc_state();
+        if (usb_state != s_shown_usb_state)
+        {
+            if (usb_state == USB_MSC_STATE_ACTIVE)
+            {
+                update_usb_screen();
+                lv_scr_load(s_screen_usb);
+            }
+            else
+            {
+                /* The host may have replaced or removed anything on the card,
+                 * including the GBK glyph files: reopen them and drop the
+                 * cached glyph bitmaps before the player page is drawn. */
+                if (sd_card_is_ready() != 0)
+                {
+                    (void)lcd_driver_font_init(FS_VOL_SD);
+                }
+                lv_font_gbk_reset_cache();
+                lv_scr_load(s_screen_player);
+            }
+            s_shown_usb_state = usb_state;
+        }
+
+        if (usb_state == USB_MSC_STATE_ACTIVE)
+        {
+            /* The card belongs to the PC: no key handling (the player is
+             * parked) and no status refresh, which would only repaint hidden
+             * widgets.  lv_timer_handler above keeps the page alive. */
+            vTaskDelay(pdMS_TO_TICKS(UI_PERIOD_MS));
+            continue;
+        }
 
         switch (bsp_key_scan())
         {
@@ -348,12 +533,20 @@ void app_ui_init(void)
 {
     lv_init();
     lv_port_disp_init();
-    build_screen();
+
+    s_screen_player = lv_obj_create(NULL);
+    build_player_screen(s_screen_player);
+
+    s_screen_usb = lv_obj_create(NULL);
+    build_usb_screen(s_screen_usb);
+
+    lv_scr_load(s_screen_player);
 
     /* Force the first refresh to paint the track name / counters: the cache
      * must start at "nothing shown yet", not at a value that can equal a real
      * track index. */
-    s_ui.shown_index = -1;
+    s_ui.shown_index    = -1;
+    s_shown_usb_state   = usb_msc_state();
 
     PRINT_LOG("[UI  ] LVGL %d.%d.%d screen up (%ux%u)\r\n",
               LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH,
