@@ -21,10 +21,19 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+#include "FreeRTOS.h"
+#include "task.h"
 #include "log.h"
 
 #define FONT_NUMS       5
 #define FONT_MAX_BYTES  192     /* 32x32 needs 128, leave headroom */
+
+/* f_open can fail with FR_DISK_ERR on the first try: the card is read with
+ * polled SDIO, and a USB interrupt landing inside a data block transfer makes
+ * the command time out.  Retrying the same open is enough and keeps a missing
+ * glyph file (or a slow card) from silently dropping one font size. */
+#define FONT_OPEN_TRIES 4
+#define FONT_OPEN_GAP_MS 5U
 
 /* Index into font_name[] / fil_list[] */
 #define FONT_IDX_UNIGBK 0
@@ -116,8 +125,21 @@ GlobalType_t lcd_driver_font_init(const char *vol)
     fs_lock();
     for (index = 0; index < FONT_NUMS; index++)
     {
+        uint8_t tries;
+
         (void)snprintf(path, sizeof(path), "%s%s", vol, font_name[index]);
+
         res = f_open(&g_lcd_fs_info.fil_list[index], path, FA_READ);
+
+        /* First attempt failed: the usual cause is a polled-SDIO transfer that
+         * got interrupted (USB enumerating right now, T_PEN, ...).  Retry the
+         * same file before giving up on that size. */
+        for (tries = 1U; (res != FR_OK) && (tries < FONT_OPEN_TRIES); tries++)
+        {
+            vTaskDelay(pdMS_TO_TICKS(FONT_OPEN_GAP_MS));
+            res = f_open(&g_lcd_fs_info.fil_list[index], path, FA_READ);
+        }
+
         if (res == FR_OK)
         {
             g_lcd_fs_info.fil_valid[index] = 1;

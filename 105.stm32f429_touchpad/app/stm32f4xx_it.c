@@ -14,6 +14,7 @@
 #include "stm32f4xx_it.h"
 #include "stm32f4xx_hal.h"
 #include "FreeRTOS.h"
+#include "tusb.h"
 
 /* TIM7 time base handle (stm32f4xx_hal_timebase_tim.c). */
 extern TIM_HandleTypeDef htim7;
@@ -71,4 +72,14 @@ void TIM7_IRQHandler(void)
 void EXTI9_5_IRQHandler(void)
 {
   HAL_EXTI_IRQHandler(&g_touch_exti);
+}
+
+/**
+  * @brief  USB OTG FS -> TinyUSB device stack (port 0).
+  *         The DWC2 port keeps the controller in device mode and only needs the
+  *         interrupt routed here; priority is set by bsp_usb_hw.c.
+  */
+void OTG_FS_IRQHandler(void)
+{
+  tud_int_handler(0);
 }

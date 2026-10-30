@@ -46,11 +46,16 @@ include_directories(
   # internal "#include ../lvgl.h" relative form used inside lvgl sources).
   third_party/lvgl
   third_party/lvgl/src
+  # TinyUSB (device stack only).  app/tusb_config.h lives in app/.
+  third_party/tinyusb/src
 )
 
 add_compile_definitions(
   STM32F429xx
   USE_HAL_DRIVER
+  # TinyUSB: STM32F4 DWC2 core, FreeRTOS OSAL (tusb_config.h fills the rest).
+  CFG_TUSB_MCU=OPT_MCU_STM32F4
+  CFG_TUSB_OS=OPT_OS_FREERTOS
 )
 
 # ------------------------------------------------------------------
@@ -127,10 +132,23 @@ set(FATFS_SOURCES
 # lv_conf.h enables with LV_USE_FS_FATFS).
 file(GLOB_RECURSE LVGL_SOURCES third_party/lvgl/src/*.c)
 
+# TinyUSB device stack + HID class + the STM32 DWC2 port + FreeRTOS OSAL.
+# The host stack, MSC/CDC/Audio classes and the other MCU ports are NOT built:
+# this project only ever presents itself as a HID mouse.
+set(TINYUSB_SOURCES
+  third_party/tinyusb/src/tusb.c
+  third_party/tinyusb/src/common/tusb_fifo.c
+  third_party/tinyusb/src/device/usbd.c
+  third_party/tinyusb/src/class/hid/hid_device.c
+  third_party/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
+  third_party/tinyusb/src/portable/synopsys/dwc2/dwc2_common.c
+)
+
 # Third-party library: keep its warnings out of the build so the project's own
 # code stays strictly warning-clean under -Wall -Wextra.
 set_source_files_properties(${LVGL_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 set_source_files_properties(${FATFS_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties(${TINYUSB_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 
 # ------------------------------------------------------------------
 # Executable
@@ -145,6 +163,7 @@ add_executable(${PROJECT_NAME}.elf
   ${FREERTOS_SOURCES}
   ${FATFS_SOURCES}
   ${LVGL_SOURCES}
+  ${TINYUSB_SOURCES}
 )
 
 # FreeRTOS ARM_CM4F port has unconditional vstmdbeq/vldmiaeq {s16-s31} in

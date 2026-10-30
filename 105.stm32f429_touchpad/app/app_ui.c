@@ -1,35 +1,41 @@
 /**
  ******************************************************************************
  * @file    app_ui.c
- * @brief   Touchpad demo screen: an ink area plus a live gesture monitor.
+ * @brief   Trackpad screen: a touch surface that moves a USB HID mouse, plus
+ *          three on-glass buttons for the left / middle / right click.
  *
  *  Layout (480x800 portrait)
  *  -------------------------
  *      +----------------------------------+
- *      | title                      SD/FPS |  header  (48 px)
+ *      | USB 触摸板            USB / FPS   |  header  (48 px)
  *      +----------------------------------+
  *      |                                  |
- *      |         drawing area             |  canvas  (456x400)
- *      |         (strokes)                |
+ *      |          touch surface           |  pad     (456x380)
+ *      |   (finger motion -> HID X/Y)     |
  *      |                                  |
  *      +----------------------------------+
- *      | gesture name                     |
- *      | counters / brush colour & width  |  monitor (456x220)
- *      | key hints                        |
+ *      |  [ 左键 ]  [ 中键 ]  [ 右键 ]     |  buttons (144x96 each)
  *      +----------------------------------+
- *      | [clear] [colour] [width] [paper] |  buttons (108x44)
+ *      | USB state / buttons / motion     |  status  (456x196)
  *      +----------------------------------+
- *      | storage / font / gesture hints   |  footer  (2 lines)
+ *      | hints                            |  footer
  *      +----------------------------------+
+ *
+ *  Input model
+ *  -----------
+ *  Two consumers read the same touch sample (bsp_touch_get()):
+ *    - this file: samples the first contact every UI tick, and while it is
+ *      inside the pad converts sample-to-sample deltas into relative mouse
+ *      motion (usb_mouse_move).  Sampling here instead of using the gesture
+ *      events keeps the pointer at the UI tick rate instead of the gesture
+ *      engine's 2 px threshold, which matters for precise positioning.
+ *    - LVGL's pointer indev: hit-tests the three buttons, so pressing one sets
+ *      the matching HID button bit and releasing it clears it again.
+ *
+ *  The gesture engine still runs (touch_task feeds it) and its events are used
+ *  for the counters / the two-finger readout only - no wheel yet, by design.
  *
  *  Everything here runs in the UI task (the only task allowed to touch LVGL).
- *  Strokes arrive as gesture events queued by the touch task, so no LVGL call
- *  is ever made from the input side.
- *
- *  Fonts: the CJK glyphs come from 0:/SYSTEM/FONT/GBKxx.FON (see
- *  bsp/lv_font_gbk.c); ASCII is served from the tables compiled into flash.
- *  If the card is missing every Chinese label is simply blank - the layout and
- *  the counters keep working.
  ******************************************************************************
  */
 #include <stdio.h>
@@ -42,112 +48,93 @@
 
 #include "app_ui.h"
 #include "gesture.h"
-#include "image_sd.h"
 #include "sd_card.h"
 #include "bsp_key.h"
 #include "bsp_lcd.h"
 #include "bsp_lcd_text.h"
 #include "bsp_touch.h"
+#include "usb_mouse.h"
 #include "log.h"
 
 /* -------------------------------------------------------------------------- */
 /* Geometry                                                                   */
 /* -------------------------------------------------------------------------- */
-/*  The NT35510 on this board comes up with a 480x800 (portrait) GRAM window:
- *  see DFT_SCAN_DIR / lcd_scan_dir() in bsp_lcd.c and the boot log line
- *  "[LCD ] active GRAM window 480x800 (panel spec 800x480)".  102 derives its
- *  whole layout from that value; this file used to hardcode 800x480 landscape
- *  and therefore drew its right-hand 320 px straight off the panel.
- *
- *  Everything below is expressed for 480x800.  app_ui_create() logs a warning
- *  if the live window ever disagrees with SCR_W / SCR_H. */
+/*  The NT35510 comes up with a 480x800 (portrait) GRAM window: see
+ *  DFT_SCAN_DIR / lcd_scan_dir() in bsp_lcd.c and the boot log line
+ *  "[LCD ] active GRAM window 480x800 (panel spec 800x480)".  app_ui_create()
+ *  warns when the live window disagrees with these constants. */
 #define SCR_W           480
 #define SCR_H           800
 
 #define HDR_H           48
 
-/* Drawing area: full width, upper part. */
-#define CV_X            12
-#define CV_Y            56
-#define CV_W            (SCR_W - 2 * CV_X)        /* 456 */
-#define CV_H            400
+/* Touch surface. */
+#define PAD_X           12
+#define PAD_Y           56
+#define PAD_W           (SCR_W - 2 * PAD_X)        /* 456 */
+#define PAD_H           380
 
-/* Gesture monitor: full width, right below the drawing area. */
-#define PN_X            12
-#define PN_Y            468
-#define PN_W            (SCR_W - 2 * PN_X)        /* 456 */
-#define PN_H            220
+/* Three glass buttons: left / middle / right. */
+#define BTN_Y           448
+#define BTN_H           96
+#define BTN_GAP         12
+#define BTN_W           ((SCR_W - 2 * PAD_X - 2 * BTN_GAP) / 3)   /* 144 */
 
-/* Button row: four buttons across the full width. */
-#define BTN_Y           700
-#define BTN_H           44
-#define BTN_GAP         8
-#define BTN_W           ((SCR_W - 2 * CV_X - 3 * BTN_GAP) / 4)   /* 108 */
+/* Status card. */
+#define STAT_Y          556
+#define STAT_H          196
 
-/* Footer: two lines of 12 px text. */
-#define FTR_Y           748
+#define FTR_Y           758
+
+/* Cursor dot drawn under the finger, and the trail it leaves behind. */
+#define DOT_SIZE        26
+#define TRAIL_MAX       64
+#define TRAIL_LINGER_MS 600U
 
 /* -------------------------------------------------------------------------- */
 /* Palette                                                                    */
 /* -------------------------------------------------------------------------- */
 #define C_BG            0x0E1116
 #define C_CARD          0x141A22
+#define C_PAD           0x11161D
 #define C_BORDER        0x2A3340
 #define C_TEXT          0xE6EDF3
 #define C_DIM           0x8B949E
 #define C_ACCENT        0x4C9AFF
 
-/* Ink colours offered by KEY1 / the "colour" button. */
-static const uint32_t k_brush_colors[] =
-{
-    0xE6EDF3,   /* white  */
-    0xFF5A5A,   /* red    */
-    0x4CD97B,   /* green  */
-    0x4C9AFF,   /* blue   */
-    0xFFC94C,   /* amber  */
-    0xD96BFF,   /* violet */
-};
-#define BRUSH_COLOR_COUNT   (sizeof(k_brush_colors) / sizeof(k_brush_colors[0]))
-
-/* Line widths offered by KEY2 / the "width" button. */
-static const uint8_t k_brush_widths[] = { 2U, 4U, 8U, 12U };
-#define BRUSH_WIDTH_COUNT   (sizeof(k_brush_widths) / sizeof(k_brush_widths[0]))
-
 /* -------------------------------------------------------------------------- */
-/* Strokes                                                                    */
-/* -------------------------------------------------------------------------- */
-#define STROKE_MAX       24
-#define STROKE_PTS       256
-#define STROKE_MIN_STEP  2      /* px between two recorded points */
-
-typedef struct
-{
-    lv_obj_t   *line;
-    lv_point_t *pts;
-    uint16_t    n;
-} stroke_t;
-
-static stroke_t s_strokes[STROKE_MAX];
-static uint16_t s_stroke_next = 0U;
-static int      s_active      = -1;     /* index of the stroke being drawn */
-
-/* -------------------------------------------------------------------------- */
-/* Widgets                                                                    */
+/* Widgets / state                                                            */
 /* -------------------------------------------------------------------------- */
 static lv_obj_t *s_scr;
-static lv_obj_t *s_canvas;
-static lv_obj_t *s_wallpaper;
+static lv_obj_t *s_pad;
+static lv_obj_t *s_dot;
+static lv_obj_t *s_trail_line;
+static lv_obj_t *s_hint;
+
+static lv_obj_t *s_btn_obj[3];      /* left, middle, right (visual only) */
+static const uint8_t k_btn_mask[3] = { USB_MOUSE_BTN_LEFT,
+                                       USB_MOUSE_BTN_MIDDLE,
+                                       USB_MOUSE_BTN_RIGHT };
+
+static lv_obj_t *s_usb_label;
+static lv_obj_t *s_btn_label;
+static lv_obj_t *s_move_label;
+static lv_obj_t *s_touch_label;
 static lv_obj_t *s_gesture_label;
-static lv_obj_t *s_stat_pts;
-static lv_obj_t *s_stat_taps;
-static lv_obj_t *s_stat_moves;
-static lv_obj_t *s_brush_label;
-static lv_obj_t *s_swatch;
 static lv_obj_t *s_sd_label;
 static lv_obj_t *s_rate_label;
 
-static uint8_t  s_color_idx = 0U;
-static uint8_t  s_width_idx = 1U;
+static lv_point_t s_trail_pts[TRAIL_MAX];
+static uint16_t   s_trail_n = 0U;
+static uint32_t   s_trail_clear_at = 0U;
+
+static uint8_t  s_pad_active = 0U;
+static int32_t  s_pad_last_x = 0;
+static int32_t  s_pad_last_y = 0;
+
+/* A serial command can "tap" a button: hold it for a moment, then release. */
+static uint8_t  s_pulse_mask  = 0U;
+static uint32_t s_pulse_until = 0U;
 
 static uint32_t s_loop_count = 0U;
 static uint32_t s_rate_mark  = 0U;
@@ -184,228 +171,241 @@ static lv_obj_t *make_card(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
 }
 
 /* -------------------------------------------------------------------------- */
-/* Ink                                                                        */
+/* Touch surface feedback                                                     */
 /* -------------------------------------------------------------------------- */
-static void apply_brush(lv_obj_t *line)
+static void trail_reset(void)
 {
-    lv_obj_set_style_line_width(line, k_brush_widths[s_width_idx], 0);
-    lv_obj_set_style_line_color(line, lv_color_hex(k_brush_colors[s_color_idx]), 0);
-    lv_obj_set_style_line_rounded(line, true, 0);
-    lv_obj_clear_flag(line, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(line, 0, 0);
+    s_trail_n = 0U;
+    if (s_trail_line != NULL)
+    {
+        lv_line_set_points(s_trail_line, s_trail_pts, 0);
+    }
 }
 
-static void stroke_release_slot(uint16_t slot)
+static void trail_add(int32_t x, int32_t y)
 {
-    stroke_t *st = &s_strokes[slot];
+    if (s_trail_line == NULL)
+    {
+        return;
+    }
 
-    if (st->line != NULL)
+    if (s_trail_n >= TRAIL_MAX)
     {
-        lv_obj_del(st->line);
-        st->line = NULL;
+        /* Drop the oldest sample so the newest 63 remain. */
+        memmove(&s_trail_pts[0], &s_trail_pts[1],
+                sizeof(lv_point_t) * (TRAIL_MAX - 1U));
+        s_trail_n = TRAIL_MAX - 1U;
     }
-    if (st->pts != NULL)
-    {
-        vPortFree(st->pts);
-        st->pts = NULL;
-    }
-    st->n = 0U;
+
+    s_trail_pts[s_trail_n].x = (lv_coord_t)x;
+    s_trail_pts[s_trail_n].y = (lv_coord_t)y;
+    s_trail_n++;
+
+    lv_line_set_points(s_trail_line, s_trail_pts, s_trail_n);
+    s_trail_clear_at = 0U;
 }
 
-/** Forget every stroke without touching LVGL: used when the screen is rebuilt
- *  and lv_obj_clean() has already destroyed the lv_line objects. */
-static void strokes_forget(void)
+static void dot_show(int32_t x, int32_t y)
 {
-    uint16_t i;
-
-    for (i = 0U; i < STROKE_MAX; i++)
+    if (s_dot == NULL)
     {
-        if (s_strokes[i].pts != NULL)
-        {
-            vPortFree(s_strokes[i].pts);
-        }
-        memset(&s_strokes[i], 0, sizeof(s_strokes[i]));
+        return;
     }
-    s_stroke_next = 0U;
-    s_active      = -1;
+
+    lv_obj_set_pos(s_dot, (lv_coord_t)(x - DOT_SIZE / 2), (lv_coord_t)(y - DOT_SIZE / 2));
+    lv_obj_clear_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void strokes_clear(void)
+static void dot_hide(void)
 {
-    uint16_t i;
-
-    for (i = 0U; i < STROKE_MAX; i++)
+    if (s_dot != NULL)
     {
-        stroke_release_slot(i);
+        lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
     }
-    s_stroke_next = 0U;
-    s_active      = -1;
-    lv_label_set_text(s_gesture_label, "画板已清空");
 }
 
-/** @retval 1 when (x,y) is inside the drawing area, in canvas coordinates. */
-static int canvas_from_screen(int32_t ax, int32_t ay, int32_t *cx, int32_t *cy)
+/** @retval 1 when the screen point is inside the pad, with pad-local coords. */
+static int pad_local(uint16_t ax, uint16_t ay, int32_t *lx, int32_t *ly)
 {
-    int32_t x = ax - CV_X;
-    int32_t y = ay - CV_Y;
+    int32_t x = (int32_t)ax - PAD_X;
+    int32_t y = (int32_t)ay - PAD_Y;
 
-    if ((x < 0) || (y < 0) || (x >= CV_W) || (y >= CV_H))
+    if ((x < 0) || (y < 0) || (x >= PAD_W) || (y >= PAD_H))
     {
         return 0;
     }
-    *cx = x;
-    *cy = y;
+    *lx = x;
+    *ly = y;
     return 1;
 }
 
-static void stroke_begin(int32_t ax, int32_t ay)
+/**
+ * @brief  Sample the first contact and turn pad motion into HID deltas.
+ *
+ *  Called once per UI tick (~5 ms) so the pointer tracks the finger far more
+ *  smoothly than the gesture engine's quantised MOVE events would allow.
+ */
+static void poll_trackpad(uint32_t now)
 {
-    int32_t x;
-    int32_t y;
-    uint16_t slot;
-    stroke_t *st;
+    uint16_t tx = 0U;
+    uint16_t ty = 0U;
+    uint8_t  pressed = 0U;
+    int32_t  lx;
+    int32_t  ly;
 
-    if (canvas_from_screen(ax, ay, &x, &y) == 0)
+    /* Fade the trail out after the finger lifts. */
+    if ((s_trail_n > 0U) && (s_trail_clear_at != 0U)
+        && ((int32_t)(now - s_trail_clear_at) >= 0))
     {
-        return;
+        trail_reset();
+        s_trail_clear_at = 0U;
     }
 
-    slot = s_stroke_next;
-    s_stroke_next = (uint16_t)((s_stroke_next + 1U) % STROKE_MAX);
+    bsp_touch_get(&tx, &ty, &pressed);
 
-    stroke_release_slot(slot);
-    st = &s_strokes[slot];
-
-    st->pts = (lv_point_t *)pvPortMalloc(sizeof(lv_point_t) * STROKE_PTS);
-    if (st->pts == NULL)
+    if ((pressed != 0U) && (pad_local(tx, ty, &lx, &ly) != 0))
     {
-        PRINT_LOG("[UI  ] stroke buffer alloc failed\r\n");
-        return;
+        if (s_pad_active == 0U)
+        {
+            s_pad_active = 1U;
+            s_pad_last_x = lx;
+            s_pad_last_y = ly;
+            trail_reset();
+            trail_add(lx, ly);
+            dot_show(lx, ly);
+        }
+        else
+        {
+            int32_t dx = lx - s_pad_last_x;
+            int32_t dy = ly - s_pad_last_y;
+
+            /* s_pad_active only becomes 1 for a contact that started inside the
+             * pad, so a finger dragging off one of the glass buttons can never
+             * move the pointer. */
+            if ((dx != 0) || (dy != 0))
+            {
+                usb_mouse_move((int16_t)dx, (int16_t)dy);
+                s_pad_last_x = lx;
+                s_pad_last_y = ly;
+                trail_add(lx, ly);
+                dot_show(lx, ly);
+            }
+        }
     }
-
-    st->line = lv_line_create(s_canvas);
-    apply_brush(st->line);
-
-    st->pts[0].x = (lv_coord_t)x;
-    st->pts[0].y = (lv_coord_t)y;
-    st->n        = 1U;
-    lv_line_set_points(st->line, st->pts, st->n);
-
-    s_active = (int)slot;
-}
-
-static void stroke_add(int32_t ax, int32_t ay)
-{
-    stroke_t *st;
-    int32_t x;
-    int32_t y;
-    int32_t dx;
-    int32_t dy;
-
-    if (s_active < 0)
+    else if (s_pad_active != 0U)
     {
-        return;
+        s_pad_active = 0U;
+        dot_hide();
+        s_trail_clear_at = now + TRAIL_LINGER_MS;
     }
-    st = &s_strokes[s_active];
-
-    /* Clamp instead of dropping: a finger sliding out of the area must keep
-     * extending the stroke along the border, not break it. */
-    x = ax - CV_X;
-    y = ay - CV_Y;
-    if (x < 0)      { x = 0; }
-    if (y < 0)      { y = 0; }
-    if (x >= CV_W)  { x = CV_W - 1; }
-    if (y >= CV_H)  { y = CV_H - 1; }
-
-    if ((st->pts == NULL) || (st->n == 0U) || (st->n >= STROKE_PTS))
+    else
     {
-        return;
-    }
-
-    dx = x - st->pts[st->n - 1U].x;
-    dy = y - st->pts[st->n - 1U].y;
-    if (((dx < 0) ? -dx : dx) + ((dy < 0) ? -dy : dy) < STROKE_MIN_STEP)
-    {
-        return;
-    }
-
-    st->pts[st->n].x = (lv_coord_t)x;
-    st->pts[st->n].y = (lv_coord_t)y;
-    st->n++;
-    lv_line_set_points(st->line, st->pts, st->n);
-}
-
-static void stroke_end(void)
-{
-    s_active = -1;
-}
-
-/** A tap stamps a round dot: two points 1 px apart + round caps. */
-static void stamp_dot(int32_t ax, int32_t ay)
-{
-    int32_t x;
-    int32_t y;
-
-    if (canvas_from_screen(ax, ay, &x, &y) == 0)
-    {
-        return;
-    }
-
-    stroke_begin(ax, ay);
-    if (s_active >= 0)
-    {
-        stroke_add(ax + 1, ay);
-        stroke_end();
+        /* Nothing to do: the pad is idle. */
     }
 }
 
 /* -------------------------------------------------------------------------- */
-/* Gesture monitor                                                            */
+/* Glass buttons                                                              */
+/* -------------------------------------------------------------------------- */
+static void key_visual(uint8_t mask, int pressed)
+{
+    uint8_t i;
+
+    for (i = 0U; i < 3U; i++)
+    {
+        if ((s_btn_obj[i] != NULL) && (k_btn_mask[i] == mask))
+        {
+            if (pressed != 0)
+            {
+                lv_obj_add_state(s_btn_obj[i], LV_STATE_PRESSED);
+            }
+            else
+            {
+                lv_obj_clear_state(s_btn_obj[i], LV_STATE_PRESSED);
+            }
+        }
+    }
+}
+
+static void on_key_pressed(lv_event_t *e)
+{
+    uint8_t mask = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+
+    usb_mouse_set_button(mask, 1);
+}
+
+static void on_key_released(lv_event_t *e)
+{
+    uint8_t mask = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+
+    usb_mouse_set_button(mask, 0);
+}
+
+static lv_obj_t *make_key_button(lv_obj_t *parent, const char *txt, const char *tag,
+                                 lv_coord_t x, uint8_t mask)
+{
+    lv_obj_t *btn = lv_btn_create(parent);
+    lv_obj_t *label;
+
+    lv_obj_set_pos(btn, x, BTN_Y);
+    lv_obj_set_size(btn, BTN_W, BTN_H);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(C_CARD), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(C_ACCENT), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(btn, 1, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(C_BORDER), 0);
+    lv_obj_set_style_radius(btn, 10, 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+
+    /* PRESSED / RELEASED give a true "hold" semantic (drag with the button
+     * down); PRESS_LOST covers the finger sliding off the button. */
+    lv_obj_add_event_cb(btn, on_key_pressed,  LV_EVENT_PRESSED,  (void *)(uintptr_t)mask);
+    lv_obj_add_event_cb(btn, on_key_released, LV_EVENT_RELEASED, (void *)(uintptr_t)mask);
+    lv_obj_add_event_cb(btn, on_key_released, LV_EVENT_PRESS_LOST, (void *)(uintptr_t)mask);
+
+    label = make_label(btn, &lv_font_gbk_24, C_TEXT);
+    lv_label_set_text(label, txt);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, -8);
+
+    label = make_label(btn, &lv_font_gbk_12, C_DIM);
+    lv_label_set_text(label, tag);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 22);
+
+    return btn;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Status                                                                     */
 /* -------------------------------------------------------------------------- */
 static void set_gesture_text(const char *txt)
 {
-    lv_label_set_text(s_gesture_label, txt);
+    if (s_gesture_label != NULL)
+    {
+        lv_label_set_text(s_gesture_label, txt);
+    }
 }
 
 static void handle_event(const gesture_evt_t *ev)
 {
     switch (ev->type)
     {
-    case GESTURE_EVT_PRESS:
-        stroke_begin(ev->x, ev->y);
-        set_gesture_text("单指拖拽");
-        break;
-
-    case GESTURE_EVT_MOVE:
-        stroke_add(ev->x, ev->y);
-        break;
-
-    case GESTURE_EVT_RELEASE:
-        stroke_end();
-        break;
-
-    case GESTURE_EVT_TAP:
-        stroke_end();
-        stamp_dot(ev->x, ev->y);
-        set_gesture_text("单指单击");
-        break;
-
     case GESTURE_EVT_TAP2:
-        stroke_end();
-        set_gesture_text("双指单击");
+        set_gesture_text("双指轻点");
         break;
 
     case GESTURE_EVT_TAP3:
-        stroke_end();
-        set_gesture_text("三指单击");
+        set_gesture_text("三指轻点");
         break;
 
     case GESTURE_EVT_SCROLL:
-        set_gesture_text((ev->d >= 0) ? "双指下滑 ↓" : "双指上滑 ↑");
+        /* Wheel output is intentionally not implemented yet (requirement:
+         * scroll comes later), so the readout is all that happens here. */
+        set_gesture_text((ev->d >= 0) ? "双指下滑 (滚轮未启用)"
+                                     : "双指上滑 (滚轮未启用)");
         break;
 
     case GESTURE_EVT_PAN:
-        set_gesture_text((ev->d >= 0) ? "双指右滑 →" : "双指左滑 ←");
+        set_gesture_text((ev->d >= 0) ? "双指右滑 (滚轮未启用)"
+                                     : "双指左滑 (滚轮未启用)");
         break;
 
     default:
@@ -415,69 +415,31 @@ static void handle_event(const gesture_evt_t *ev)
 
 static void refresh_stats(void)
 {
-    gesture_status_t st;
+    gesture_status_t   st;
+    usb_mouse_status_t ms;
 
     gesture_get_status(&st);
+    usb_mouse_get_status(&ms);
 
-    lv_label_set_text_fmt(s_stat_pts, "触点 %u   笔画 %lu",
-                          (unsigned int)st.fingers, (unsigned long)st.presses);
-    lv_label_set_text_fmt(s_stat_taps, "单指 %lu   多指 %lu",
-                          (unsigned long)st.taps, (unsigned long)st.multi_taps);
-    lv_label_set_text_fmt(s_stat_moves, "滚动 %lu   平移 %lu",
-                          (unsigned long)st.scrolls, (unsigned long)st.pans);
+    /* USB link state: single accent colour scheme, no red/green status lights. */
+    lv_label_set_text(s_usb_label, (ms.mounted != 0U) ? "HID 鼠标已连接"
+                                                      : "USB 未连接");
 
-    lv_label_set_text_fmt(s_brush_label, "颜色 %u/%u   粗细 %u px",
-                          (unsigned int)(s_color_idx + 1U), (unsigned int)BRUSH_COLOR_COUNT,
-                          (unsigned int)k_brush_widths[s_width_idx]);
-    lv_obj_set_style_bg_color(s_swatch, lv_color_hex(k_brush_colors[s_color_idx]), 0);
+    lv_label_set_text_fmt(s_btn_label, "左键 %s   中键 %s   右键 %s",
+                          ((ms.buttons & USB_MOUSE_BTN_LEFT)   != 0U) ? "按下" : "松开",
+                          ((ms.buttons & USB_MOUSE_BTN_MIDDLE) != 0U) ? "按下" : "松开",
+                          ((ms.buttons & USB_MOUSE_BTN_RIGHT)  != 0U) ? "按下" : "松开");
+
+    lv_label_set_text_fmt(s_move_label, "位移 X %ld  Y %ld    报告 %lu",
+                          (long)ms.x_total, (long)ms.y_total,
+                          (unsigned long)ms.reports);
+
+    lv_label_set_text_fmt(s_touch_label, "触点 %u   单指 %lu   多指 %lu   滚动 %lu",
+                          (unsigned int)st.fingers,
+                          (unsigned long)st.taps,
+                          (unsigned long)st.multi_taps,
+                          (unsigned long)st.scrolls);
 }
-
-/* -------------------------------------------------------------------------- */
-/* Actions                                                                    */
-/* -------------------------------------------------------------------------- */
-static void action_color(void)
-{
-    s_color_idx = (uint8_t)((s_color_idx + 1U) % BRUSH_COLOR_COUNT);
-    refresh_stats();
-    set_gesture_text("画笔颜色已切换");
-}
-
-static void action_width(void)
-{
-    s_width_idx = (uint8_t)((s_width_idx + 1U) % BRUSH_WIDTH_COUNT);
-    refresh_stats();
-    set_gesture_text("画笔粗细已切换");
-}
-
-static void action_wallpaper(void)
-{
-    if (s_wallpaper == NULL)
-    {
-        s_wallpaper = image_sd_bg(s_scr);
-    }
-
-    if (s_wallpaper == NULL)
-    {
-        set_gesture_text("无壁纸（SD 0:/IMG/bg.bin）");
-        return;
-    }
-
-    if (lv_obj_has_flag(s_wallpaper, LV_OBJ_FLAG_HIDDEN))
-    {
-        lv_obj_clear_flag(s_wallpaper, LV_OBJ_FLAG_HIDDEN);
-        set_gesture_text("壁纸已显示");
-    }
-    else
-    {
-        lv_obj_add_flag(s_wallpaper, LV_OBJ_FLAG_HIDDEN);
-        set_gesture_text("壁纸已隐藏");
-    }
-}
-
-static void cb_clear(lv_event_t *e)      { (void)e; strokes_clear(); }
-static void cb_colour(lv_event_t *e)     { (void)e; action_color(); }
-static void cb_width(lv_event_t *e)      { (void)e; action_width(); }
-static void cb_wallpaper(lv_event_t *e)  { (void)e; action_wallpaper(); }
 
 /* -------------------------------------------------------------------------- */
 /* Screen construction                                                        */
@@ -499,6 +461,25 @@ void app_ui_boot(const char *ascii_msg)
     lv_obj_clean(s_scr);
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(C_BG), 0);
 
+    /* The widgets just went away with lv_obj_clean(). */
+    s_pad           = NULL;
+    s_dot           = NULL;
+    s_trail_line    = NULL;
+    s_hint          = NULL;
+    s_usb_label     = NULL;
+    s_btn_label     = NULL;
+    s_move_label    = NULL;
+    s_touch_label   = NULL;
+    s_gesture_label = NULL;
+    s_sd_label      = NULL;
+    s_rate_label    = NULL;
+    s_btn_obj[0]    = NULL;
+    s_btn_obj[1]    = NULL;
+    s_btn_obj[2]    = NULL;
+    s_trail_n       = 0U;
+    s_pad_active    = 0U;
+    s_pulse_mask    = 0U;
+
     label = lv_label_create(s_scr);
     lv_label_set_text(label, ascii_msg);
     lv_obj_set_style_text_font(label, &lv_font_gbk_16, 0);
@@ -506,32 +487,10 @@ void app_ui_boot(const char *ascii_msg)
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -12);
 
     label = lv_label_create(s_scr);
-    lv_label_set_text(label, "STM32F429  LVGL 8.3  SD storage");
+    lv_label_set_text(label, "STM32F429  USB HID mouse");
     lv_obj_set_style_text_font(label, &lv_font_gbk_12, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(C_BORDER), 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 16);
-}
-
-static lv_obj_t *make_button(lv_obj_t *parent, const char *txt, lv_coord_t x,
-                             lv_event_cb_t cb)
-{
-    lv_obj_t *btn = lv_btn_create(parent);
-    lv_obj_t *label;
-
-    lv_obj_set_pos(btn, x, BTN_Y);
-    lv_obj_set_size(btn, BTN_W, BTN_H);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(C_CARD), 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(C_BORDER), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(btn, 1, 0);
-    lv_obj_set_style_border_color(btn, lv_color_hex(C_BORDER), 0);
-    lv_obj_set_style_radius(btn, 8, 0);
-    lv_obj_set_style_shadow_width(btn, 0, 0);
-    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
-
-    label = make_label(btn, &lv_font_gbk_16, C_TEXT);
-    lv_label_set_text(label, txt);
-    lv_obj_center(label);
-    return btn;
 }
 
 void app_ui_create(void)
@@ -546,26 +505,21 @@ void app_ui_create(void)
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(C_BG), 0);
     lv_obj_clear_flag(s_scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* The constants above assume the 480x800 portrait window this panel
-     * reports.  Say so loudly if that ever changes, instead of silently
-     * drawing the layout half off-screen. */
+    /* The constants assume the 480x800 portrait window this panel reports.
+     * Say so loudly if that ever changes, instead of drawing off-screen. */
     if ((LCD_Width != SCR_W) || (LCD_Height != SCR_H))
     {
         PRINT_LOG("[UI  ] WARN layout is %dx%d but the panel is %lux%lu\r\n",
                   SCR_W, SCR_H, (unsigned long)LCD_Width, (unsigned long)LCD_Height);
     }
 
-    /* Screen is rebuilt when the card shows up later: the widgets are gone but
-     * the point buffers are ours, so hand them back and drop the pointers. */
-    strokes_forget();
-    s_wallpaper = NULL;
-
-    /* ---- Wallpaper (from the card, optional) ---------------------------- */
-    s_wallpaper = image_sd_bg(s_scr);
+    s_trail_n    = 0U;
+    s_pad_active = 0U;
+    s_pulse_mask = 0U;
 
     /* ---- Header ---------------------------------------------------------- */
     label = make_label(s_scr, &lv_font_gbk_24, C_TEXT);
-    lv_label_set_text(label, "触摸板  TOUCHPAD");
+    lv_label_set_text(label, "USB 触摸板");
     lv_obj_set_pos(label, 16, 8);
 
     s_sd_label = make_label(s_scr, &lv_font_gbk_12, C_DIM);
@@ -574,65 +528,71 @@ void app_ui_create(void)
     s_rate_label = make_label(s_scr, &lv_font_gbk_12, C_DIM);
     lv_obj_align(s_rate_label, LV_ALIGN_TOP_RIGHT, -16, 28);
 
-    /* ---- Drawing area ---------------------------------------------------- */
-    s_canvas = make_card(s_scr, CV_X, CV_Y, CV_W, CV_H);
-    lv_obj_set_style_bg_color(s_canvas, lv_color_hex(0x11161D), 0);
-    lv_obj_set_style_pad_all(s_canvas, 0, 0);
-    lv_obj_clear_flag(s_canvas, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_canvas, LV_OBJ_FLAG_CLICKABLE);
+    /* ---- Touch surface --------------------------------------------------- */
+    s_pad = make_card(s_scr, PAD_X, PAD_Y, PAD_W, PAD_H);
+    lv_obj_set_style_bg_color(s_pad, lv_color_hex(C_PAD), 0);
+    lv_obj_set_style_pad_all(s_pad, 0, 0);
+    lv_obj_clear_flag(s_pad, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-    /* ---- Gesture monitor ------------------------------------------------- */
-    card = make_card(s_scr, PN_X, PN_Y, PN_W, PN_H);
+    s_hint = make_label(s_pad, &lv_font_gbk_16, C_BORDER);
+    lv_label_set_text(s_hint, "在此滑动 = 移动鼠标");
+    lv_obj_align(s_hint, LV_ALIGN_CENTER, 0, 0);
+
+    s_trail_line = lv_line_create(s_pad);
+    lv_obj_set_style_line_width(s_trail_line, 4, 0);
+    lv_obj_set_style_line_color(s_trail_line, lv_color_hex(C_ACCENT), 0);
+    lv_obj_set_style_line_rounded(s_trail_line, true, 0);
+    lv_obj_clear_flag(s_trail_line, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(s_trail_line, 0, 0);
+
+    s_dot = lv_obj_create(s_pad);
+    lv_obj_set_size(s_dot, DOT_SIZE, DOT_SIZE);
+    lv_obj_set_style_radius(s_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_dot, lv_color_hex(C_ACCENT), 0);
+    lv_obj_set_style_bg_opa(s_dot, LV_OPA_60, 0);
+    lv_obj_set_style_border_width(s_dot, 2, 0);
+    lv_obj_set_style_border_color(s_dot, lv_color_hex(C_TEXT), 0);
+    lv_obj_clear_flag(s_dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
+
+    /* ---- Glass buttons: left / middle / right ---------------------------- */
+    s_btn_obj[0] = make_key_button(s_scr, "左键", "LEFT",   PAD_X, USB_MOUSE_BTN_LEFT);
+    s_btn_obj[1] = make_key_button(s_scr, "中键", "MIDDLE", PAD_X + (BTN_W + BTN_GAP),
+                                   USB_MOUSE_BTN_MIDDLE);
+    s_btn_obj[2] = make_key_button(s_scr, "右键", "RIGHT",  PAD_X + 2 * (BTN_W + BTN_GAP),
+                                   USB_MOUSE_BTN_RIGHT);
+
+    /* ---- Status card ----------------------------------------------------- */
+    card = make_card(s_scr, PAD_X, STAT_Y, PAD_W, STAT_H);
 
     label = make_label(card, &lv_font_gbk_16, C_DIM);
-    lv_label_set_text(label, "手势识别");
+    lv_label_set_text(label, "USB 状态");
     lv_obj_set_pos(label, 0, 0);
 
-    s_gesture_label = make_label(card, &lv_font_gbk_24, C_ACCENT);
+    s_usb_label = make_label(card, &lv_font_gbk_24, C_TEXT);
+    lv_label_set_text(s_usb_label, "USB 未连接");
+    lv_obj_set_pos(s_usb_label, 0, 22);
+
+    s_btn_label = make_label(card, &lv_font_gbk_16, C_TEXT);
+    lv_obj_set_pos(s_btn_label, 0, 58);
+
+    s_move_label = make_label(card, &lv_font_gbk_16, C_TEXT);
+    lv_obj_set_pos(s_move_label, 0, 86);
+
+    s_touch_label = make_label(card, &lv_font_gbk_16, C_TEXT);
+    lv_obj_set_pos(s_touch_label, 0, 114);
+
+    s_gesture_label = make_label(card, &lv_font_gbk_16, C_ACCENT);
     lv_label_set_text(s_gesture_label, "等待触摸…");
-    lv_obj_set_pos(s_gesture_label, 0, 24);
-    lv_obj_set_width(s_gesture_label, PN_W - 16);
-
-    s_stat_pts = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_stat_pts, 0, 58);
-
-    s_stat_taps = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_stat_taps, 0, 82);
-
-    s_stat_moves = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_stat_moves, 0, 106);
-
-    label = make_label(card, &lv_font_gbk_16, C_DIM);
-    lv_label_set_text(label, "画笔");
-    lv_obj_set_pos(label, 0, 132);
-
-    s_swatch = lv_obj_create(card);
-    lv_obj_set_pos(s_swatch, 0, 156);
-    lv_obj_set_size(s_swatch, 40, 24);
-    lv_obj_set_style_radius(s_swatch, 6, 0);
-    lv_obj_set_style_border_color(s_swatch, lv_color_hex(C_BORDER), 0);
-    lv_obj_set_style_border_width(s_swatch, 1, 0);
-    lv_obj_clear_flag(s_swatch, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-
-    s_brush_label = make_label(card, &lv_font_gbk_16, C_TEXT);
-    lv_obj_set_pos(s_brush_label, 52, 158);
-
-    label = make_label(card, &lv_font_gbk_12, C_DIM);
-    lv_label_set_text(label, "KEY0 清屏 KEY1 色 KEY2 粗细 KEY_UP 壁纸");
-    lv_obj_set_pos(label, 0, 186);
-
-    /* ---- Buttons --------------------------------------------------------- */
-    (void)make_button(s_scr, "清屏",   CV_X, cb_clear);
-    (void)make_button(s_scr, "换色",   CV_X + (BTN_W + BTN_GAP), cb_colour);
-    (void)make_button(s_scr, "粗细",   CV_X + 2 * (BTN_W + BTN_GAP), cb_width);
-    (void)make_button(s_scr, "壁纸",   CV_X + 3 * (BTN_W + BTN_GAP), cb_wallpaper);
+    lv_obj_set_pos(s_gesture_label, 0, 146);
+    lv_obj_set_width(s_gesture_label, PAD_W - 16);
 
     /* ---- Footer ---------------------------------------------------------- */
     if (sd_card_is_ready() != 0)
     {
         if (sd_card_usage_mb(&total_mb, &used_mb) == RT_OK)
         {
-            lv_label_set_text_fmt(s_sd_label, "SD 0: %lu MB / %lu MB 起",
+            lv_label_set_text_fmt(s_sd_label, "SD 0: %lu MB / %lu MB",
                                   (unsigned long)used_mb, (unsigned long)total_mb);
         }
         else
@@ -647,8 +607,8 @@ void app_ui_create(void)
     }
 
     label = make_label(s_scr, &lv_font_gbk_12, C_DIM);
-    lv_label_set_text(label, "字库 0:/SYSTEM/FONT  图片 0:/IMG\n"
-                             "手势 双击/双指滚动/双指平移");
+    lv_label_set_text(label, "触摸板 = 鼠标移动   下方三键 = 左/中/右\n"
+                             "串口 l/m/r 模拟按键  x/y 移动  s 状态");
     lv_obj_set_pos(label, 12, FTR_Y);
 
     refresh_stats();
@@ -658,6 +618,21 @@ void app_ui_create(void)
 /* -------------------------------------------------------------------------- */
 /* Poll                                                                       */
 /* -------------------------------------------------------------------------- */
+static void poll_pulse(uint32_t now)
+{
+    if (s_pulse_mask == 0U)
+    {
+        return;
+    }
+
+    if ((int32_t)(now - s_pulse_until) >= 0)
+    {
+        usb_mouse_set_button(s_pulse_mask, 0);
+        key_visual(s_pulse_mask, 0);
+        s_pulse_mask = 0U;
+    }
+}
+
 static void poll_keys(void)
 {
     uint32_t now = HAL_GetTick();
@@ -670,21 +645,14 @@ static void poll_keys(void)
 
     bsp_key_poll();
 
+    /* KEY0 clears the trail and the on-screen clue; the other physical keys no
+     * longer emit mouse clicks - the three glass buttons below the pad do
+     * that now (requirement). */
     if (bsp_key_edge(BSP_KEY_0) != 0U)
     {
-        strokes_clear();
-    }
-    if (bsp_key_edge(BSP_KEY_1) != 0U)
-    {
-        action_color();
-    }
-    if (bsp_key_edge(BSP_KEY_2) != 0U)
-    {
-        action_width();
-    }
-    if (bsp_key_edge(BSP_KEY_UP) != 0U)
-    {
-        action_wallpaper();
+        trail_reset();
+        dot_hide();
+        set_gesture_text("已清除轨迹");
     }
 }
 
@@ -705,9 +673,12 @@ void app_ui_poll(void)
         handle_event(&ev);
     }
 
+    now = HAL_GetTick();
+
+    poll_trackpad(now);
+    poll_pulse(now);
     poll_keys();
 
-    now = HAL_GetTick();
     s_loop_count++;
 
     if ((now - s_rate_mark) >= 1000U)
@@ -730,44 +701,62 @@ void app_ui_poll(void)
 /* Serial command channel (USART1 console)                                    */
 /* -------------------------------------------------------------------------- */
 /*  One character per command, executed from the UI task so every LVGL call
- *  stays on the task that owns the display.  Responses go through PRINT_LOG so
- *  the global PRINT_LOG_ENABLE switch still controls the binary size.        */
+ *  stays on the task that owns the display.  l / m / r are the useful ones for
+ *  bringing up the HID link without touching the glass: they tap the matching
+ *  button for 150 ms, so "does the host see a click?" can be answered from a
+ *  terminal.                                                                  */
+
+#define PULSE_MS   150U
 
 #if PRINT_LOG_ENABLE
 static void report_status(void)
 {
-    gesture_status_t st;
+    gesture_status_t   st;
+    usb_mouse_status_t ms;
     uint32_t total_mb = 0U;
     uint32_t used_mb  = 0U;
 
     gesture_get_status(&st);
+    usb_mouse_get_status(&ms);
     (void)sd_card_usage_mb(&total_mb, &used_mb);
 
+    PRINT_LOG("[USB ] mounted=%u suspended=%u buttons=0x%02X reports=%lu\r\n",
+              (unsigned int)ms.mounted, (unsigned int)ms.suspended,
+              (unsigned int)ms.buttons, (unsigned long)ms.reports);
+    PRINT_LOG("[MOVE] x=%ld y=%ld\r\n", (long)ms.x_total, (long)ms.y_total);
     PRINT_LOG("[SD  ] %s %lu/%lu MB\r\n",
               (sd_card_is_ready() != 0) ? "0: mounted" : "0: absent",
               (unsigned long)used_mb, (unsigned long)total_mb);
     PRINT_LOG("[FONT] src=%s mask=0x%02lX\r\n",
               lcd_driver_font_source(),
               (unsigned long)lcd_driver_font_status());
-    PRINT_LOG("[TOUCH] irq=%lu ready=%d\r\n",
-              (unsigned long)bsp_touch_irq_count(), bsp_touch_is_ready());
-    PRINT_LOG("[GEST] fingers=%u press=%lu tap=%lu multi=%lu scroll=%lu pan=%lu drop=%lu\r\n",
-              (unsigned int)st.fingers,
+    PRINT_LOG("[TOUCH] irq=%lu ready=%d fingers=%u\r\n",
+              (unsigned long)bsp_touch_irq_count(), bsp_touch_is_ready(),
+              (unsigned int)st.fingers);
+    PRINT_LOG("[GEST] press=%lu tap=%lu multi=%lu scroll=%lu pan=%lu drop=%lu\r\n",
               (unsigned long)st.presses, (unsigned long)st.taps,
               (unsigned long)st.multi_taps, (unsigned long)st.scrolls,
               (unsigned long)st.pans, (unsigned long)st.dropped);
-    PRINT_LOG("[BRUSH] color=%u/%u width=%u px\r\n",
-              (unsigned int)(s_color_idx + 1U), (unsigned int)BRUSH_COLOR_COUNT,
-              (unsigned int)k_brush_widths[s_width_idx]);
-    PRINT_LOG("[UI  ] screen=%d gesture_label=%d\r\n",
-              (s_scr != NULL) ? 1 : 0, (s_gesture_label != NULL) ? 1 : 0);
+    PRINT_LOG("[UI  ] screen=%d pad=%d\r\n",
+              (s_scr != NULL) ? 1 : 0, (s_pad != NULL) ? 1 : 0);
 }
 
 static void report_help(void)
 {
-    PRINT_LOG("[CMD ] c=clear k=colour w=width b=wallpaper s=status h=help\r\n");
+    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  s=status  h=help\r\n");
 }
 #endif /* PRINT_LOG_ENABLE */
+
+static void tap_button(uint8_t mask, const char *name)
+{
+    usb_mouse_set_button(mask, 1);
+    key_visual(mask, 1);
+
+    s_pulse_mask  = mask;
+    s_pulse_until = HAL_GetTick() + PULSE_MS;
+
+    set_gesture_text(name);
+}
 
 void app_ui_command(char c)
 {
@@ -779,30 +768,54 @@ void app_ui_command(char c)
 
     switch (c)
     {
+    case 'l':
+    case 'L':
+        tap_button(USB_MOUSE_BTN_LEFT, "串口: 左键");
+        PRINT_LOG("[CMD ] left click\r\n");
+        break;
+
+    case 'm':
+    case 'M':
+        tap_button(USB_MOUSE_BTN_MIDDLE, "串口: 中键");
+        PRINT_LOG("[CMD ] middle click\r\n");
+        break;
+
+    case 'r':
+    case 'R':
+        tap_button(USB_MOUSE_BTN_RIGHT, "串口: 右键");
+        PRINT_LOG("[CMD ] right click\r\n");
+        break;
+
+    case 'x':
+    case 'X':
+        /* Nudge the pointer right / down: lets a host-side script prove that
+         * the HID report path really moves the cursor without touching the
+         * glass.  10 x 4 px of "finger" motion, scaled by the acceleration
+         * curve inside usb_mouse_move(). */
+        for (uint8_t i = 0U; i < 10U; i++)
+        {
+            usb_mouse_move(4, 0);
+        }
+        set_gesture_text("串口: 右移");
+        PRINT_LOG("[CMD ] move right\r\n");
+        break;
+
+    case 'y':
+    case 'Y':
+        for (uint8_t i = 0U; i < 10U; i++)
+        {
+            usb_mouse_move(0, 4);
+        }
+        set_gesture_text("串口: 下移");
+        PRINT_LOG("[CMD ] move down\r\n");
+        break;
+
     case 'c':
     case 'C':
-        strokes_clear();
-        set_gesture_text("串口: 清屏");
-        PRINT_LOG("[CMD ] clear\r\n");
-        break;
-
-    case 'k':
-    case 'K':
-        action_color();
-        PRINT_LOG("[CMD ] colour -> %u/%u\r\n",
-                  (unsigned int)(s_color_idx + 1U), (unsigned int)BRUSH_COLOR_COUNT);
-        break;
-
-    case 'w':
-    case 'W':
-        action_width();
-        PRINT_LOG("[CMD ] width -> %u px\r\n", (unsigned int)k_brush_widths[s_width_idx]);
-        break;
-
-    case 'b':
-    case 'B':
-        action_wallpaper();
-        PRINT_LOG("[CMD ] wallpaper toggle\r\n");
+        trail_reset();
+        dot_hide();
+        set_gesture_text("串口: 清轨迹");
+        PRINT_LOG("[CMD ] trail cleared\r\n");
         break;
 
 #if PRINT_LOG_ENABLE

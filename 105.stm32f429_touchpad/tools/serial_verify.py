@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
-"""Exercise the USART1 console command channel and print a PASS/FAIL tally.
+"""Exercise the USART1 console command channel and the HID mouse, then print a
+PASS/FAIL tally.
 
     python tools/serial_verify.py --port COM3
     python tools/serial_verify.py --port COM3 --reset      # restart target first
 
 The firmware answers one character per command (see app_ui_command()):
 
-    c = clear   k = next colour   w = next width
-    b = toggle wallpaper         s / ? = status   h = help
+    l / m / r = tap left / middle / right button (150 ms)
+    x / y     = nudge the pointer right / down
+    c = clear trail     s / ? = status     h = help
+
+Two layers are checked:
+  1. the console replies (does the firmware act on the command?)
+  2. the host really sees the HID output - the cursor position is sampled with
+     user32!GetCursorPos around the x / y commands, and reports=/mounted= come
+     from the device's own counters.
 
 Exit code is 0 only when every case passes.
 """
 
 import argparse
+import ctypes
 import os
 import subprocess
 import sys
@@ -49,6 +58,33 @@ def reset_target():
                    capture_output=True, text=True, timeout=60)
 
 
+class _Point(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int)]
+
+
+def cursor_pos():
+    """Current mouse position, or None when the host API is unavailable."""
+    try:
+        pt = _Point()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        return pt.x, pt.y
+    except Exception:  # noqa: BLE001 - not Windows / blocked
+        return None
+
+
+def cursor_home():
+    """Park the pointer at a spot with room in both directions.
+
+    Without this the "move down" check fails whenever the cursor already sits
+    on the bottom edge of the desktop - which is a property of the test
+    environment, not of the firmware.
+    """
+    try:
+        return bool(ctypes.windll.user32.SetCursorPos(200, 200))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def ask(ser, cmd, wait=1.2):
     """Send one command character, return whatever the board answers."""
     ser.reset_input_buffer()
@@ -68,7 +104,7 @@ def main():
     if args.reset:
         print("resetting target ...", flush=True)
         reset_target()
-        time.sleep(2.5)          # let lcd/sd/font init finish
+        time.sleep(3.0)          # let lcd/sd/font/usb init finish
 
     try:
         ser = serial.Serial(args.port, 115200, timeout=0.2)
@@ -77,18 +113,21 @@ def main():
         return 2
 
     cases = [
-        ("help",           "h", ["[CMD ] c=clear", "s=status"]),
+        ("help",           "h", ["[CMD ] l/m/r=tap button", "s=status"]),
+        ("usb-mounted",    "s", ["[USB ] mounted=1"]),
+        ("usb-reports",    "s", ["[USB ] mounted=1", "reports="]),
+        ("status-move",    "s", ["[MOVE] x="]),
         ("status-sd",      "s", ["[SD  ] 0: mounted"]),
         ("status-font",    "s", ["[FONT] src=0:", "mask=0x1F"]),
         ("status-touch",   "s", ["[TOUCH] irq=", "ready=1"]),
-        ("status-gest",    "s", ["[GEST] fingers="]),
-        ("status-brush",   "s", ["[BRUSH] color="]),
         ("status-screen",  "s", ["[UI  ] screen=1"]),
-        ("clear",          "c", ["[CMD ] clear"]),
-        ("colour",         "k", ["[CMD ] colour ->"]),
-        ("width",          "w", ["[CMD ] width ->"]),
-        ("wallpaper",      "b", ["[CMD ] wallpaper toggle"]),
-        ("unknown-cmd",    "x", ["[CMD ] unknown 'x'"]),
+        ("click-left",     "l", ["[CMD ] left click"]),
+        ("click-middle",   "m", ["[CMD ] middle click"]),
+        ("click-right",    "r", ["[CMD ] right click"]),
+        ("move-right",     "x", ["[CMD ] move right"]),
+        ("move-down",      "y", ["[CMD ] move down"]),
+        ("clear-trail",    "c", ["[CMD ] trail cleared"]),
+        ("unknown-cmd",    "q", ["[CMD ] unknown 'q'"]),
     ]
 
     passed = 0
@@ -108,6 +147,37 @@ def main():
             passed += 1
             first = reply.strip().splitlines()[0] if reply.strip() else ""
             print("%-16s ok   %s" % (name, first[:60]))
+
+    # ---- Host-side proof: does the cursor actually move? -------------------
+    print("-" * 68)
+    homed = cursor_home()
+    time.sleep(0.3)
+    before = cursor_pos()
+    if before is None:
+        print("%-16s SKIP GetCursorPos unavailable on this host" % "cursor-move")
+    else:
+        ask(ser, "x", wait=0.8)
+        after_x = cursor_pos()
+        ask(ser, "y", wait=0.8)
+        after_y = cursor_pos()
+
+        moved_x = (after_x is not None) and (after_x[0] > before[0])
+        moved_y = (after_y is not None) and (after_y[1] > after_x[1])
+
+        for label, ok, detail in (
+            ("cursor-right", moved_x, "%s -> %s" % (before, after_x)),
+            ("cursor-down", moved_y, "%s -> %s" % (after_x, after_y)),
+        ):
+            if ok:
+                passed += 1
+                print("%-16s ok   %s" % (label, detail))
+            elif not homed:
+                # No SetCursorPos: the pointer may already be on an edge, so a
+                # no-op is not evidence of a firmware fault.
+                print("%-16s SKIP %s (could not park the pointer)" % (label, detail))
+            else:
+                failed += 1
+                print("%-16s FAIL %s" % (label, detail))
 
     ser.close()
     print("-" * 68)

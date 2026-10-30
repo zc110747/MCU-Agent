@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    app_ui.h
- * @brief   Touchpad demo screen: drawing area + gesture monitor.
+ * @brief   Trackpad screen: touch surface (USB HID mouse) + 3 glass buttons.
  ******************************************************************************
  */
 #ifndef __APP_UI_H__
@@ -21,24 +21,24 @@ void app_ui_boot(const char *ascii_msg);
 
 /**
  * @brief  Build the main screen (call once the storage probe is done).
- *         Widgets work with or without the SD card; the wallpaper and the CJK
- *         glyphs simply stay absent when the card is missing.
+ *         Widgets work with or without the SD card; the CJK glyphs simply stay
+ *         absent when the card is missing.
  */
 void app_ui_create(void);
 
 /**
- * @brief  Called from the UI task every ~5 ms: drains the gesture queue, polls
- *         the keys and refreshes the counters / FPS readout.
+ * @brief  Called from the UI task every ~5 ms: samples the trackpad, drains the
+ *         gesture queue, expires the "tap" pulses and refreshes the readouts.
  */
 void app_ui_poll(void);
 
 /**
  * @brief  Execute one serial-console command (USART1, one char per command).
  *
- *         Mirrors the four on-screen buttons plus a status dump, so the whole
- *         UI can be exercised from a host without touching the panel:
- *           c = clear   k = next colour   w = next width
- *           b = toggle wallpaper         s / ? = status   h = help
+ *         Lets the whole HID path be exercised from a terminal, without
+ *         touching the panel:
+ *           l / m / r = tap left / middle / right button (150 ms)
+ *           c = clear the trail          s / ? = status      h = help
  *
  *         Must be called from the UI task: it performs LVGL calls.
  */

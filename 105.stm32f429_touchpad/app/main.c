@@ -36,6 +36,7 @@
 #include "bsp_sdram.h"
 #include "fs_diskio.h"
 #include "gesture.h"
+#include "usb_mouse.h"
 #include "touch_task.h"
 #include "ui_task.h"
 #include "log.h"
@@ -108,14 +109,22 @@ int main(void)
 
   gesture_init();
 
+  /* ---- USB device (HID mouse) ------------------------------------------
+   * The stack itself is brought up by usb_mouse_task(), NOT here: tusb_init()
+   * unmasks the OTG_FS vector, and an interrupt that reaches the FreeRTOS
+   * FromISR API before the scheduler runs trips its priority assert.  The task
+   * is created below and does the init as its first action. */
+
   /* Priorities, highest first:
+   *   +5 usb    - enumeration / HID reports must not wait for a render pass
    *   +4 touch  - publish a press before the next LVGL read
-   *   +2 ui     - LVGL render pump + gesture drain
+   *   +2 ui     - LVGL render pump + gesture drain + serial console
    *   +1 led    - heartbeat
    */
-  xTaskCreate(touch_task, "touch", TOUCH_TASK_STACK_WORDS, NULL, TOUCH_TASK_PRIO, NULL);
-  xTaskCreate(ui_task,    "ui",    UI_TASK_STACK_WORDS,    NULL, UI_TASK_PRIO,    NULL);
-  xTaskCreate(led_task,   "led",   256U,                  NULL, tskIDLE_PRIORITY + 1U, NULL);
+  xTaskCreate(touch_task,     "touch", TOUCH_TASK_STACK_WORDS,     NULL, TOUCH_TASK_PRIO,     NULL);
+  xTaskCreate(usb_mouse_task, "usb",   USB_MOUSE_TASK_STACK_WORDS, NULL, USB_MOUSE_TASK_PRIO, NULL);
+  xTaskCreate(ui_task,        "ui",    UI_TASK_STACK_WORDS,        NULL, UI_TASK_PRIO,        NULL);
+  xTaskCreate(led_task,       "led",   256U,                       NULL, tskIDLE_PRIORITY + 1U, NULL);
 
   /* FreeRTOS V11 quirk: vPortEnterCritical (inside xTaskCreate before the
    * scheduler runs) leaves BASEPRI set; clear it so TIM7 and HAL_Delay work. */

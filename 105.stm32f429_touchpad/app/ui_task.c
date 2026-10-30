@@ -10,7 +10,6 @@
  *      splash text                  pure ASCII: no card needed yet
  *      sd_card_init()               SDIO + FatFs "0:"        (retried)
  *      lcd_driver_font_init("0:")   0:/SYSTEM/FONT/GBKxx.FON
- *      image_sd_init()              0:/IMG/<name>.bin
  *      app_ui_create()              real screen
  *      pump                         lv_timer_handler() + gesture events
  *
@@ -35,7 +34,6 @@
 
 #include "sd_card.h"
 #include "fs_diskio.h"
-#include "image_sd.h"
 #include "app_ui.h"
 #include "ui_task.h"
 #include "bsp_uart.h"
@@ -98,8 +96,6 @@ void ui_task(void *arg)
                 PRINT_LOG("[UI  ] no GBK glyph file on the card "
                           "(0:/SYSTEM/FONT/GBKxx.FON) - CJK will be blank\r\n");
             }
-
-            (void)image_sd_init();
 
             build_needed = 1U;
         }
