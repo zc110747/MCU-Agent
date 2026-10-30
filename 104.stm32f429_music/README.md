@@ -238,6 +238,10 @@ COPY FILES FROM YOUR PC.  UNPLUG THE USB CABLE TO RETURN TO THE PLAYER.
 页面文字**故意只用 ASCII**：中文字形是画的时候从 SD 卡 `GBKxx.FON` 里取的，
 而这时卡在电脑手里——取不到就是空白（见 7.2）。
 
+另一个坑：切页后**必须把旧屏 `LV_OBJ_FLAG_HIDDEN` 掉**，不能只是 `lv_scr_load` 换过去。
+LVGL 8 的 `lv_obj_area_is_visible()` 会放行 `disp->prev_scr` 上的失效请求，而 `prev_scr`
+要等到下一次 load 才清——播放页那个循环滚动的曲名会一直往传输页上刷脏区。
+
 ### 7.5 代码位置
 
 | 文件 | 职责 |
@@ -268,8 +272,8 @@ cmake --build build_rel
 当前占用（全量重编，双构零警告）：
 
 ```
-Debug    FLASH: 250876 B / 1 MB (23.93%)   RAM: 87496 B / 192 KB (44.50%)
-Release  FLASH: 282220 B / 1 MB (26.91%)   RAM: 87512 B / 192 KB (44.51%)
+Debug    FLASH: 250924 B / 1 MB (23.93%)   RAM: 87496 B / 192 KB (44.50%)
+Release  FLASH: 282268 B / 1 MB (26.92%)   RAM: 87512 B / 192 KB (44.51%)
 ```
 
 RAM 里 ~26 KB 是 MP3 解码器的静态状态（`s_mp3`：16 KB minimp3 scratch + 5 KB 输入窗 +
@@ -297,8 +301,8 @@ python MDK-ARM/gen_uvision.py    # 重写 .uvprojx / .uvoptx / .sct / startup
 当前占用（AC6 6.14、全量重编、零错误零警告，264 个文件 / 28 个分组）：
 
 ```
-Code=179612  RO-data=70356  RW-data=424  ZI-data=609880
-FLASH 250240 B（.bin）/ 1 MB（23.9%）   RAM 86016 B / 192 KB（43.8%）   堆 512 KB 在 SDRAM
+Code=179636  RO-data=70356  RW-data=424  ZI-data=609880
+FLASH 250272 B（.bin）/ 1 MB（23.9%）   RAM 86016 B / 192 KB（43.8%）   堆 512 KB 在 SDRAM
 ```
 
 与 GCC 构建的差异（每条在脚本里都有注释）：

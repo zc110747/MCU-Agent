@@ -473,7 +473,14 @@ static void ui_task(void *arg)
             if (usb_state == USB_MSC_STATE_ACTIVE)
             {
                 update_usb_screen();
+                lv_obj_clear_flag(s_screen_usb, LV_OBJ_FLAG_HIDDEN);
                 lv_scr_load(s_screen_usb);
+                /* Hide the player page, do not just leave it behind: LVGL's
+                 * visibility filter still accepts invalidations from
+                 * disp->prev_scr, so the circular-scrolling track name would
+                 * keep dirtying rectangles on top of the transfer page.  A
+                 * hidden ancestor is rejected outright. */
+                lv_obj_add_flag(s_screen_player, LV_OBJ_FLAG_HIDDEN);
             }
             else
             {
@@ -485,7 +492,9 @@ static void ui_task(void *arg)
                     (void)lcd_driver_font_init(FS_VOL_SD);
                 }
                 lv_font_gbk_reset_cache();
+                lv_obj_clear_flag(s_screen_player, LV_OBJ_FLAG_HIDDEN);
                 lv_scr_load(s_screen_player);
+                lv_obj_add_flag(s_screen_usb, LV_OBJ_FLAG_HIDDEN);
             }
             s_shown_usb_state = usb_state;
         }
@@ -539,6 +548,9 @@ void app_ui_init(void)
 
     s_screen_usb = lv_obj_create(NULL);
     build_usb_screen(s_screen_usb);
+    /* Only the player page is shown at boot; the transfer page is unhidden
+     * when the host enumerates us (see ui_task). */
+    lv_obj_add_flag(s_screen_usb, LV_OBJ_FLAG_HIDDEN);
 
     lv_scr_load(s_screen_player);
 
