@@ -46,6 +46,9 @@ typedef struct
     uint8_t  suspended;     /* 1 while the bus is suspended                */
     uint8_t  buttons;       /* current button bit mask                      */
     uint32_t reports;       /* reports accepted by the host                 */
+    uint32_t tries;         /* mouse_send() invocations                     */
+    uint32_t endpoint_busy; /* ... of which the EP was still owned by host  */
+    uint32_t lat_avg_ms;    /* mean (queue -> report) latency, milliseconds */
     int32_t  x_total;       /* signed pixel sum sent since boot             */
     int32_t  y_total;
 } usb_mouse_status_t;
@@ -68,9 +71,18 @@ void usb_mouse_task(void *arg);
 /**
  * @brief  Queue a relative move in pixels (trackpad delta, not screen delta).
  *         Values are scaled by the acceleration curve and accumulated, so a
- *         caller may pass raw sample-to-sample deltas.
+ *         caller may pass raw sample-to-sample deltas.  This variant assumes a
+ *         10 ms reference period; use usb_mouse_move_ex() when the caller knows
+ *         how long the sample took.
  */
 void usb_mouse_move(int16_t dx, int16_t dy);
+
+/**
+ * @brief  Same as usb_mouse_move(), but the acceleration curve is normalised
+ *         by @p dt_ms so the selected gain depends on finger SPEED rather than
+ *         on how often the caller happens to sample.
+ */
+void usb_mouse_move_ex(int16_t dx, int16_t dy, uint32_t dt_ms);
 
 /** Press (pressed != 0) or release one or more buttons of @p mask. */
 void usb_mouse_set_button(uint8_t mask, int pressed);

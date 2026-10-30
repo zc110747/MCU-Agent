@@ -85,49 +85,77 @@ HAL_Init → SystemClock_Config(168 MHz / 48 MHz)
 ### 3.2 输入链路
 
 ```
-GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()
+GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
                                             │
                       ┌─────────────────────┴─────────────────────┐
                       ▼                                           ▼
-            gesture_feed()  (状态机)                    bsp_touch_get()
-                      │                                    (3 个 volatile 字)
-                      ▼                                           ▼
-              事件队列 (32 条)                          ┌─────────┴──────────┐
-                      │                                 ▼                    ▼
-                      │                          app_ui_poll()        lv_port_indev
-                      │                          (触点→鼠标位移)      (命中三个玻璃键)
-                      ▼                                 ▼                    ▼
-                 app_ui_poll() ──► usb_mouse_move()                LV_EVENT_PRESSED
-                                   usb_mouse_set_button()          → HID button bit
-                                            │
-                                            ▼
-                                  usb_mouse_task → tud_hid_report()
+               trackpad_feed()   ← 鼠标走这条                gesture_feed()
+                      │                                     (手势状态机)
+        ┌─────────────┴──────────────┐                            │
+        ▼                            ▼                            ▼
+  usb_mouse_move_ex()        视觉环 (dot + 64 点轨迹环)      事件队列(32)
+        │                            │                            │
+        ▼                            ▼(异步、可滞后)              ▼
+  usb_mouse_task              app_ui_poll()                app_ui_poll()
+  → tud_hid_report()          → trail_add / dot_show       → 计数与提示
+  每 2 ms 泵一次
 ```
 
 - 触摸总线**只有** `touch_task` 访问，LVGL 渲染路径与鼠标路径上都没有 I2C 等待。
-- 触摸板坐标用 **UI tick（5 ms）采样 `bsp_touch_get()`**，而不是用 gesture 的 `MOVE`
-  事件：后者有 2 px 量化阈值，做鼠标会顿。手势事件仍保留，只用于计数与文字提示。
+- **鼠标位移在 `touch_task` 里算，不在 UI 里算**。这一条是"跟手"的关键：
+  之前 `app_ui_poll()` 每轮读一次触摸再算 delta，而那个循环要跑 LVGL 的
+  `lv_timer_handler()`（含整屏 flush），实测只有 84 Hz 且抖动 12–40 ms —— 光标
+  自然跟不上手指。现在 delta 在采样点当场算出并交给 USB，UI 只负责画圆点和轨迹，
+  画面晚几毫秒没人看得出来。
 
 ### 3.3 触摸板 → 鼠标
 
 | 手指动作 | 行为 |
 |---|---|
-| 单指落在触摸区（456×380）内 | 显示青色圆点 + 蓝色轨迹，`usb_mouse_move(dx, dy)` |
-| 单指滑动 | 逐 tick 取 `dpad`，经加速度曲线换成 HID 相对位移 |
+| 单指落在触摸区（456×380）内 | 显示青色圆点 + 蓝色轨迹，并发 HID 相对位移 |
+| 单指滑动 | 每 5 ms 采样一次，增量交给 `usb_mouse_move_ex()` |
+| 单指滑出触摸区（滑到按键上） | **继续移动光标**（触摸板的正常手感），圆点停在边界 |
 | 单指抬起 | 圆点立即消失，轨迹保留 600 ms 后淡出 |
-| 落在触摸区外（三个玻璃键上） | **不移动光标**，交给 LVGL 处理按键 |
+| 手指**一开始**就按在玻璃键上 | 不移动光标，交给 LVGL 处理按键 |
 | 双指 / 三指 | 手势状态机照常识别，界面显示「滚轮未启用」；**不产生滚轮报告** |
 
-加速度（`usb_mouse.c`，Q8 定点，无浮点）：
+加速度（`usb_mouse.c`，Q8 定点，无浮点）。阈值是**速度**（px / 10 ms），不是
+"每 tick 位移" —— 采样率变过两次（84 Hz → 172 Hz），按 tick 判档会让同样的手速
+掉出高速档：
 
-| 单 tick 位移量 | 增益 | 用途 |
+| 速度（px / 10 ms） | 增益 | 用途 |
 |---|---|---|
-| 1–4 px | 1.25× | 精确点选 |
-| 5–11 px | 1.75× | 常规移动 |
-| ≥ 12 px | 2.50× | 快速甩动（480 px 宽的板子要跨 1920 px 桌面） |
+| < 5 | 1.25× | 精确点选 |
+| 5–11 | 1.75× | 常规移动 |
+| ≥ 12 | 2.50× | 快速甩动（456 px 宽的板子要跨 1920 px 桌面） |
 
 累积器是 Q8（1/256 px），**亚像素余量跨报告保留**，慢速拖动不会因为取整而丢失位移；
 单份报告最多 ±127 px，超出的部分留在累积器里下一份继续发。
+
+#### 跟手优化：四个延迟源
+
+| # | 原来的问题 | 实测 | 改法 |
+|---|---|---|---|
+| 1 | 鼠标 delta 在 UI 循环里算，被整屏 flush 阻塞 | UI **84 Hz**，抖动 12–40 ms | 移到 `touch_task`（`app/trackpad.c`），采样即发 |
+| 2 | HID 端点 `bInterval = 8 ms` | 光标上限 **125 Hz** | 改 `1 ms`（全速鼠标的标准值） |
+| 3 | 触摸轮询 `TOUCH_POLL_MS = 10` | 采样 ~91 Hz | 改 `5 ms`（scan 实测 793 µs，占 ~14 % CPU） |
+| 4 | `bsp_delay_us()` 每次都清 `DWT->CYCCNT` | 破坏所有基于周期计数的耗时测量 | 只启动一次，不再清零 |
+
+改完实测：UI 循环 **172 Hz**（不再影响光标）、触摸采样 ~172 Hz（受限芯片本身的
+100 Hz 刷新率）、报告排队延迟 **1 ms**、端点忙 **0**。
+用 `s` 命令可读：
+
+```
+[PERF] ui=172Hz touch_scan=2717 us=793 send=17181 ep_busy=0 lat=1ms clk=168MHz
+[PAD ] feeds=2716 moves=0 clicks=0 drop=0
+```
+
+`us` 是单次 `bsp_touch_scan()` 的平均耗时，`lat` 是从 `usb_mouse_move*()` 到报告
+真正发出的平均等待，`ep_busy` 是因主机未取走而放弃的次数。
+
+> 再往下压只能改 GT911 的刷新率寄存器（默认 10 ms）或把 I2C 半周期从 3 µs 调到
+> 2 µs，收益都在 20 % 以内，且要动芯片配置表，暂不做。
+
 
 ### 3.4 三个玻璃键（左 / 中 / 右）
 
@@ -289,12 +317,12 @@ openocd -f openocd.cfg -c "program build/stm32f429_touchpad.elf verify reset exi
 
 | 项目 | Debug | Release（无日志） |
 |------|-------|------------------|
-| FLASH | 240 268 B / 1 MB（**22.91 %**） | 269 656 B / 1 MB（**25.72 %**） |
-| 内部 RAM（.data + .bss） | 28 592 B / 192 KB（**14.54 %**） | 28 600 B / 192 KB（**14.55 %**） |
+| FLASH | 241 668 B / 1 MB（**23.05 %**） | 270 984 B / 1 MB（**25.84 %**） |
+| 内部 RAM（.data + .bss） | 28 952 B / 192 KB（**14.73 %**） | 28 960 B / 192 KB（**14.73 %**） |
 | SDRAM | 512 KB（FreeRTOS 堆，NOLOAD）+ 256 KB（LVGL 堆，固定地址） | 同左 |
 | FreeRTOS 堆内的运行期分配 | 显示缓冲 57 KB + 任务栈 ~15 KB + 轨迹缓冲 | 同左 |
 
-> 两档都是 `-Wall -Wextra` **零警告**。相比纯触摸板版本（229 KB）多出的 ~11 KB 就是
+> 两档都是 `-Wall -Wextra` **零警告**。相比纯触摸板版本（229 KB）多出的 ~12 KB 就是
 > TinyUSB device 栈 + HID 类 + DWC2 端口。中文字库仍然 0 字节进 Flash。
 
 ---
@@ -348,7 +376,7 @@ USB\VID_0483&PID_5720\105000000001  Class = HIDClass  Status = OK
 
 ```
 app/     main.c  usb_mouse.c  usb_descriptors.c  tusb_config.h
-         touch_task.c  gesture.c  app_ui.c  ui_task.c
+         trackpad.c  touch_task.c  gesture.c  app_ui.c  ui_task.c
          sd_card.c  fs_diskio.c  image_sd.c  log.c  sdram_heap.c
          stm32f4xx_it.c  stm32f4xx_hal_timebase_tim.c  FreeRTOSConfig.h
 bsp/     bsp_usb_hw.c  bsp_lcd.c  bsp_lcd_text.c  lcd_ascii_font.c
@@ -379,15 +407,19 @@ tools/   img2bin.py  gbk_font_gen.py  serial_capture.py  serial_verify.py
 | SD 卡 / 字库 | 30436 MB；`mask=0x1F`（UNIGBK+GBK12/16/24/32 全在） |
 | 触摸 IC | GT911，addr=0x14，cfg=0x51，480×800；`irq` 持续增长 |
 | 串口命令 | `PASS 17 / FAIL 0` |
+| 跟手延迟 | UI 循环 172 Hz、扫描 793 µs、报告排队 1 ms、端点忙 0 |
 
 仍需**手感确认**（SWD 与串口都替代不了）：
 
-1. **触摸板方向盘**：手指向右滑，PC 光标应向右。若方向相反或轴互换，改
+1. **跟手程度**：手指在触摸区慢速滑动，光标应该贴合手指、没有"追赶"的拖尾感。
+   若仍觉得迟滞，先看 `s` 的 `[PAD ] moves=` 是否随手指增长 —— 不增长说明
+   `trackpad` 没收到样本（触摸板区域没注册或被按键抢占）。
+2. **触摸板方向盘**：手指向右滑，PC 光标应向右。若方向相反或轴互换，改
    `bsp/bsp_touch.h` 的 `TOUCH_SWAP_XY / TOUCH_INVERT_X / TOUCH_INVERT_Y`
    （当前日志是 `swap=0 invX=0 invY=0`）。
-2. **灵敏度**：默认 1.25× / 1.75× / 2.5× 三段。觉得慢就整体乘一个系数
-   （`usb_mouse.c` 的 `GAIN_*_Q8`），Windows 侧"提高指针精确度"也会叠加加速。
-3. **三个玻璃键**：按住左键拖动图标试试；手指滑出按钮应立即松开（`PRESS_LOST`）。
-4. **手势区**：双指上下/左右滑应显示"滚轮未启用"，不产生滚轮报告（符合当前需求）。
-5. **滚轮**（下一步）：在 `usb_descriptors.c` 描述符尾部加 HID Usage `0x38`（Wheel），
+3. **灵敏度**：默认 1.25× / 1.75× / 2.5× 三段（按 px/10 ms 判档）。觉得慢就整体乘一个
+   系数（`usb_mouse.c` 的 `GAIN_*_Q8`），Windows 侧"提高指针精确度"也会叠加加速。
+4. **三个玻璃键**：按住左键拖动图标试试；手指滑出按钮应立即松开（`PRESS_LOST`）。
+5. **手势区**：双指上下/左右滑应显示"滚轮未启用"，不产生滚轮报告（符合当前需求）。
+6. **滚轮**（下一步）：在 `usb_descriptors.c` 描述符尾部加 HID Usage `0x38`（Wheel），
    报告加第 4 字节；`gesture` 的 `SCROLL` 事件已经带 ±格数，接上即可。

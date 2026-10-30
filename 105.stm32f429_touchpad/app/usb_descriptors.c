@@ -105,10 +105,16 @@ static uint8_t const desc_configuration[] =
      * requesting the HID report descriptor. */
     TUD_CONFIG_DESCRIPTOR(1, 1, 0, CONFIG_TOTAL_LEN, 0, 100U),
 
-    /* interface, string index, boot protocol, report length, endpoint */
+    /* interface, string index, boot protocol, report length, endpoint.
+     *
+     * The last argument is bInterval.  It was 8 ms, which capped the pointer at
+     * 125 Hz no matter how fast the touch side sampled - the host only fetches
+     * one report per polling interval.  A mouse is a 1 ms device on full-speed
+     * USB, so ask for 1 ms: the worst-case USB-side latency drops from 8 ms to
+     * 1 ms and motion becomes visibly smoother. */
     TUD_HID_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_NONE,
                        sizeof(desc_hid_report), EPNUM_HID,
-                       CFG_TUD_HID_EP_BUFSIZE, 8)
+                       CFG_TUD_HID_EP_BUFSIZE, 1)
 };
 
 /* ---- Callbacks ------------------------------------------------------------ */

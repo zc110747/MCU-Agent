@@ -27,6 +27,48 @@ static SemaphoreHandle_t s_touch_sem = NULL;
 
 static volatile uint32_t s_irq_count = 0U;
 
+/* Instrumentation: how often the bus is scanned and how long a scan takes.
+ * Both are cheap (one word each) and answer the "is it the I2C or the render
+ * pump?" question without a logic analyser.  DWT->CYCCNT runs at the core
+ * clock, so cycles / (SystemCoreClock/1e6) = microseconds on this board.
+ * The average is taken over a 1024-sample window so the 32-bit cycle counter
+ * cannot wrap into a bogus value (it would after ~25 s at 168 MHz). */
+static volatile uint32_t s_scan_total = 0U;
+static volatile uint32_t s_win_count  = 0U;
+static volatile uint32_t s_win_cycles = 0U;
+static volatile uint32_t s_scan_us    = 0U;
+static uint8_t s_dwt_ready = 0U;
+
+static void touch_dwt_enable(void)
+{
+    /* bsp_delay_us() normally gets here first (the I2C bus init sleeps 20 ms),
+     * so only make sure the counter runs.  Never reset CYCCNT from here: it is
+     * the time base used to measure the scan duration itself. */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+    s_dwt_ready = 1U;
+}
+
+static void touch_scan_account(uint32_t t0)
+{
+    s_scan_total++;
+
+    if (s_dwt_ready == 0U)
+    {
+        return;
+    }
+
+    s_win_cycles += (DWT->CYCCNT - t0);
+    s_win_count++;
+
+    if (s_win_count >= 1024U)
+    {
+        s_scan_us    = (s_win_cycles / s_win_count) / (SystemCoreClock / 1000000U);
+        s_win_count  = 0U;
+        s_win_cycles = 0U;
+    }
+}
+
 /* Latest contact published to LVGL (see bsp_touch_get). */
 static volatile uint16_t s_last_x = 0U;
 static volatile uint16_t s_last_y = 0U;
@@ -190,6 +232,11 @@ int bsp_touch_init(void)
     s_max_x = 1U;
     s_max_y = 1U;
 
+    if (s_dwt_ready == 0U)
+    {
+        touch_dwt_enable();
+    }
+
     if (s_touch_sem == NULL)
     {
         s_touch_sem = xSemaphoreCreateBinary();
@@ -247,6 +294,7 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
     uint8_t limit = max;
     int n;
     uint8_t i;
+    uint32_t t0 = (s_dwt_ready != 0U) ? DWT->CYCCNT : 0U;
 
     if ((bsp_gt9147_is_ready() == 0) || (pts == NULL) || (max == 0U))
     {
@@ -265,6 +313,7 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
     if (n < 0)
     {
         s_last_pressed = 0U;
+        touch_scan_account(t0);
         return -1;
     }
 
@@ -286,6 +335,8 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
         s_last_pressed = 0U;
     }
 
+    touch_scan_account(t0);
+
     return n;
 }
 
@@ -299,4 +350,14 @@ void bsp_touch_get(uint16_t *x, uint16_t *y, uint8_t *pressed)
 uint32_t bsp_touch_irq_count(void)
 {
     return s_irq_count;
+}
+
+uint32_t bsp_touch_scan_count(void)
+{
+    return s_scan_total;
+}
+
+uint32_t bsp_touch_scan_avg_us(void)
+{
+    return s_scan_us;
 }

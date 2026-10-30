@@ -23,14 +23,11 @@
  *
  *  Input model
  *  -----------
- *  Two consumers read the same touch sample (bsp_touch_get()):
- *    - this file: samples the first contact every UI tick, and while it is
- *      inside the pad converts sample-to-sample deltas into relative mouse
- *      motion (usb_mouse_move).  Sampling here instead of using the gesture
- *      events keeps the pointer at the UI tick rate instead of the gesture
- *      engine's 2 px threshold, which matters for precise positioning.
- *    - LVGL's pointer indev: hit-tests the three buttons, so pressing one sets
- *      the matching HID button bit and releasing it clears it again.
+ *  trackpad.c owns the pointer: it is fed from touch_task, i.e. from the
+ *  T_PEN-driven sampling loop, and turns sample-to-sample deltas into HID
+ *  reports.  This file only paints the feedback (dot + trail) from what
+ *  trackpad_poll() hands over, so a slow render pass cannot delay the cursor.
+ *  LVGL's pointer indev keeps hit-testing the three glass buttons.
  *
  *  The gesture engine still runs (touch_task feeds it) and its events are used
  *  for the counters / the two-finger readout only - no wheel yet, by design.
@@ -54,6 +51,7 @@
 #include "bsp_lcd_text.h"
 #include "bsp_touch.h"
 #include "usb_mouse.h"
+#include "trackpad.h"
 #include "log.h"
 
 /* -------------------------------------------------------------------------- */
@@ -128,15 +126,12 @@ static lv_point_t s_trail_pts[TRAIL_MAX];
 static uint16_t   s_trail_n = 0U;
 static uint32_t   s_trail_clear_at = 0U;
 
-static uint8_t  s_pad_active = 0U;
-static int32_t  s_pad_last_x = 0;
-static int32_t  s_pad_last_y = 0;
-
 /* A serial command can "tap" a button: hold it for a moment, then release. */
 static uint8_t  s_pulse_mask  = 0U;
 static uint32_t s_pulse_until = 0U;
 
 static uint32_t s_loop_count = 0U;
+static uint32_t s_ui_hz      = 0U;
 static uint32_t s_rate_mark  = 0U;
 static uint32_t s_stat_mark  = 0U;
 static uint32_t s_key_mark   = 0U;
@@ -224,34 +219,20 @@ static void dot_hide(void)
     }
 }
 
-/** @retval 1 when the screen point is inside the pad, with pad-local coords. */
-static int pad_local(uint16_t ax, uint16_t ay, int32_t *lx, int32_t *ly)
-{
-    int32_t x = (int32_t)ax - PAD_X;
-    int32_t y = (int32_t)ay - PAD_Y;
-
-    if ((x < 0) || (y < 0) || (x >= PAD_W) || (y >= PAD_H))
-    {
-        return 0;
-    }
-    *lx = x;
-    *ly = y;
-    return 1;
-}
-
 /**
- * @brief  Sample the first contact and turn pad motion into HID deltas.
+ * @brief  Paint the pointer feedback that trackpad.c produced.
  *
- *  Called once per UI tick (~5 ms) so the pointer tracks the finger far more
- *  smoothly than the gesture engine's quantised MOVE events would allow.
+ *  The motion itself is NOT computed here any more: trackpad_feed() runs in the
+ *  touch task and pushes HID deltas the moment the controller answers, so the
+ *  cursor no longer waits for an LVGL render pass (that pump measured 84 Hz on
+ *  this board, with 12..40 ms of jitter, which is exactly what "not following
+ *  the finger" felt like).  This function only drains the visual state, which
+ *  may lag without anybody noticing.
  */
 static void poll_trackpad(uint32_t now)
 {
-    uint16_t tx = 0U;
-    uint16_t ty = 0U;
-    uint8_t  pressed = 0U;
-    int32_t  lx;
-    int32_t  ly;
+    trackpad_visual_t vis;
+    uint8_t i;
 
     /* Fade the trail out after the finger lifts. */
     if ((s_trail_n > 0U) && (s_trail_clear_at != 0U)
@@ -261,46 +242,30 @@ static void poll_trackpad(uint32_t now)
         s_trail_clear_at = 0U;
     }
 
-    bsp_touch_get(&tx, &ty, &pressed);
+    trackpad_poll(&vis);
 
-    if ((pressed != 0U) && (pad_local(tx, ty, &lx, &ly) != 0))
+    if (vis.started != 0U)
     {
-        if (s_pad_active == 0U)
-        {
-            s_pad_active = 1U;
-            s_pad_last_x = lx;
-            s_pad_last_y = ly;
-            trail_reset();
-            trail_add(lx, ly);
-            dot_show(lx, ly);
-        }
-        else
-        {
-            int32_t dx = lx - s_pad_last_x;
-            int32_t dy = ly - s_pad_last_y;
-
-            /* s_pad_active only becomes 1 for a contact that started inside the
-             * pad, so a finger dragging off one of the glass buttons can never
-             * move the pointer. */
-            if ((dx != 0) || (dy != 0))
-            {
-                usb_mouse_move((int16_t)dx, (int16_t)dy);
-                s_pad_last_x = lx;
-                s_pad_last_y = ly;
-                trail_add(lx, ly);
-                dot_show(lx, ly);
-            }
-        }
+        trail_reset();
     }
-    else if (s_pad_active != 0U)
+
+    for (i = 0U; i < vis.n; i++)
     {
-        s_pad_active = 0U;
+        trail_add(vis.tx[i], vis.ty[i]);
+    }
+
+    if (vis.active != 0U)
+    {
+        dot_show(vis.x, vis.y);
+    }
+    else if (vis.ended != 0U)
+    {
         dot_hide();
         s_trail_clear_at = now + TRAIL_LINGER_MS;
     }
     else
     {
-        /* Nothing to do: the pad is idle. */
+        /* idle */
     }
 }
 
@@ -477,8 +442,8 @@ void app_ui_boot(const char *ascii_msg)
     s_btn_obj[1]    = NULL;
     s_btn_obj[2]    = NULL;
     s_trail_n       = 0U;
-    s_pad_active    = 0U;
     s_pulse_mask    = 0U;
+    trackpad_clear_area();
 
     label = lv_label_create(s_scr);
     lv_label_set_text(label, ascii_msg);
@@ -514,8 +479,11 @@ void app_ui_create(void)
     }
 
     s_trail_n    = 0U;
-    s_pad_active = 0U;
     s_pulse_mask = 0U;
+
+    /* Tell the pointer engine where the touch surface is.  Until this call
+     * every sample is ignored (splash / boot screens). */
+    trackpad_set_area(PAD_X, PAD_Y, PAD_W, PAD_H);
 
     /* ---- Header ---------------------------------------------------------- */
     label = make_label(s_scr, &lv_font_gbk_24, C_TEXT);
@@ -685,6 +653,7 @@ void app_ui_poll(void)
     {
         uint32_t rate = s_loop_count * 1000U / (now - s_rate_mark);
 
+        s_ui_hz = rate;
         lv_label_set_text_fmt(s_rate_label, "UI %lu Hz", (unsigned long)rate);
         s_loop_count = 0U;
         s_rate_mark  = now;
@@ -713,16 +682,28 @@ static void report_status(void)
 {
     gesture_status_t   st;
     usb_mouse_status_t ms;
+    trackpad_stats_t   tp;
     uint32_t total_mb = 0U;
     uint32_t used_mb  = 0U;
 
     gesture_get_status(&st);
     usb_mouse_get_status(&ms);
+    trackpad_get_stats(&tp);
     (void)sd_card_usage_mb(&total_mb, &used_mb);
 
     PRINT_LOG("[USB ] mounted=%u suspended=%u buttons=0x%02X reports=%lu\r\n",
               (unsigned int)ms.mounted, (unsigned int)ms.suspended,
               (unsigned int)ms.buttons, (unsigned long)ms.reports);
+    PRINT_LOG("[PERF] ui=%luHz touch_scan=%lu us=%lu send=%lu ep_busy=%lu lat=%lums clk=%luMHz\r\n",
+              (unsigned long)s_ui_hz,
+              (unsigned long)bsp_touch_scan_count(),
+              (unsigned long)bsp_touch_scan_avg_us(),
+              (unsigned long)ms.tries, (unsigned long)ms.endpoint_busy,
+              (unsigned long)ms.lat_avg_ms,
+              (unsigned long)(SystemCoreClock / 1000000U));
+    PRINT_LOG("[PAD ] feeds=%lu moves=%lu clicks=%lu drop=%lu\r\n",
+              (unsigned long)tp.feeds, (unsigned long)tp.moves,
+              (unsigned long)tp.clicks, (unsigned long)tp.dropped);
     PRINT_LOG("[MOVE] x=%ld y=%ld\r\n", (long)ms.x_total, (long)ms.y_total);
     PRINT_LOG("[SD  ] %s %lu/%lu MB\r\n",
               (sd_card_is_ready() != 0) ? "0: mounted" : "0: absent",

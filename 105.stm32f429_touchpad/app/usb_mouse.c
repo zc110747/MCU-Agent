@@ -36,8 +36,20 @@ static volatile uint8_t  s_buttons  = 0;
 static volatile uint8_t  s_mounted  = 0;
 static volatile uint8_t  s_suspended = 0;
 static volatile uint32_t s_reports  = 0;
+static volatile uint32_t s_tries    = 0;   /* mouse_send() calls               */
+static volatile uint32_t s_endpoint_busy = 0; /* host had not fetched the last one */
 static volatile int32_t  s_total_x  = 0;
 static volatile int32_t  s_total_y  = 0;
+
+/* End-to-end latency: how long a delta waits between usb_mouse_move*() and the
+ * report that carries it.  Tick based (1 ms at configTICK_RATE_HZ = 1000),
+ * which is coarse but cannot underflow: the DWT cycle counter is reset by the
+ * touch task during init, so a stamp taken before that turned into a 16 s
+ * artefact that poisoned the average. */
+static volatile TickType_t s_pend_tick = 0;
+static volatile uint8_t  s_pend_valid = 0;
+static volatile uint32_t s_lat_ms_sum = 0;
+static volatile uint32_t s_lat_n      = 0;
 
 /* Report-only copy of the button mask (task context, no locking needed). */
 static uint8_t s_sent_buttons = 0;
@@ -45,12 +57,19 @@ static uint8_t s_sent_buttons = 0;
 /* ---- Acceleration --------------------------------------------------------- */
 /* Three steps, expressed in Q8: 1.25x / 1.75x / 2.50x.  A 456 px wide pad has
  * to cross a 1920 px desktop, so fast flicks need the higher taps while slow
- * positioning stays near 1:1. */
+ * positioning stays near 1:1.
+ *
+ * The thresholds are a SPEED, not a per-sample distance: they are evaluated as
+ * "pixels per ACC_REF_MS".  Sampling got faster over time (the pointer used to
+ * be driven at ~84 Hz by the LVGL pump, it now runs at ~200 Hz from the touch
+ * task), and with a per-sample threshold the same finger speed would fall out
+ * of the high tap just because the samples became smaller. */
 #define GAIN_SLOW_Q8     320
 #define GAIN_MED_Q8      448
 #define GAIN_FAST_Q8     640
-#define GAIN_FAST_MAG    12
+#define GAIN_FAST_MAG    12        /* px per ACC_REF_MS */
 #define GAIN_MED_MAG     5
+#define ACC_REF_MS       10U
 
 /* -------------------------------------------------------------------------- */
 /* Report pump                                                                */
@@ -64,8 +83,12 @@ static void mouse_send(void)
 
     if (!tud_hid_ready())
     {
+        s_tries++;
+        s_endpoint_busy++;
         return;
     }
+
+    s_tries++;
 
     taskENTER_CRITICAL();
     btn = s_buttons;
@@ -98,6 +121,19 @@ static void mouse_send(void)
         s_reports++;
         s_total_x += dx;
         s_total_y += dy;
+        if (s_pend_valid != 0U)
+        {
+            uint32_t waited = (uint32_t)(xTaskGetTickCount() - s_pend_tick);
+
+            /* A gap longer than 100 ms means the host was not fetching (unplug,
+             * suspend): drop it instead of letting one sample skew the mean. */
+            if (waited <= 100U)
+            {
+                s_lat_ms_sum += waited;
+                s_lat_n++;
+            }
+            s_pend_valid = 0U;
+        }
         taskEXIT_CRITICAL();
 
         s_sent_buttons = btn;
@@ -147,7 +183,10 @@ void usb_mouse_task(void *arg)
 
     for (;;)
     {
-        tud_task_ext(5U, false);
+        /* 2 ms, not 5: the endpoint is polled every 1 ms now, so a slower pump
+         * would leave the report sitting in the accumulator for up to five
+         * frames - half the latency budget spent for no benefit. */
+        tud_task_ext(2U, false);
 
         s_mounted = (uint8_t)(tud_mounted() ? 1U : 0U);
 
@@ -158,7 +197,7 @@ void usb_mouse_task(void *arg)
     }
 }
 
-void usb_mouse_move(int16_t dx, int16_t dy)
+void usb_mouse_move_ex(int16_t dx, int16_t dy, uint32_t dt_ms)
 {
     int32_t mag;
     int32_t gain_q8;
@@ -168,8 +207,20 @@ void usb_mouse_move(int16_t dx, int16_t dy)
         return;
     }
 
+    if (dt_ms == 0U)
+    {
+        dt_ms = 1U;
+    }
+    if (dt_ms > 100U)
+    {
+        /* A stalled loop must not look like a flick: clamp the reference to
+         * 100 ms so a 2 px delta after a hiccup stays in the slow tap. */
+        dt_ms = 100U;
+    }
+
     mag = ((dx < 0) ? -(int32_t)dx : (int32_t)dx)
         + ((dy < 0) ? -(int32_t)dy : (int32_t)dy);
+    mag = (mag * (int32_t)ACC_REF_MS) / (int32_t)dt_ms;
 
     if (mag >= GAIN_FAST_MAG)
     {
@@ -185,9 +236,22 @@ void usb_mouse_move(int16_t dx, int16_t dy)
     }
 
     taskENTER_CRITICAL();
+    /* Start the latency clock only when motion begins, i.e. when nothing was
+     * already queued.  A remainder keeps the original stamp so the measurement
+     * covers the whole wait, not just the last sample. */
+    if (s_pend_valid == 0U)
+    {
+        s_pend_tick  = xTaskGetTickCount();
+        s_pend_valid = 1U;
+    }
     s_acc_x_q8 += (int32_t)dx * gain_q8;
     s_acc_y_q8 += (int32_t)dy * gain_q8;
     taskEXIT_CRITICAL();
+}
+
+void usb_mouse_move(int16_t dx, int16_t dy)
+{
+    usb_mouse_move_ex(dx, dy, ACC_REF_MS);
 }
 
 void usb_mouse_set_button(uint8_t mask, int pressed)
@@ -233,6 +297,9 @@ void usb_mouse_get_status(usb_mouse_status_t *out)
     out->suspended = s_suspended;
     out->buttons   = s_buttons;
     out->reports   = s_reports;
+    out->tries     = s_tries;
+    out->endpoint_busy = s_endpoint_busy;
+    out->lat_avg_ms = (s_lat_n != 0U) ? (s_lat_ms_sum / s_lat_n) : 0U;
     out->x_total   = s_total_x;
     out->y_total   = s_total_y;
     taskEXIT_CRITICAL();

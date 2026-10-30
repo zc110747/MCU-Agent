@@ -13,15 +13,23 @@
 /* Above the UI pump so a press is published before the next LVGL read. */
 #define TOUCH_TASK_PRIO          (tskIDLE_PRIORITY + 4U)
 
-/* Poll period while a contact is being tracked (~100 Hz, matches the panel). */
-#define TOUCH_POLL_MS            10U
+/* Poll period while a contact is being tracked.  The GT9147 refreshes its
+ * coordinates every ~10 ms, so ~5 ms is enough to pick up every new frame with
+ * at most half a frame of phase error; a longer period directly shows up as
+ * pointer lag, because this loop is what feeds usb_mouse_move().
+ *
+ * The bit-banged I2C burst costs ~0.6 ms per single-contact scan, i.e. ~12 % of
+ * one core at this rate.  Do not go below 4 ms: the bus is polled, not DMA'd. */
+#define TOUCH_POLL_MS            5U
 
-/* Consecutive empty polls before the contact counts as finished. */
-#define TOUCH_RELEASE_POLLS      3U
+/* Consecutive empty polls before the contact counts as finished (4 x 5 ms).
+ * Three was too tight: the controller can report a stale contact for one
+ * frame after the finger is gone, which produced phantom 1 px jumps. */
+#define TOUCH_RELEASE_POLLS      4U
 
-/* Upper bound on one contact (400 x 10 ms = 4 s) so a phantom contact can never
+/* Upper bound on one contact (800 x 5 ms = 4 s) so a phantom contact can never
  * keep this task spinning for ever. */
-#define TOUCH_MAX_POLLS          400U
+#define TOUCH_MAX_POLLS          800U
 
 /* Safety-net wake-up while idle.  The T_PEN interrupt is the real trigger; this
  * timeout keeps touch working (slower) if the INT line is not wired. */

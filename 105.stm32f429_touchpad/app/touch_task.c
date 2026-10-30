@@ -27,6 +27,7 @@
 
 #include "bsp_touch.h"
 #include "gesture.h"
+#include "trackpad.h"
 
 #include "touch_task.h"
 #include "log.h"
@@ -99,6 +100,10 @@ void touch_task(void *arg)
                               "- recovering\r\n", (unsigned long)polls);
                     err_logged = 1U;
                 }
+
+                /* Do not leave the pointer logically pressed: the host would
+                 * keep whatever button state we last reported. */
+                trackpad_feed(0U, 0U, 0U);
                 break;
             }
 
@@ -107,6 +112,18 @@ void touch_task(void *arg)
             {
                 pts[i].x = raw[i].x;
                 pts[i].y = raw[i].y;
+            }
+
+            /* Pointer first: it is what the user feels.  The gesture engine
+             * runs afterwards because its state machine costs more than the
+             * two comparisons trackpad_feed() does. */
+            if (cnt > 0U)
+            {
+                trackpad_feed(raw[0].x, raw[0].y, 1U);
+            }
+            else
+            {
+                trackpad_feed(0U, 0U, 0U);
             }
 
             gesture_feed(HAL_GetTick(), pts, cnt);

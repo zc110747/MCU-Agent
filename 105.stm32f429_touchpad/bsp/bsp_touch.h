@@ -114,6 +114,12 @@ void bsp_touch_irq_rearm(void);
 /** Number of T_PEN interrupts seen since boot (storm / wiring diagnostics). */
 uint32_t bsp_touch_irq_count(void);
 
+/** Monotonic count of bsp_touch_scan() calls (sampling-rate diagnostics). */
+uint32_t bsp_touch_scan_count(void);
+
+/** Rolling average duration of one bsp_touch_scan(), in microseconds. */
+uint32_t bsp_touch_scan_avg_us(void);
+
 #ifdef __cplusplus
 }
 #endif
