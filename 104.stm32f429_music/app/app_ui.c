@@ -126,6 +126,23 @@ static lv_obj_t *s_screen_usb = NULL;
 /* Last USB state painted, so the screens are swapped on transition only. */
 static USB_MSC_STATE_T s_shown_usb_state = USB_MSC_STATE_IDLE;
 
+/* Diagnostic build: the transfer page is left alone so the USB hand-over state
+ * machine can be observed on its own.  Nothing in this path touches the SD card
+ * (no font reopen, no playlist rescan), so whatever the trace shows is the USB
+ * logic itself.  Set to 1 to bring the page switching back. */
+#define UI_USB_PAGE_SWITCH 1
+
+/* Leaving the transfer page must NOT wait on the SD card: the host may have
+ * replaced or removed anything on it, including the GBK glyph files, and every
+ * re-read goes through SDIO where a stuck transfer costs hundred of ms.  The
+ * page is therefore swapped first and the fonts are reopened with this bounded
+ * wait; on timeout the loader retries by itself from the glyph read path. */
+#define UI_FONT_REOPEN_LOCK_MS 200U
+
+#if !UI_USB_PAGE_SWITCH
+static TickType_t s_usb_trace_tick = 0U;
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -468,6 +485,7 @@ static void ui_task(void *arg)
          * as the host has enumerated us, and goes away when the cable is
          * pulled.  Both edges are the only place the pages are swapped. */
         usb_state = usb_msc_state();
+#if UI_USB_PAGE_SWITCH
         if (usb_state != s_shown_usb_state)
         {
             if (usb_state == USB_MSC_STATE_ACTIVE)
@@ -484,20 +502,59 @@ static void ui_task(void *arg)
             }
             else
             {
-                /* The host may have replaced or removed anything on the card,
-                 * including the GBK glyph files: reopen them and drop the
-                 * cached glyph bitmaps before the player page is drawn. */
-                if (sd_card_is_ready() != 0)
-                {
-                    (void)lcd_driver_font_init(FS_VOL_SD);
-                }
+                /* Order matters.  The host may have replaced or removed
+                 * anything on the card, including the GBK glyph files, so the
+                 * cached glyph bitmaps belong to the previous contents and are
+                 * dropped first.  Then the page is swapped -- that is a pure
+                 * LVGL operation and cannot block -- and only afterwards are
+                 * the font files reopened, with a bounded wait.  Reopening
+                 * needs the FatFs lock plus a handful of SDIO reads, and that
+                 * is exactly where the page swap used to get stuck. */
                 lv_font_gbk_reset_cache();
+
                 lv_obj_clear_flag(s_screen_player, LV_OBJ_FLAG_HIDDEN);
                 lv_scr_load(s_screen_player);
                 lv_obj_add_flag(s_screen_usb, LV_OBJ_FLAG_HIDDEN);
+
+                if (sd_card_is_ready() != 0)
+                {
+                    if (lcd_driver_font_init_timeout(FS_VOL_SD,
+                                                     UI_FONT_REOPEN_LOCK_MS) != RT_OK)
+                    {
+                        /* Card busy or glyph files gone: the player page is
+                         * already up, Chinese text stays blank and the loader
+                         * retries from the draw path. */
+                        PRINT_LOG("[UI  ] font reopen deferred, will retry on draw\r\n");
+                    }
+                }
             }
             s_shown_usb_state = usb_state;
         }
+#else
+        /* Page switching disabled: log every edge and one snapshot every 2 s.
+         * No SD card access happens here, so the trace is purely the USB state
+         * machine -- which is what we want to check before the page logic is
+         * allowed back in. */
+        if (usb_state != s_shown_usb_state)
+        {
+            if (usb_state == USB_MSC_STATE_ACTIVE)
+            {
+                /* Keep the widgets' data fresh (this only reads the snapshot
+                 * taken at hand-over, no SD card access) but do not swap. */
+                update_usb_screen();
+            }
+            PRINT_LOG("[UI  ] usb state -> %s (page switch disabled)\r\n",
+                      (usb_state == USB_MSC_STATE_ACTIVE) ? "ACTIVE" : "IDLE");
+            s_shown_usb_state = usb_state;
+            usb_msc_debug_dump();
+            s_usb_trace_tick = xTaskGetTickCount();
+        }
+        else if ((xTaskGetTickCount() - s_usb_trace_tick) >= pdMS_TO_TICKS(2000U))
+        {
+            s_usb_trace_tick = xTaskGetTickCount();
+            usb_msc_debug_dump();
+        }
+#endif
 
         if (usb_state == USB_MSC_STATE_ACTIVE)
         {

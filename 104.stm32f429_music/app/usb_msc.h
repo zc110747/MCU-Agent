@@ -45,6 +45,14 @@ USB_MSC_STATE_T usb_msc_state(void);
  */
 void usb_msc_capacity_mb(uint32_t *total_mb, uint32_t *used_mb);
 
+/**
+ * @brief  Print one line of hand-over state: state / card ownership / bus
+ *         presence / SCSI command count / time since the last SCSI command.
+ *         Used while the page switch is disabled to see whether the state
+ *         machine itself is behaving.
+ */
+void usb_msc_debug_dump(void);
+
 #ifdef __cplusplus
 }
 #endif

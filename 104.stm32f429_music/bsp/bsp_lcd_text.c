@@ -22,9 +22,17 @@
 #include <string.h>
 #include <stdio.h>
 #include "log.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #define FONT_NUMS 5
 #define FONT_MAX_BYTES 192 /* 32x32 needs 128, leave headroom */
+/* Lock wait used by the on-demand retry inside the glyph path: long enough for
+ * an SDIO sector read to finish, far too short to park the UI task. */
+#define FONT_RETRY_LOCK_MS 20u
+/* Minimum spacing between two on-demand retries, so a card that really has no
+ * font files cannot flood the bus with f_open() attempts. */
+#define FONT_RETRY_PERIOD_MS 3000u
 
 /* Index into font_name[] / fil_list[] */
 #define FONT_IDX_UNIGBK 0
@@ -50,6 +58,12 @@ typedef struct
 
 static FONT_STATE_T s_font = {0};
 
+/* Volume a bounded-wait open wanted but could not get the FatFs lock for.
+ * Kept so the glyph read path can retry on demand. */
+static char s_font_want[4] = {0};
+static volatile uint8_t s_font_stale = 0U;
+static TickType_t s_font_retry_tick = 0U;
+
 /* File basenames, appended to whichever volume the loader picked
  * ("0:" = microSD). */
 static const char *font_name[FONT_NUMS] = {
@@ -72,12 +86,12 @@ const char *lcd_driver_font_source(void)
  * @brief  Close any previously opened font files before (re)opening them on
  *         another volume.  Without this a volume switch would leak the old
  *         FIL objects.
+ * @note   Caller must hold the FatFs lock.
  */
-static void font_close_all(void)
+static void font_close_all_locked(void)
 {
     uint8_t index;
 
-    fs_lock();
     for (index = 0; index < FONT_NUMS; index++)
     {
         if (s_font.fs_info.fil_valid[index] != 0u)
@@ -85,40 +99,53 @@ static void font_close_all(void)
             (void)f_close(&s_font.fs_info.fil_list[index]);
         }
     }
-    fs_unlock();
-
     memset(&s_font.fs_info, 0, sizeof(s_font.fs_info));
 }
 
 /**
  * @brief  Open every font file we know about on the given volume.
  *
- * @param  vol  FatFs volume prefix, either FS_VOL_SD ("1:") or
- *              FS_VOL_USB ("0:").  The volume must already be mounted by its
- *              owner (app/sd_card.c for the card, usb_host_app.c for the
- *              U-disk): calling f_mount() here would reassign the drive's
- *              FATFS work area while the owner may still be using it.
+ * @param  vol        FatFs volume prefix, either FS_VOL_SD ("0:") or
+ *                    FS_VOL_USB.  The volume must already be mounted by its
+ *                    owner (app/sd_card.c for the card, usb_host_app.c for the
+ *                    U-disk): calling f_mount() here would reassign the
+ *                    drive's FATFS work area while the owner may still be
+ *                    using it.
+ * @param  timeout_ms FONT_LOCK_WAIT_FOREVER, or an upper bound for the lock
+ *                    wait.  On a timeout nothing is closed: the previous
+ *                    handles stay usable and the request is remembered for the
+ *                    on-demand retry in font_read_raw().
+ * @param  verbose    log open failures (startup / explicit init only)
  *
  * @retval RT_OK if at least one GBKxx.FON is available.
  */
-GLOBAL_TYPE_T lcd_driver_font_init(const char *vol)
+static GLOBAL_TYPE_T font_open(const char *vol, uint32_t timeout_ms, uint8_t verbose)
 {
     FRESULT res;
     uint8_t index;
     char    path[48];
 
-    if (vol == NULL)
+    if (vol == NULL || vol[0] == '\0')
     {
         return RT_FAIL;
     }
 
-    font_close_all();
-
-    s_font.volume[0] = '\0';
+    if (timeout_ms == FONT_LOCK_WAIT_FOREVER)
+    {
+        fs_lock();
+    }
+    else if (fs_try_lock(timeout_ms) == 0)
+    {
+        (void)snprintf(s_font_want, sizeof(s_font_want), "%s", vol);
+        s_font_stale = 1U;
+        return RT_FAIL;
+    }
 
     /* The volume is already mounted by its owner, so we only open files here,
      * serialized by the shared FS lock. */
-    fs_lock();
+    font_close_all_locked();
+    s_font.volume[0] = '\0';
+
     for (index = 0; index < FONT_NUMS; index++)
     {
         (void)snprintf(path, sizeof(path), "%s%s", vol, font_name[index]);
@@ -127,7 +154,7 @@ GLOBAL_TYPE_T lcd_driver_font_init(const char *vol)
         {
             s_font.fs_info.fil_valid[index] = 1;
         }
-        else
+        else if (verbose != 0u)
         {
             PRINT_LOG("[FONT] open %s failed rc=%d\r\n", path, (int32_t)res);
         }
@@ -141,11 +168,30 @@ GLOBAL_TYPE_T lcd_driver_font_init(const char *vol)
         s_font.fs_info.fil_valid[FONT_IDX_GBK32])
     {
         s_font.fs_info.mounted = 1U;
+        s_font_stale           = 0U;
         (void)snprintf(s_font.volume, sizeof(s_font.volume), "%s", vol);
         return RT_OK;
     }
 
+    /* Lock was free but the files were not there (card replaced / formatted,
+     * or an SDIO read failed): remember it so the draw path keeps looking. */
+    (void)snprintf(s_font_want, sizeof(s_font_want), "%s", vol);
+    s_font_stale = 1U;
     return RT_FAIL;
+}
+
+GLOBAL_TYPE_T lcd_driver_font_init(const char *vol)
+{
+    return font_open(vol, FONT_LOCK_WAIT_FOREVER, 1u);
+}
+
+GLOBAL_TYPE_T lcd_driver_font_init_timeout(const char *vol, uint32_t timeout_ms)
+{
+    if (timeout_ms == FONT_LOCK_WAIT_FOREVER)
+    {
+        return lcd_driver_font_init(vol);
+    }
+    return font_open(vol, timeout_ms, 0u);
 }
 
 uint32_t lcd_driver_font_status(void)
@@ -257,7 +303,7 @@ static GLOBAL_TYPE_T font_read_raw(const uint8_t *code, uint8_t *dst, const FONT
     foffset = ((uint32_t)190 * qh + ql) * font->sizes;
 
     file_index = font_index_from_height(font->height);
-    if (file_index == 0xFF || !s_font.fs_info.fil_valid[file_index])
+    if (file_index == 0xFF)
     {
         return RT_FAIL;
     }
@@ -266,6 +312,27 @@ static GLOBAL_TYPE_T font_read_raw(const uint8_t *code, uint8_t *dst, const FONT
      * transfer session ends.  A missing glyph is a cosmetic gap; freezing the
      * UI task for minutes is not, so fail fast instead. */
     if (fs_usb_session_active() != 0)
+    {
+        return RT_FAIL;
+    }
+
+    /* On-demand reopen.  lcd_driver_font_init_timeout() gives up when the card
+     * is still busy (a USB session is winding down, the audio stream holds the
+     * lock); the page is shown anyway and Chinese text fills in from here on
+     * the first draw that finds the card free again. */
+    if (!s_font.fs_info.fil_valid[file_index] && s_font_stale != 0U)
+    {
+        TickType_t now = xTaskGetTickCount();
+
+        if ((now - s_font_retry_tick) < pdMS_TO_TICKS(FONT_RETRY_PERIOD_MS))
+        {
+            return RT_FAIL;
+        }
+        s_font_retry_tick = now;
+        (void)font_open(s_font_want, FONT_RETRY_LOCK_MS, 0u);
+    }
+
+    if (!s_font.fs_info.fil_valid[file_index])
     {
         return RT_FAIL;
     }

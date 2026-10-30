@@ -215,7 +215,8 @@ FatFs 与 SDIO 轮询驱动都不可重入，且 SD 卡同一时刻只能有一�
 自己的标志提前撤出，卡在 `fs_lock()` 里的情况只是最后的兜底。
 
 顺带一个副作用：可选的读取方（GBK 字库）在 `fs_usb_session_active()` 时直接
-`RT_FAIL`，字形画成空白，而不是让 UI 任务阻塞整场传输。
+`RT_FAIL`，字形画成空白，而不是让 UI 任务阻塞整场传输。退出去重开字库同理改成
+**带超时 + 绘制路径按需重试**，见 7.4 末尾。
 
 ### 7.3 断开检测
 
@@ -265,6 +266,25 @@ COPY FILES FROM YOUR PC.  UNPLUG THE USB CABLE TO RETURN TO THE PLAYER.
 LVGL 8 的 `lv_obj_area_is_visible()` 会放行 `disp->prev_scr` 上的失效请求，而 `prev_scr`
 要等到下一次 load 才清——播放页那个循环滚动的曲名会一直往传输页上刷脏区。
 
+**退出顺序：先切页，再重开字库。** 主机可能换过卡、删过 `SYSTEM/FONT`，所以缓存
+字形必须先丢；但重开字库要拿 FatFs 锁（USB 会话结束前一直被占着）再读 5 个文件，
+`lcd_driver_font_init()` 是无限等锁的——把它放在 `lv_scr_load()` 前面，UI 任务就会
+停在"画面还是传输页、音乐已经恢复"的状态，这正是"检测到 USB 变化但不切页"的表现。
+
+现在的做法：
+
+```
+lv_font_gbk_reset_cache();                       // 旧卡的字形不能再用
+lv_scr_load(s_screen_player);                    // 切页：纯 LVGL，不会阻塞
+lcd_driver_font_init_timeout(FS_VOL_SD, 200);    // 带超时重开，失败不算错
+```
+
+`lcd_driver_font_init_timeout()` 超时返回 `RT_FAIL` 时**不关已打开的句柄**（状态不破坏），
+只把请求的卷号记进 `s_font_want` 并置 `s_font_stale`；之后每次取字形失败都会**在绘制路径里
+按需重试**（`fs_try_lock(20 ms)`，3 s 内最多一次），所以页面先出来、中文随后补齐，最坏情况
+只是暂时空白，绝不会卡住 UI。`s_font_stale` 在成功打开后自动清零，字库真被删掉时也只留下
+每 3 s 一次的静默尝试。
+
 ### 7.5 代码位置
 
 | 文件 | 职责 |
@@ -274,7 +294,8 @@ LVGL 8 的 `lv_obj_area_is_visible()` 会放行 `disp->prev_scr` 上的失效请
 | `bsp/bsp_usb_device.c` | OTG FS 时钟、PA11/PA12(AF10)、NVIC（优先级 = `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY`） |
 | `app/fs_diskio.c` | `fs_usb_session_begin/end`、`fs_try_lock` |
 | `app/audio_player.c` | `usb_mode` / `parked` 协作与曲目中断 |
-| `app/app_ui.c` | 双屏切换；回播放页时重开字库文件 + 清字形缓存 |
+| `app/app_ui.c` | 双屏切换；先切页再 `lcd_driver_font_init_timeout()` 重开字库 + 清字形缓存 |
+| `bsp/bsp_lcd_text.c` | `lcd_driver_font_init[ _timeout]()`、`s_font_stale`/`s_font_want` 的绘制路径按需重开 |
 
 ## 8. 构建
 

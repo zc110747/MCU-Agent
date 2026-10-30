@@ -54,6 +54,28 @@ extern FONT_T ch_text_font32;
  */
 GLOBAL_TYPE_T lcd_driver_font_init(const char *vol);
 
+/*
+ * Bounded-wait variant of lcd_driver_font_init().
+ *
+ * The FatFs lock is held for the whole duration of a USB mass-storage session,
+ * so lcd_driver_font_init() can block for minutes.  Callers that must not stall
+ * (the UI task right after the transfer page goes away, who would rather paint
+ * the player page first) pass a short timeout instead:
+ *
+ *   - lock acquired  -> behaves exactly like lcd_driver_font_init()
+ *   - lock timeout   -> returns RT_FAIL, the previously open handles stay
+ *                       intact, and the request is remembered.  The glyph read
+ *                       path retries it later, so Chinese text appears as soon
+ *                       as the card is free again.
+ *
+ * @param  vol        FatFs volume prefix of the already mounted volume
+ * @param  timeout_ms upper bound for the lock wait
+ */
+GLOBAL_TYPE_T lcd_driver_font_init_timeout(const char *vol, uint32_t timeout_ms);
+
+/** @p timeout_ms value meaning "wait as long as it takes". */
+#define FONT_LOCK_WAIT_FOREVER 0xFFFFFFFFu
+
 /**
  * @brief  Which volume the currently open fonts were loaded from
  *         ("1:" = microSD, "0:" = USB, "" = none).

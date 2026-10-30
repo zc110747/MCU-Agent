@@ -119,9 +119,15 @@ static volatile TickType_t s_leave_tick = 0U;
  * timeout applies either way. */
 static volatile bool s_host_mounted = false;
 
+/* Diagnostics: how much SCSI traffic the session has seen.  A session that
+ * stays ACTIVE with this counter frozen is a host that stopped talking, not a
+ * firmware that forgot to check. */
+static volatile uint32_t s_cmd_count = 0U;
+
 static void note_host_command(void)
 {
     s_last_cmd_tick = xTaskGetTickCount();
+    s_cmd_count++;
 
     /* The host is talking to us again after an idle release.  That release is a
      * heuristic -- a sleeping or very busy PC looks exactly like a removed
@@ -746,6 +752,19 @@ void usb_msc_start(void)
 USB_MSC_STATE_T usb_msc_state(void)
 {
     return s_state;
+}
+
+void usb_msc_debug_dump(void)
+{
+    uint32_t gap_ms = (uint32_t)((xTaskGetTickCount() - s_last_cmd_tick) * portTICK_PERIOD_MS);
+
+    PRINT_LOG("[USB ] state=%s owned=%u bus=%u host_mnt=%u cmds=%lu idle=%lu ms\r\n",
+              (s_state == USB_MSC_STATE_ACTIVE) ? "ACTIVE" : "IDLE",
+              (unsigned)s_owned,
+              (unsigned)(tud_mounted() ? 1U : 0U),
+              (unsigned)(s_host_mounted ? 1U : 0U),
+              (unsigned long)s_cmd_count,
+              (unsigned long)gap_ms);
 }
 
 void usb_msc_capacity_mb(uint32_t *total_mb, uint32_t *used_mb)
