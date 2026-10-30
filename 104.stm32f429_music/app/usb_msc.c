@@ -360,6 +360,41 @@ void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16
     (void)memcpy(product_rev, "1.00", 4U);
 }
 
+/* INQUIRY byte 1 bit 7: "the medium is removable".
+ *
+ * 1 -> Windows' storage class driver treats the volume as removable media and
+ *      publishes it only after its first media-change cycle; measured on this
+ *      board that is ~11 s of dead time in which the host sends no command at
+ *      all (see the gap trace in the log).
+ * 0 -> fixed-disk semantics: the volume is published as soon as the device
+ *      starts, which is what a USB stick that appears instantly looks like.
+ *
+ * The card really is removable, but the host never swaps it without us being
+ * power-cycled, so reporting a fixed disk costs nothing and saves the wait.
+ * Kept as a switch because it is measurable on the same board. */
+#define USB_MSC_IS_REMOVABLE 1
+
+uint32_t tud_msc_inquiry2_cb(uint8_t lun, scsi_inquiry_resp_t *inquiry_resp,
+                             uint32_t bufsize)
+{
+    (void)lun;
+
+    if ((inquiry_resp == NULL) || (bufsize < sizeof(scsi_inquiry_resp_t)))
+    {
+        return 0U;
+    }
+
+    (void)memcpy(inquiry_resp->vendor_id, "MCU-AGT ", 8U);
+    (void)memcpy(inquiry_resp->product_id, "F429 MUSIC DISK ", 16U);
+    (void)memcpy(inquiry_resp->product_rev, "1.00", 4U);
+#if USB_MSC_IS_REMOVABLE
+    inquiry_resp->is_removable = 1U;
+#else
+    inquiry_resp->is_removable = 0U;
+#endif
+    return (uint32_t)sizeof(scsi_inquiry_resp_t);
+}
+
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                           void *buffer, uint32_t bufsize)
 {
