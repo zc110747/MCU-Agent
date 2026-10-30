@@ -30,9 +30,11 @@ I2C_HandleTypeDef  hi2c_cam;
 static OV5640_Object_t s_ov5640;
 static uint32_t        s_ov5640_id;
 
-/* Two frames, circular DMA. NOLOAD + 32-byte aligned: see the linker script. */
-static uint8_t s_frame[CAM_FRAME_BUFFERS][CAM_FRAME_SIZE]
-    __attribute__((section(".cam_buf"), aligned(32)));
+/* Two frames, circular DMA. NOLOAD + 32-byte aligned: see the linker script,
+ * and "DMA buffer placement" in bsp.h for the pragma pair. */
+BSP_DMA_BUF_BEGIN(".cam_buf")
+static uint8_t s_frame[CAM_FRAME_BUFFERS][CAM_FRAME_SIZE] BSP_DMA_BUF_ATTR(".cam_buf");
+BSP_DMA_BUF_END()
 
 /* Frame hand-off. s_ready_half == 0xFF means "nothing completed yet". */
 static volatile uint8_t  s_ready_half = 0xFFu;

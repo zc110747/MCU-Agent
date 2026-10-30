@@ -70,12 +70,6 @@ void bsp_button_init(void)
     BTN_MIDDLE_CLK_EN();
 #endif
 
-    /* LEFT and RIGHT are initialised in one call, so they must share a port.
-     * The static assertion below turns a future rewiring mistake into a
-     * compile error instead of a pin that silently stays floating. */
-    _Static_assert(BTN_LEFT_PORT == BTN_RIGHT_PORT,
-                   "left/right buttons must share a GPIO port");
-
     for (uint32_t i = 0u; i < (uint32_t) BSP_BUTTON_ID_COUNT; i++)
     {
         s_state[i].stable    = 0u;
@@ -88,13 +82,23 @@ void bsp_button_init(void)
     gpio.Pull  = GPIO_PULLUP;      /* idle high, pressed pulls to GND */
     gpio.Speed = GPIO_SPEED_FREQ_LOW;
 
-    gpio.Pin = BTN_LEFT_PIN | BTN_RIGHT_PIN;
-    HAL_GPIO_Init(BTN_LEFT_PORT, &gpio);
+    /* One HAL_GPIO_Init() per fitted pin. The table above already carries each
+     * button's port, so the buttons may sit on different ports without any
+     * change here - which is why there is no "they must share a port"
+     * compile-time assertion any more. (That check compared two peripheral
+     * pointers: not an integer constant expression, so ARMCLANG rejects it
+     * outright while GCC happens to fold it. Dropping the shared-port
+     * requirement removes the need for the check entirely.) */
+    for (uint32_t i = 0u; i < (uint32_t) BSP_BUTTON_ID_COUNT; i++)
+    {
+        if (s_hw[i].port == 0)
+        {
+            continue;
+        }
 
-#if BSP_BUTTON_MIDDLE_ENABLED
-    gpio.Pin = BTN_MIDDLE_PIN;
-    HAL_GPIO_Init(BTN_MIDDLE_PORT, &gpio);
-#endif
+        gpio.Pin = s_hw[i].pin;
+        HAL_GPIO_Init(s_hw[i].port, &gpio);
+    }
 }
 
 void bsp_button_poll(uint32_t now_ms)

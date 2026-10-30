@@ -43,9 +43,11 @@ static ring_t s_rx_ring = { s_rx_mem, BSP_UART_RX_RING_SIZE, 0u, 0u };
 static ring_t s_tx_ring = { s_tx_mem, BSP_UART_TX_RING_SIZE, 0u, 0u };
 
 /* DMA staging buffer. Must be 32-byte aligned and a multiple of 32 bytes so a
- * by-address cache invalidate never touches a neighbouring object's line. */
-static uint8_t s_dma_rx[BSP_UART_DMA_RX_SIZE]
-    __attribute__((section(".dma_buf"), aligned(32)));
+ * by-address cache invalidate never touches a neighbouring object's line.
+ * See "DMA buffer placement" in bsp.h for the pragma pair. */
+BSP_DMA_BUF_BEGIN(".dma_buf")
+static uint8_t s_dma_rx[BSP_UART_DMA_RX_SIZE] BSP_DMA_BUF_ATTR(".dma_buf");
+BSP_DMA_BUF_END()
 
 static DMA_HandleTypeDef s_hdma_rx;
 
