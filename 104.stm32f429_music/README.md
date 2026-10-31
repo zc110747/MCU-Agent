@@ -16,7 +16,7 @@
 | 调试串口 USART1 | PA9 (TX) / PA10 (RX) | 115200 8N1，AF7 |
 | SAI1_A I2S | PE2 MCLK_A, PE3 SD_A, PE4 FS_A, PE5 SCK_A, PE6 SD_B | AF6，master TX |
 | WM8978 控制 | PH4 (SCL) / PH5 (SDA) | 位操作 I2C，~250 kHz |
-| SDIO microSD | PC8..PC11 D0..D3, PC12 CK, PD2 CMD | AF12，4-bit，轮询（无 DMA） |
+| SDIO microSD | PC8..PC11 D0..D3, PC12 CK, PD2 CMD | AF12，4-bit，**读走 DMA2 Stream6**，写轮询 |
 | USB OTG FS | PA11 (DM) / PA12 (DP) | AF10，**Device 模式**，做虚拟 U 盘（12 Mbit/s） |
 | LCD NT35510 | FMC Bank1 NE1，16-bit 8080 | `LCD_BASE = 0x60000000 \| 0x0007FFFE`，`lcd_id = 0x8000` |
 | SDRAM W9825G6KH | FMC Bank2 (SDNE0)，32 MB | `SDRAM_BASE = 0xC0000000` |
@@ -87,7 +87,7 @@ BASEPRI，若不清零，TIM12 中断会被屏蔽，`HAL_GetTick()` 停走。
 ## 5. 数据通路
 
 ```
-SD 卡 (SDIO 轮询) -> FatFs -> track_decoder ─┬─ wav_decoder : 16/24 bit -> 16-bit stereo
+SD 卡 (SDIO 读=DMA2_Stream6 / 写轮询) -> FatFs -> track_decoder ─┬─ wav_decoder : 16/24 bit -> 16-bit stereo
                                              └─ mp3_decoder : minimp3   -> 16-bit stereo
                                              -> audio_player
                                              ├─ DMA2_Stream3 双缓冲 (M0AR/M1AR, CIRC)
@@ -189,10 +189,29 @@ KEY_UP: play/pause   KEY0: next   KEY1: volume   KEY2: prev      VOL 3/5
 PC ──USB── OTG_FS(PA11/PA12, FS 12 Mbit/s) ── TinyUSB usbd + msc_device
                                                   │ tud_msc_read10/write10_cb
                                                   ▼
-                                          bsp_sdio_read/write_blocks（轮询，原始扇区）
+                                          bsp_sdio_read_blocks（DMA2_Stream6）
+                                          bsp_sdio_write_blocks（轮询，原始扇区）
 ```
 
-### 7.1 状态机与四步交接
+### 7.1 SDIO 读路径（DMA2 Stream6）
+
+写路径保持轮询：只有 USB MSC 的 write10 会用到，且 TX FIFO 没有溢出风险。
+
+读路径有两个必须绕开的硬件行为，都是实测出来的：
+
+| 现象 | 实测数据 | 处理 |
+|---|---|---|
+| 每个 burst 结尾少搬 4 个字（16 B），`NDTR` 停在 4、`TC` 永不置位 | `NDTR=128 → 4`，`DATAEND=1`，`CR.TCIE` 仍为 1 | SDIO 关闭数据通路时撤掉 DMA 请求。在 `SDIO_IRQHandler` 里、**HAL 清 `DCTRL.DTEN` 之前**，按 `NDTR` 从 `SDIO->FIFO` 手工取走这几个字 |
+| `SDIO->FIFOCNT` 报告 0，但 FIFO 里其实有那 4 个字 | 读 `FIFOCNT` = 0，盲读 4 个字后 `tail` 出现 `AA55`（MBR 签名） | 不能用 `FIFOCNT` 做判据，直接按 `NDTR` 盲读 |
+| 开机阶段（`vTaskStartScheduler()` 之前）两个中断都被内核 `BASEPRI` 屏蔽 | 只用中断时：`f_mount rc=13`，`done=0 de=0` 超时 | 此阶段改为寄存器轮询：`NDTR` 停止变化 3 ms 即判定 burst 结束，取走尾巴后用 `HAL_SD_Abort()` 收尾 |
+
+失败处理：`HAL_SD_Abort()` 之后重试，**最多重试 2 次（共 3 次尝试）**。读是幂等的，重放同一段永远安全。
+
+> **为什么不是 DMA2 Stream3**：AN4031 Table 2 把 SDIO 同时列在 Stream3 Ch4 和 Stream6 Ch4 上。
+> Stream3 已经归 SAI1_A TX（音频双缓冲）所有，而一条 stream 只能服务一个 channel，
+> 所以 SDIO 读放 Stream6 —— 两条路径互不干扰，各自播放/读卡时都不用重新配置。
+
+### 7.2 状态机与四步交接
 
 | 步骤 | 谁做 | 动作 |
 |---|---|---|
@@ -207,7 +226,7 @@ PC ──USB── OTG_FS(PA11/PA12, FS 12 Mbit/s) ── TinyUSB usbd + msc_dev
 退出是同一张表倒着走：`s_owned=0` → `fs_usb_session_end()` → `sd_card_remount()`
 （主机可能改过 FAT）→ `playlist_clear()` → 放开播放引擎 → 状态才回 IDLE。
 
-### 7.2 为什么必须"持有互斥量"而不是"设个标志"
+### 7.3 为什么必须"持有互斥量"而不是"设个标志"
 
 FatFs 与 SDIO 轮询驱动都不可重入，且 SD 卡同一时刻只能有一个主人。用标志位只能
 挡住"讲规矩的"调用者，挡不住恰好已经进到 `f_read()` 里的那个；把互斥量一直攥在手里，
@@ -218,7 +237,7 @@ FatFs 与 SDIO 轮询驱动都不可重入，且 SD 卡同一时刻只能有一�
 `RT_FAIL`，字形画成空白，而不是让 UI 任务阻塞整场传输。退出去重开字库同理改成
 **带超时 + 绘制路径按需重试**，见 7.4 末尾。
 
-### 7.3 断开检测
+### 7.4 断开检测
 
 三条判据，任一条成立就把卡还给播放器：
 
@@ -238,7 +257,7 @@ FatFs 与 SDIO 轮询驱动都不可重入，且 SD 卡同一时刻只能有一�
 说明这次是误判（PC 休眠 / 忙），`note_host_command()` 会置 `s_evt_reenter`，
 任务循环重新走一遍四步交接把卡拿回来——不需要拔插线缆。
 
-### 7.4 传输页面
+### 7.5 传输页面
 
 进入时抓一次快照，**不实时刷新**：会话期间 FAT 归主机，再去读既是错的也是总线冲突。
 
@@ -285,7 +304,7 @@ lcd_driver_font_init_timeout(FS_VOL_SD, 200);    // 带超时重开，失败不�
 只是暂时空白，绝不会卡住 UI。`s_font_stale` 在成功打开后自动清零，字库真被删掉时也只留下
 每 3 s 一次的静默尝试。
 
-### 7.5 代码位置
+### 7.6 代码位置
 
 | 文件 | 职责 |
 |---|---|
@@ -296,6 +315,8 @@ lcd_driver_font_init_timeout(FS_VOL_SD, 200);    // 带超时重开，失败不�
 | `app/audio_player.c` | `usb_mode` / `parked` 协作与曲目中断 |
 | `app/app_ui.c` | 双屏切换；先切页再 `lcd_driver_font_init_timeout()` 重开字库 + 清字形缓存 |
 | `bsp/bsp_lcd_text.c` | `lcd_driver_font_init[ _timeout]()`、`s_font_stale`/`s_font_want` 的绘制路径按需重开 |
+| `bsp/bsp_sdio.c` | SDIO 读 = DMA2 Stream6（尾部抢救 + Abort 重试 2 次），写 = 轮询 |
+| `app/stm32f4xx_it.c` | `DMA2_Stream6_IRQHandler` / `SDIO_IRQHandler` → `bsp_sdio_*_irq_handler()` |
 
 ## 8. 构建
 

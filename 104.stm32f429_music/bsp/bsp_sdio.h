@@ -1,11 +1,12 @@
 /**
  ******************************************************************************
  * @file    bsp_sdio.h
- * @brief   microSD card driver over SDIO (4-bit wide bus), polled (no DMA).
+ * @brief   microSD card driver over SDIO (4-bit wide bus): DMA reads, polled
+ *          writes.
  *
  *          Ported from embedded_based_on_stm32/code/00-Drivers/drv_sdio.c and
  *          adapted to this project's conventions (GLOBAL_TYPE_T instead of the
- *          foreign includes.h, no DMA, no ISR).
+ *          foreign includes.h).
  *
  *  Pin map (STM32F429, AF12)
  *  ------------------------
@@ -27,13 +28,18 @@
  *      ClockDiv = 0  ->  48 MHz / 2 = 24 MHz   (max rated for SDIO on F4)
  *  The card is enumerated in 1-bit mode and then switched to 4-bit.
  *
- *  Why polled and not DMA
- *  ----------------------
- *  DMA2 is shared with other peripherals on this board; the SD card is only
- *  used to pull glyphs off the font files (one sector at a time), so the
- *  polled path costs nothing that matters and removes an entire class of
- *  cache/DMA/IRQ conflicts.  It also keeps the driver callable from a
- *  FreeRTOS task without any FromISR plumbing.
+ *  DMA
+ *  ---
+ *  Reads use DMA2 Stream6 / Channel 4 (the SDIO request line on the F429;
+ *  AN4031 Table 2 lists SDIO on both Stream3 Ch4 and Stream6 Ch4).  The audio
+ *  path keeps DMA2 Stream3, so the two never have to be reconfigured for each
+ *  other.  Writes stay polled -- they only come from USB MSC write10 and the
+ *  TX FIFO has no overrun risk.
+ *
+ *  A short DMA burst is not an error: when the card ends the data path with a
+ *  few words still queued in the SDIO FIFO, the driver drains them by hand and
+ *  closes the transfer with HAL_SD_Abort().  Real errors are retried twice
+ *  (SDIO_IO_RETRIES), each attempt preceded by HAL_SD_Abort().
  ******************************************************************************
  */
 #ifndef BSP_SDIO_H
@@ -86,7 +92,7 @@ uint8_t bsp_sdio_is_ready(void);
 void bsp_sdio_deinit(void);
 
 /**
- * @brief  Read sectors (polled).
+ * @brief  Read sectors (DMA, aborted and replayed on error).
  * @param  buf          destination, MUST be 4-byte aligned
  * @param  start_block  first sector index
  * @param  nblocks      number of 512-byte sectors
@@ -106,6 +112,18 @@ HAL_StatusTypeDef bsp_sdio_write_blocks(const uint8_t *buf, uint32_t start_block
  * @retval RT_OK / RT_FAIL
  */
 GLOBAL_TYPE_T bsp_sdio_get_info(uint32_t *block_count, uint16_t *block_size);
+
+/**
+ * @brief  Diagnostic counters, all optional (pass NULL to skip).
+ * @param  tail_fixes  bursts whose FIFO tail had to be recovered by hand
+ * @param  dma_errors  bursts that failed outright
+ * @param  retry_logs  how many failure lines were printed
+ */
+void bsp_sdio_stats(uint32_t *tail_fixes, uint32_t *dma_errors, uint32_t *retry_logs);
+
+/* IRQ entry points, called from app/stm32f4xx_it.c. */
+void bsp_sdio_dma_rx_irq_handler(void);
+void bsp_sdio_irq_handler(void);
 
 /* The HAL handle is exposed so the FatFs diskio glue can query card state. */
 extern SD_HandleTypeDef hsd_card;

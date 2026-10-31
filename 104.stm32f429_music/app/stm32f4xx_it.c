@@ -17,6 +17,7 @@
 #include "tusb.h"
 
 #include "bsp_sai.h"
+#include "bsp_sdio.h"
 
 /* TIM12 time base handle, defined in stm32f4xx_hal_timebase_tim.c */
 extern TIM_HandleTypeDef htim12;
@@ -78,6 +79,26 @@ void TIM8_BRK_TIM12_IRQHandler(void)
 void DMA2_Stream3_IRQHandler(void)
 {
     bsp_sai_dma_irq_handler();
+}
+
+/**
+ * @brief  DMA2 Stream6 transfer complete -> one SD read burst finished.
+ *         The handler only releases the driver's semaphore; the FAT/FS work
+ *         stays in the calling task.
+ */
+void DMA2_Stream6_IRQHandler(void)
+{
+    bsp_sdio_dma_rx_irq_handler();
+}
+
+/**
+ * @brief  SDIO interrupt.  In DMA mode the data path is closed by the stream,
+ *         so this only timestamps DATAEND (the driver needs it to spot a
+ *         stranded FIFO tail) and lets the HAL collect error flags.
+ */
+void SDIO_IRQHandler(void)
+{
+    bsp_sdio_irq_handler();
 }
 
 /**
