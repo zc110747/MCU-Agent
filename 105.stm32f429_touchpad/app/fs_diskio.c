@@ -3,15 +3,13 @@
  * @file    fs_diskio.c
  * @brief   FatFs <-> SDIO glue for volume "0:".
  *
- *  The SDIO data FIFO is drained through a uint32_t pointer inside the HAL, so
- *  every buffer handed to HAL_SD_ReadBlocks() must be 4-byte aligned.  FatFs
- *  normally passes its own aligned sector buffer, but f_read() has a direct
- *  path that can forward the caller's buffer, so unaligned requests are bounced
- *  through s_sd_scratch.
+ *  The SDIO data path moves reads with DMA (see bsp/bsp_sdio.c), and the DMA
+ *  burst setting needs a 16-byte aligned destination.  FatFs normally passes
+ *  its own aligned sector buffer, but f_read() has a direct path that can
+ *  forward the caller's buffer, so unaligned requests are bounced through
+ *  s_sd_scratch.
  *
- *  Polled transfers only: the card serves glyphs and images, the cost is
- *  negligible and it keeps the driver callable from any task without ISR
- *  plumbing.
+ *  Reads are DMA driven; writes stay polled.
  ******************************************************************************
  */
 #include <string.h>
@@ -60,7 +58,7 @@ int fs_try_lock(uint32_t timeout_ms)
 
 /* Bounce buffer for unaligned callers.  One sector is enough: unaligned reads
  * only come from short f_read() bursts, never from a multi-sector transfer. */
-static uint8_t s_sd_scratch[SDIO_BLOCK_SIZE] __attribute__((aligned(4)));
+static uint8_t s_sd_scratch[SDIO_BLOCK_SIZE] __attribute__((aligned(32)));
 
 DSTATUS disk_status(BYTE pdrv)
 {
@@ -93,7 +91,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         return RES_PARERR;
     }
 
-    if ((((uint32_t)buff) & 3U) == 0U)
+    if ((((uint32_t)buff) & 15U) == 0U)
     {
         if (bsp_sdio_read_blocks(buff, (uint32_t)sector, count) != HAL_OK)
         {

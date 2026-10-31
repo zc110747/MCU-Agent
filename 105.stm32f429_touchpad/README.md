@@ -31,7 +31,7 @@
 | 触摸中断 | EXTI line 7 | T_PEN = PH7 | 下降沿，NVIC 优先级 6 |
 | LCD | FMC Bank1 NE1 | 16-bit 8080，`LCD_BASE = 0x60000000 \| 0x0007FFFE` | NT35510（ID=0x8000），**活动窗口 480×800 竖屏** |
 | 背光 | GPIO | PB5 | 高电平点亮 |
-| microSD | SDIO 4-bit | PC8..PC11 = D0..D3，PC12 = CK，PD2 = CMD | AF12，**轮询（无 DMA）**，卡时钟 12 MHz，FatFs 卷 `0:` |
+| microSD | SDIO 4-bit | PC8..PC11 = D0..D3，PC12 = CK，PD2 = CMD | AF12，**读走 DMA2_Stream3**，卡时钟 21 MHz，FatFs 卷 `0:` |
 | SDRAM | FMC Bank1 | W9825G6KH，32 MB | `0xC0000000`，FreeRTOS 堆 + LVGL 堆 |
 | 板载按键 | GPIO | KEY_UP = PA0（高有效），KEY0 = PH3，KEY1 = PH2，KEY2 = PC13（低有效） | 仅 KEY0 保留：清触摸轨迹（**不再当鼠标键**） |
 
@@ -44,8 +44,8 @@
 
 ```
 HSE 25 MHz ──► PLL ──┬─ SYSCLK 168 MHz (AHB 168 / APB1 42 / APB2 84)
-                     └─ PLLQ 48 MHz ──► SDIO（卡时钟 48/4 = 12 MHz）
-                                        └─ USB OTG FS（必须 48 MHz ±0.25%）
+                     └─ PLLQ 48 MHz ──► USB OTG FS（必须 48 MHz ±0.25%）
+SDIO 卡时钟 = PCLK2 84 MHz / (ClockDiv + 2) = 84 / 4 = 21 MHz（ClockDiv = 2）
 HAL 时基 = TIM7 1 ms（SysTick 归 FreeRTOS）
 ```
 
@@ -288,6 +288,50 @@ HID 输出**（`user32!GetCursorPos` 前后对比、`reports=` 计数）。
 > 索引 `(qh - 0x81) * 190 + ql'`。16 px 每字 32 B → 766 080 B，三个尺寸都能整除，
 > 说明卡上的字库是完整的。
 
+### 3.5.2 SDIO 改成 DMA 接收：AC6 版本一个块都读不出来
+
+用 ARM Compiler 6 编译的固件，`f_mount` 永远 `rc=1`，而同一份源码用 GCC 编译却正常：
+
+```
+[SDIO] core=168000000 pclk2=84000000 sdio=21000000 div=2 dma=on
+[SD  ] SDIO init OK (30436 MB, block=512)
+[SDIO] read fail st=3 err=0x00000020 STA=0x00000600 ...   <- 0x20 = RX_OVERRUN
+[SD  ] f_mount failed rc=1
+```
+
+把时钟从 21 MHz 降到 8.4 MHz 完全没有改善（两档都以同样的方式失败），所以**不是总线速率
+问题**。RX_OVERRUN 的含义是"卡送来的数据 CPU 没及时搬走"：SDIO 的接收 FIFO 只有 **128 字节
+（32 words）**，21 MHz 下大约每 1.5 µs 就要取走一个字，轮询循环里任何一次中断延迟都会溢出；
+AC6 把循环编译得更"紧凑"，恰好踩在这条线上。GD 侧只是运气好。
+
+结论：**把接收交给 DMA，让传输不再依赖循环时序**，同时把卡时钟恢复成原来的 21 MHz。
+
+| 位置 | 改动 |
+|---|---|
+| `bsp_sdio.c` | `bsp_sdio_read_blocks()` 改走 `HAL_SD_ReadBlocks_DMA()`，完成由 `HAL_SD_RxCpltCallback()` / `HAL_SD_ErrorCallback()` 置标志（`HAL_GetTick()` 走 TIM7，不依赖调度器） |
+| 同上 | **`Init.Mode = DMA_PFCTRL`（外设流控）**，见下面这条坑 |
+| `stm32f4xx_it.c` | 新增 `SDIO_IRQHandler` → `HAL_SD_IRQHandler()`、`DMA2_Stream3_IRQHandler` → `HAL_DMA_IRQHandler()`，优先级 6 / 5 |
+| `fs_diskio.c` | 对齐判断从 4 字节收紧到 **16 字节**（DMA 用 `MBURST_INC4`），bounce 缓冲 `aligned(32)` |
+| `bsp_sdio.c` | 调用方给不出 16 字节对齐缓冲时，内部按扇区经 `s_rx_bounce` 转存 |
+
+> ⚠️ **必须用 `DMA_PFCTRL`，不能用 `DMA_NORMAL`。**
+> SDIO 只在 RX FIFO **半满**（RXFIFOHF）时才发出 DMA 请求，而 `DMA_NORMAL` 模式下传输长度由
+> DMA 自己数。实测表现是 `ndtr=4`、`lisr` 只有半传输位、SDIO 侧已经收到 DATAEND：块尾那几个
+> 字凑不满半满阈值，永远等不到请求，传输就停在那里。改成外设流控后，由 SDIO 自己结束传输。
+> 配置按 ST 官方 SDIO 例程：FIFO 模式 + `DMA_FIFO_THRESHOLD_FULL` + `INC4` 突发。
+
+修后两个工具链都正常（21 MHz、`dma=on`）：
+
+```
+[SDIO] core=168000000 pclk2=84000000 sdio=21000000 div=2 dma=on
+[SD  ] SDIO init OK (30436 MB, block=512)
+[SD  ] mounted 0:
+[FONT] check done: 118 CJK chars, map-miss=0 glyph-miss=0
+```
+
+写路径仍用轮询 `HAL_SD_WriteBlocks()` —— 运行期只读，写只出现在维护工具里，没必要再引一条
+DMA 通道。
+
 ### 3.6 向量表：为什么不靠"VTOR 默认是 0"
 
 `sys_startup/gcc/startup_stm32f429xx.s` 的 `Reset_Handler` 开头显式写
@@ -376,13 +420,29 @@ report descriptor。改对之后 `00 09 01 00 …`（SET_CONFIGURATION）立刻�
   `190 × (GBK首字节 − 0x81) + (GBK尾字节 − 0x40 或 0x41)`。
   ASCII 不走 SD 卡，用 Flash 里编译进去的点阵表。
 - 卡上没有 `SYSTEM/FONT` 时中文标签是空白，但界面、鼠标、按键照常工作。
-- `f_open()` 对单个字体文件**重试 4 次**（每次间隔 5 ms）：SDIO 是轮询读，USB 中断如果
-  正好落在数据块传输中间会让命令超时（`FR_DISK_ERR`），重试即可，否则会静默少一种字号
+- `f_open()` 对单个字体文件**重试 4 次**（每次间隔 5 ms）：SDIO 读虽然走 DMA，但初始化
+  阶段的枚举仍是纯命令轮询，`f_mount` 后第一次取文件时偶发 `FR_DISK_ERR`，重试即可，
+  否则会静默少一种字号
   （实测 `mask` 从 `0x1F` 掉到 `0x0F`）。
 
 ---
 
 ## 6. 构建 / 烧录
+
+### 6.1 一键脚本（GCC）
+
+```bat
+build.bat              :: Debug   -> build\
+build.bat release      :: Release -> build-release\
+build.bat all          :: 两个都编
+build.bat clean        :: 删 build\ build-release\ build_mdk\
+```
+
+脚本自己 configure（`Release` 自动带 `-DENABLE_PRINT_LOG=OFF`）、编译、统计警告数，
+末尾打印 FLASH/RAM 占比。**警告数不为 0 时返回退出码 4**（零警告硬约束，可直接当门禁用）。
+尺寸只在真正链接的那次才变，所以增量构建会复用上次结果。
+
+### 6.2 手工 CMake
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -402,17 +462,64 @@ openocd -f openocd.cfg -c "program build/stm32f429_touchpad.elf verify reset exi
 > ST 系统存储器 bootloader 里。可靠的重启方式是手工装 Flash 向量：
 > `python tools/serial_capture.py --ports COM3 --seconds 14`（脚本内部就是这么做的）。
 
+### 6.3 MDK-ARM / uVision（ARM Compiler 6）
+
+```bat
+build_mdk.bat              :: Debug   -> build_mdk\Debug\
+build_mdk.bat release      :: Release -> build_mdk\Release\
+build_mdk.bat all          :: 两个都编
+build_mdk.bat gen          :: 只重新生成 .uvprojx（源文件增删后跑这个）
+build_mdk.bat all gen      :: 先重新生成再双构
+```
+
+也可以直接双击 `stm32f429_touchpad.uvprojx` 用 IDE 打开。
+
+| 文件 | 作用 |
+|------|------|
+| `stm32f429_touchpad.uvprojx` | 两个 target（Debug/Release）、8 个分组、263 个文件 |
+| `stm32f429_touchpad.sct` | armlink 分散加载文件，逐字节对应 `STM32F429IGTx_FLASH.ld` |
+| `tools/gen_keil_project.py` | 生成 uvprojx；文件列表规则与 `CMakeLists.txt` 同源 |
+| `tools/mdk_size.py` | 从 `.map` 出 FLASH/RAM/SDRAM 占比（UV4 只在重链接时打印 `Program Size`） |
+
+几点与 GCC 侧不同的处理，都是实测撞出来的：
+
+- **FreeRTOS 用 GCC 端口的 `port.c`，不是 RVDS 的**。AC6 是 clang，`__asm void f()` 那种
+  armcc 独占的嵌入式汇编它不认，而 GCC 端口的内联汇编它能编。
+- **`<RvdsVP>` 必须是 `2`** 才是 "Single Precision"。填 1/3/4 都不会给 armclang 传 FPU，
+  `port.c` 会卡在 `#error ... enable hardware floating point support`（它以 `__VFP_FP__`
+  为判据，而这个宏只在 FPU 打开时才由编译器定义）。
+- **`ucHeap` 的段名分两种写法**：AC6 只按段名判断 RW/ZI，得用 `.bss.freertos_heap`；
+  写成自定义名会被当成 RW 数据，armlink 于是在启动时把 512 KB 零从 Flash 拷到
+  `0xC0000000`——那时 FMC 还没初始化，直接 HardFault。GCC 侧仍用 `.freertos_heap`
+  （`.ld` 里 NOLOAD）。`#pragma arm section` 不行，那是 AC5 扩展。
+- **`hal_flash_ex.c` 两边都加**：`hal_flash.c` 引用它的 `FLASH_Erase_Sector()` /
+  `FLASH_FlushCaches()`。GNU ld 会先把没用的 `HAL_FLASHEx_Erase()` 段丢掉再解析符号，
+  armlink 解析在前，所以缺了这个文件就 `L6218E`。加进去后 `--gc-sections` 又把它全丢掉，
+  两侧体积没变。
+- **`printf` 重定向**：AC6 + MicroLIB 走 `fputc()`，newlib 走 `_write()`，
+  在 `app/syscalls.c` 里用 `__ARMCC_VERSION` 分成两支，不会重复定义。
+
 ---
 
 ## 7. 资源占用（当前构建）
 
-| 项目 | Debug | Release（无日志） |
-|------|-------|------------------|
-| FLASH | 241 668 B / 1 MB（**23.05 %**） | 270 984 B / 1 MB（**25.84 %**） |
-| 内部 RAM（.data + .bss） | 28 952 B / 192 KB（**14.73 %**） | 28 960 B / 192 KB（**14.73 %**） |
+| 项目 | GCC Debug | GCC Release（无日志） |
+|------|-----------|----------------------|
+| FLASH | 246 772 B / 1 MB（**23.53 %**） | 274 720 B / 1 MB（**26.20 %**） |
+| 内部 RAM（.data + .bss） | 29 744 B / 192 KB（**15.13 %**） | 29 664 B / 192 KB（**15.09 %**） |
 | SDRAM | 512 KB（FreeRTOS 堆，NOLOAD）+ 256 KB（LVGL 堆，固定地址） | 同左 |
 | FreeRTOS 堆内的运行期分配 | 显示缓冲 57 KB + 任务栈 ~15 KB + 轨迹缓冲 | 同左 |
 
+MDK-ARM（armclang 6.16，MicroLIB）：
+
+| 项目 | Debug（-O1） | Release（-O2） |
+|------|-------------|----------------|
+| FLASH | 371 744 B / 1 MB（**35.45 %**） | 246 400 B / 1 MB（**23.50 %**） |
+| 内部 RAM | 29 072 B / 192 KB（**14.79 %**） | 28 944 B / 192 KB（**14.72 %**） |
+| SDRAM | 524 288 B（`RW_SDRAM`，UNINIT） | 同左 |
+
+> 四档都是零警告。MDK 的 Debug 比 GCC 的大 123 KB，主要是 `-O1` 与 `-Og` 在 LVGL 上的
+> 代码生成差异；Release 那一档 AC6 反而比 GCC `-Os` 小 28 KB。
 > 两档都是 `-Wall -Wextra` **零警告**。相比纯触摸板版本（229 KB）多出的 ~12 KB 就是
 > TinyUSB device 栈 + HID 类 + DWC2 端口。中文字库仍然 0 字节进 Flash。
 

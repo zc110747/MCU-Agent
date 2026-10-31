@@ -9,12 +9,15 @@
   *
   *          TIM7    -> HAL 1 ms time base (SysTick belongs to FreeRTOS)
   *          EXTI9_5 -> GT9147 T_PEN (PH7), see bsp/bsp_touch.c
+  *          SDIO / DMA2_Stream3 -> microSD data path, see bsp/bsp_sdio.c
   ******************************************************************************
   */
 #include "stm32f4xx_it.h"
 #include "stm32f4xx_hal.h"
 #include "FreeRTOS.h"
 #include "tusb.h"
+
+#include "bsp_sdio.h"
 
 /* TIM7 time base handle (stm32f4xx_hal_timebase_tim.c). */
 extern TIM_HandleTypeDef htim7;
@@ -82,4 +85,26 @@ void EXTI9_5_IRQHandler(void)
 void OTG_FS_IRQHandler(void)
 {
   tud_int_handler(0);
+}
+
+/**
+  * @brief  SDIO global interrupt.
+  *         Needed by the DMA read path: HAL_SD_ReadBlocks_DMA() arms DATAEND /
+  *         DCRCFAIL / DTIMEOUT / RXOVERR and HAL_SD_IRQHandler() finishes the
+  *         transfer (and runs the complete/error callbacks) from here.
+  */
+void SDIO_IRQHandler(void)
+{
+  HAL_SD_IRQHandler(&hsd_card);
+}
+
+/**
+  * @brief  DMA2 Stream 3 = SDIO_RX.
+  *         Moves the card data out of the SDIO FIFO; on completion the HAL calls
+  *         our HAL_SD_RxCpltCallback().  Priority is set in bsp_sdio.c and is
+  *         one step above the SDIO vector, as the reference manual requires.
+  */
+void DMA2_Stream3_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_sdio_rx);
 }

@@ -1,11 +1,11 @@
 /**
  ******************************************************************************
  * @file    bsp_sdio.h
- * @brief   microSD card driver over SDIO (4-bit wide bus), polled (no DMA).
+ * @brief   microSD card driver over SDIO (4-bit wide bus), DMA receive.
  *
  *          Ported from embedded_based_on_stm32/code/00-Drivers/drv_sdio.c and
  *          adapted to this project's conventions (GlobalType_t instead of the
- *          foreign includes.h, no DMA, no ISR).
+ *          foreign includes.h).  Writes stay polled, reads go through DMA.
  *
  *  Pin map (STM32F429, AF12)
  *  ------------------------
@@ -27,13 +27,17 @@
  *      ClockDiv = 0  ->  48 MHz / 2 = 24 MHz   (max rated for SDIO on F4)
  *  The card is enumerated in 1-bit mode and then switched to 4-bit.
  *
- *  Why polled and not DMA
- *  ----------------------
- *  DMA2 is shared with other peripherals on this board; the SD card is only
- *  used to pull glyphs off the font files (one sector at a time), so the
- *  polled path costs nothing that matters and removes an entire class of
- *  cache/DMA/IRQ conflicts.  It also keeps the driver callable from a
- *  FreeRTOS task without any FromISR plumbing.
+ *  Why DMA for reads
+ *  -----------------
+ *  The SDIO data FIFO is only 128 bytes deep.  In polled mode the CPU has to
+ *  drain it by hand, and any delay in that loop (an interrupt, a compiler that
+ *  keeps the status in a register, a task switch) overruns the FIFO and the
+ *  whole transfer fails with RX_OVERRUN -- which is what the MDK/AC6 build did
+ *  on every single block.  DMA2 Stream 3 Channel 4 takes the FIFO out of the
+ *  CPU's hands entirely, so the transfer no longer depends on loop timing.
+ *
+ *  Writes still use HAL_SD_WriteBlocks(): the card is only ever written by the
+ *  formatter-era tools, so the TX path stays simple.
  ******************************************************************************
  */
 #ifndef BSP_SDIO_H
@@ -63,9 +67,25 @@ typedef enum {
  * data state fails every subsequent command as well. */
 #define SDIO_RW_RETRIES 2u
 
-/* SDIOCLK = 48 MHz (PLLQ=7).  Card clock = 48 MHz / (ClockDiv + 2).
- * 2 -> 12 MHz: rock solid for the first bring-up and for long cables. */
+/* Card clock = SDIOCLK / (ClockDiv + 2), where the HAL derives SDIOCLK from
+ * PCLK2 (84 MHz on this board, not the 48 MHz PLLQ leg):
+ *
+ *     ClockDiv = 2  ->  84 MHz / 4 = 21 MHz
+ *     ClockDiv = 8  ->  84 MHz / 10 = 8.4 MHz
+ *
+ * 21 MHz is the original value and is what GCC has always run at.  Lowering it
+ * to 8.4 MHz changed nothing (the AC6 build failed at both), so the problem was
+ * never the bus rate -- it was the polled FIFO drain.  Keep 21 MHz: it is just
+ * under the 25 MHz default-speed ceiling and gives the fastest glyph loads.
+ */
 #define SDIO_CLOCK_DIV 2u
+
+/* SDIO_RX is DMA2 Stream 3 Channel 4 on STM32F4.  The DMA must be able to
+ * preempt the SDIO interrupt, hence the numerically lower (higher priority)
+ * value; both stay >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) so they
+ * may be masked by FreeRTOS critical sections. */
+#define SDIO_DMA_IRQ_PRIO 5u
+#define SDIO_IRQ_PRIO     6u
 
 /**
  * @brief  Bring up SDIO + GPIO and identify the card.
@@ -91,7 +111,7 @@ uint8_t bsp_sdio_is_ready(void);
 void bsp_sdio_deinit(void);
 
 /**
- * @brief  Read sectors (polled).
+ * @brief  Read sectors (DMA), blocking until the transfer finishes.
  * @param  buf          destination, MUST be 4-byte aligned
  * @param  start_block  first sector index
  * @param  nblocks      number of 512-byte sectors
@@ -114,6 +134,10 @@ GlobalType_t bsp_sdio_get_info(uint32_t *block_count, uint16_t *block_size);
 
 /* The HAL handle is exposed so the FatFs diskio glue can query card state. */
 extern SD_HandleTypeDef hsd_card;
+
+/* DMA2 Stream 3 Channel 4 -> SDIO_RX.  Exposed for the DMA2_Stream3 vector in
+ * stm32f4xx_it.c. */
+extern DMA_HandleTypeDef hdma_sdio_rx;
 
 #ifdef __cplusplus
 }
