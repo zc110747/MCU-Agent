@@ -168,6 +168,22 @@ uint32_t bsp_touch_irq_count(void);
 /** Monotonic count of bsp_touch_scan() calls (sampling-rate diagnostics). */
 uint32_t bsp_touch_scan_count(void);
 
+/**
+  * @brief  Raw (unmapped) coordinates of the primary contact from the most
+  *         recent frame, exactly as the controller reported them.  Printed next
+  *         to the mapped pair it answers "is the chip misreporting, or is the
+  *         mapping wrong?" without a scope.  Either pointer may be NULL.
+  */
+void bsp_touch_raw(uint16_t *x, uint16_t *y);
+
+/**
+  * @brief  How many mapped coordinates had to be clamped to the canvas edge.
+  *         A count that keeps climbing while the finger is nowhere near a
+  *         border means the controller is reporting outside the panel range
+  *         (wrong resolution in its configuration block).
+  */
+uint32_t bsp_touch_clamp_count(void);
+
 /** Rolling average duration of one bsp_touch_scan(), in microseconds. */
 uint32_t bsp_touch_scan_avg_us(void);
 

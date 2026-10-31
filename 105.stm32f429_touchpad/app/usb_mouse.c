@@ -54,6 +54,14 @@ static volatile uint32_t s_lat_n      = 0;
 /* Report-only copy of the button mask (task context, no locking needed). */
 static uint8_t s_sent_buttons = 0;
 
+static void click_pump(TickType_t now);
+
+/* Click pulse: bits that still have to be pressed+released, and where the
+ * pulse currently is (0 idle, 1 press waiting to be reported, 2 hold). */
+static volatile uint8_t  s_click_mask  = 0;
+static volatile uint8_t  s_click_state = 0;
+static volatile TickType_t s_click_tick = 0;
+
 /* ---- Acceleration --------------------------------------------------------- */
 /* Three steps, expressed in Q8: 1.25x / 1.75x / 2.50x.  A 456 px wide pad has
  * to cross a 1920 px desktop, so fast flicks need the higher taps while slow
@@ -192,6 +200,7 @@ void usb_mouse_task(void *arg)
 
         if (s_mounted != 0U)
         {
+            click_pump(xTaskGetTickCount());
             mouse_send();
         }
     }
@@ -268,10 +277,77 @@ void usb_mouse_set_button(uint8_t mask, int pressed)
     taskEXIT_CRITICAL();
 }
 
+void usb_mouse_click(uint8_t mask)
+{
+    if (mask == 0U)
+    {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    s_click_mask |= mask;
+    taskEXIT_CRITICAL();
+}
+
+/**
+ * @brief  Drive one pending click pulse.  Called from the USB task right before
+ *         mouse_send() so the press leaves in the same 2 ms slot.
+ *
+ *  A press is only released once the report carrying it has been accepted by
+ *  the host (mouse_send() sets s_sent_buttons on success).  If the host never
+ *  fetches it - unplugged, suspended - the pulse gives up after 200 ms rather
+ *  than leaving a button stuck down.
+ */
+static void click_pump(TickType_t now)
+{
+    uint8_t mask;
+
+    taskENTER_CRITICAL();
+    mask = s_click_mask;
+    taskEXIT_CRITICAL();
+
+    switch (s_click_state)
+    {
+    case 0U:                            /* idle -> assert the press */
+        if (mask != 0U)
+        {
+            taskENTER_CRITICAL();
+            s_buttons |= mask;
+            taskEXIT_CRITICAL();
+
+            s_click_state = 1U;
+            s_click_tick  = now;
+        }
+        break;
+
+    case 1U:                            /* waiting for the press report */
+        if (((s_sent_buttons & mask) == mask) || ((TickType_t)(now - s_click_tick) > 200U))
+        {
+            s_click_state = 2U;
+            s_click_tick  = now;
+        }
+        break;
+
+    default:                            /* holding -> release */
+        if ((TickType_t)(now - s_click_tick) >= USB_MOUSE_CLICK_MS)
+        {
+            taskENTER_CRITICAL();
+            s_buttons    &= (uint8_t)~mask;
+            s_click_mask &= (uint8_t)~mask;
+            taskEXIT_CRITICAL();
+
+            s_click_state = 0U;
+        }
+        break;
+    }
+}
+
 void usb_mouse_release_all(void)
 {
     taskENTER_CRITICAL();
-    s_buttons = 0U;
+    s_buttons     = 0U;
+    s_click_mask  = 0U;
+    s_click_state = 0U;
     taskEXIT_CRITICAL();
 }
 

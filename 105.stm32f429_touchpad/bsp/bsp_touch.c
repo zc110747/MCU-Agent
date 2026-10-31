@@ -89,6 +89,13 @@ static volatile uint8_t  s_last_pressed = 0U;
 static uint8_t s_primary_id    = 0U;
 static uint8_t s_primary_valid = 0U;
 
+/* Raw (unmapped) coordinates of that primary contact, and how often the mapped
+ * value had to be clamped to the canvas edge.  Both exist purely so the status
+ * dump can tell a controller that reports nonsense apart from a mapping bug. */
+static volatile uint16_t s_raw_x = 0U;
+static volatile uint16_t s_raw_y = 0U;
+static volatile uint32_t s_clamp = 0U;
+
 /* Whole-frame snapshot of the contacts, published by bsp_touch_scan() and
  * copied out by bsp_touch_get_points().  The producer is the touch task, the
  * consumers are the UI task (dots) and the console (status); it is a plain
@@ -227,8 +234,16 @@ static void map_point(uint16_t raw_x, uint16_t raw_y, uint16_t *out_x, uint16_t 
     y = (uint32_t)(s_max_y - 1U) - y;
 #endif
 
-    if (x >= s_max_x) { x = (s_max_x > 0U) ? (s_max_x - 1U) : 0U; }
-    if (y >= s_max_y) { y = (s_max_y > 0U) ? (s_max_y - 1U) : 0U; }
+    if (x >= s_max_x)
+    {
+        x = (s_max_x > 0U) ? (s_max_x - 1U) : 0U;
+        s_clamp++;
+    }
+    if (y >= s_max_y)
+    {
+        y = (s_max_y > 0U) ? (s_max_y - 1U) : 0U;
+        s_clamp++;
+    }
 
     *out_x = (uint16_t)x;
     *out_y = (uint16_t)y;
@@ -429,6 +444,8 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
 
         s_last_x       = pts[primary].x;
         s_last_y       = pts[primary].y;
+        s_raw_x        = raw[primary].x;
+        s_raw_y        = raw[primary].y;
         s_last_pressed = 1U;
     }
     else
@@ -503,6 +520,17 @@ uint32_t bsp_touch_scan_count(void)
 uint32_t bsp_touch_scan_avg_us(void)
 {
     return s_scan_us;
+}
+
+void bsp_touch_raw(uint16_t *x, uint16_t *y)
+{
+    if (x != NULL) { *x = s_raw_x; }
+    if (y != NULL) { *y = s_raw_y; }
+}
+
+uint32_t bsp_touch_clamp_count(void)
+{
+    return s_clamp;
 }
 
 void bsp_touch_frame_stats(uint32_t *frames, uint32_t *empty, uint32_t *releases)

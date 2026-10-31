@@ -41,7 +41,26 @@
 #define GT_CHECK_REG        0x80FFU         /* checksum + refresh flag        */
 #define GT_PID_REG          0x8140U         /* product ID (4 ASCII chars)     */
 #define GT_GSTID_REG        0x814EU         /* touch status / point count     */
-#define GT_TP1_REG          0x8150U         /* point 1 (8 bytes per point)    */
+
+/* Start of the per-contact block.  The GT9xx layout is:
+ *
+ *     0x814E  status (bit7 = buffer ready, bits 3..0 = count)
+ *     0x814F  point 1: track id
+ *     0x8150  point 1: x low
+ *     0x8151  point 1: x high
+ *     0x8152  point 1: y low
+ *     0x8153  point 1: y high
+ *     0x8154  point 1: size low
+ *     0x8155  point 1: size high
+ *     0x8156  point 1: reserved
+ *     0x8157  point 2: track id   (8 bytes per contact)
+ *
+ * The track id therefore lives one byte BEFORE 0x8150.  Reading from 0x8150
+ * and parsing it as [id, xL, xH, ...] shifts every field by one byte, which
+ * decodes x = xH | yL<<8 - an out-of-range value that the canvas mapping then
+ * clamps to the bottom-right corner.  Measured on this board: a finger at
+ * (246,165) came out as (42240,11776). */
+#define GT_TP1_REG          0x814FU
 
 #define GT_TP_STRIDE        GT9147_POINT_STRIDE
 
@@ -97,6 +116,36 @@ static char     s_id[GT9147_ID_LEN + 1U] = "?";
 
 /* Raw status byte of the most recent read, for the diagnostics line. */
 static uint8_t  s_last_status = 0U;
+
+/* Last coordinate block as it came off the bus, BEFORE parsing.  When the
+ * decoded coordinates look impossible this is the only way to see whether the
+ * chip reported nonsense or the byte order / offset is wrong. */
+static uint8_t  s_blk[GT9147_MAX_POINTS * GT9147_POINT_STRIDE];
+static uint8_t  s_blk_len = 0U;
+
+/* Rate limiter for the raw-frame trace. */
+static uint32_t s_dump_tick = 0U;
+
+/* Raw-frame trace switch.  Off by default: the trace is a bring-up tool, and
+ * leaving it on would push ~3 lines/s onto the console while a finger draws,
+ * drowning out the serial command replies.  Toggled by the 'd' command. */
+static uint8_t  s_trace = 0U;
+
+uint8_t bsp_gt9147_last_block(uint8_t *buf, uint8_t max)
+{
+    uint8_t n = s_blk_len;
+
+    if ((buf == NULL) || (max == 0U) || (n == 0U))
+    {
+        return 0U;
+    }
+    if (n > max)
+    {
+        n = max;
+    }
+    (void)memcpy(buf, s_blk, n);
+    return n;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Bus transactions                                                           */
@@ -414,6 +463,15 @@ uint16_t bsp_gt9147_panel_y(void)
     return s_panel_y;
 }
 
+int bsp_gt9147_dump_block(uint8_t *buf, uint8_t len)
+{
+    if ((s_ready == 0U) || (buf == NULL) || (len == 0U))
+    {
+        return -1;
+    }
+    return gt_read(GT_TP1_REG, buf, len);
+}
+
 int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
 {
     uint8_t status = 0U;
@@ -474,6 +532,36 @@ int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
             return -1;
         }
 
+        /* Keep a copy of the untouched bytes for the diagnostics dump. */
+        (void)memcpy(s_blk, buf, (size_t)(count * GT_TP_STRIDE));
+        s_blk_len = (uint8_t)(count * GT_TP_STRIDE);
+
+        /* Raw trace, one line per contact.  The decoded values are clamped to
+         * the canvas, which hides a wildly out-of-range reading; these raw
+         * bytes are what says whether the chip reports nonsense or the byte
+         * offset/order is wrong.  Off by default ('d' toggles it) and rate
+         * limited so a moving finger cannot flood the console. */
+        if ((s_trace != 0U) && ((HAL_GetTick() - s_dump_tick) >= 300U))
+        {
+            s_dump_tick = HAL_GetTick();
+
+#if PRINT_LOG_ENABLE
+            for (i = 0U; i < count; i++)
+            {
+                const uint8_t *p = &buf[i * GT_TP_STRIDE];
+
+                PRINT_LOG("[GT9 ] n=%u raw#%u: %02X %02X %02X %02X %02X %02X %02X %02X"
+                          "  -> id=%u x=%u y=%u size=%u\r\n",
+                          (unsigned int)count, (unsigned int)i,
+                          p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+                          (unsigned int)(p[0] & 0x0FU),
+                          (unsigned int)(((uint16_t)p[2] << 8) | p[1]),
+                          (unsigned int)(((uint16_t)p[4] << 8) | p[3]),
+                          (unsigned int)p[5]);
+            }
+#endif
+        }
+
         for (i = 0U; i < count; i++)
         {
             const uint8_t *p = &buf[i * GT_TP_STRIDE];
@@ -490,4 +578,15 @@ int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
     (void)gt_write(GT_GSTID_REG, &zero, 1U);
 
     return (int)count;
+}
+
+uint8_t bsp_gt9147_trace(uint8_t on)
+{
+    if (on <= 1U)
+    {
+        s_trace     = on;
+        s_dump_tick = HAL_GetTick();    /* first line one period later */
+    }
+
+    return s_trace;
 }

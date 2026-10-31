@@ -27,8 +27,13 @@
  * (0x804C) and is returned by bsp_gt9147_points(). */
 #define GT9147_MAX_POINTS   5U
 
-/* Bytes per point in the coordinate block at 0x8150:
- *   [0] track id   [1..2] x   [3..4] y   [5..6] contact size   [7] reserved */
+/* Bytes per point in the coordinate block.  A contact starts at 0x814F with
+ * its track id, followed by x / y / size (16-bit little endian) and one
+ * reserved byte:
+ *   [0] track id   [1..2] x   [3..4] y   [5..6] size   [7] reserved
+ * Note the id sits at 0x814F, one byte below the 0x8150 most examples quote:
+ * reading from 0x8150 as if it started with the id shifts every field by one
+ * byte and produces coordinates far outside the panel. */
 #define GT9147_POINT_STRIDE 8U
 
 /* Length of the Product ID string stored at GT_PID_REG (not zero terminated). */
@@ -143,6 +148,32 @@ uint8_t bsp_gt9147_points(void);
   *          or -1 when the chip is not initialised / not answering.
   */
 int bsp_gt9147_read(gt9147_point_t *points, uint8_t max);
+
+/**
+  * @brief  Copy the coordinate block of the most recent frame exactly as it
+  *         came off the bus (no parsing).  Diagnostic only: when the decoded
+  *         coordinates look impossible, these bytes show whether the chip is
+  *         reporting nonsense or the byte offset/order is wrong.
+  *  @retval number of bytes copied (0 = no frame captured yet)
+  */
+uint8_t bsp_gt9147_last_block(uint8_t *buf, uint8_t max);
+
+/**
+  * @brief  Read the coordinate block at 0x814F (point 1 track id) right now,
+  *         bypassing the frame gating.  Used by the console dump; 0 on success.
+  */
+int bsp_gt9147_dump_block(uint8_t *buf, uint8_t len);
+
+/**
+  * @brief  Enable/disable the per-frame raw trace on the console
+  *         ("[GT9 ] n=1 raw: .. -> x= y= size=", rate limited to ~3 Hz).
+  *
+  *  Kept off in normal use: the trace is a bring-up tool and would otherwise
+  *  interleave with the serial command replies whenever a finger is down.
+  *  @param  on  0 = off, 1 = on, anything else = query only
+  *  @retval the state after the call (0 = off)
+  */
+uint8_t bsp_gt9147_trace(uint8_t on);
 
 #ifdef __cplusplus
 }

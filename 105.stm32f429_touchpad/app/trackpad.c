@@ -29,6 +29,14 @@
 
 #define TP_RING_SIZE    64
 
+/* Tap-to-click.  A contact counts as a tap when it is short and stayed close to
+ * where it landed; the thresholds are the same ones the gesture engine uses so
+ * the ink dot and the mouse click agree about what "a tap" is.  It only ever
+ * fires for contacts that STARTED inside the pad, so tapping a glass key never
+ * produces a mouse click as well. */
+#define TP_TAP_MS        260U
+#define TP_TAP_MOVE_PX   14
+
 static volatile int32_t s_area_x = 0;
 static volatile int32_t s_area_y = 0;
 static volatile int32_t s_area_w = 0;
@@ -44,6 +52,11 @@ static uint8_t  s_have_primary = 0U;
 static TickType_t s_last_tick = 0;
 static uint8_t s_started = 0U;
 static uint8_t s_ended   = 0U;
+
+/* Contact bookkeeping for tap-to-click (producer only). */
+static TickType_t s_contact_tick = 0;
+static int32_t    s_travel_px    = 0;
+static uint8_t    s_peak_n       = 1U;
 
 /* Latest position for the on-glass dot (producer writes, UI reads). */
 static volatile int32_t s_dot_x = 0;
@@ -62,6 +75,8 @@ static volatile uint32_t s_clicks  = 0U;
 static volatile uint32_t s_dropped = 0U;
 static volatile uint32_t s_multi   = 0U;
 static volatile uint32_t s_reanchor = 0U;
+static volatile uint32_t s_outside = 0U;
+static volatile uint32_t s_taps    = 0U;
 
 /* -------------------------------------------------------------------------- */
 /* Trail ring                                                                 */
@@ -109,6 +124,8 @@ void trackpad_clear_area(void)
     s_started    = 0U;
     s_ended      = 0U;
     s_have_primary = 0U;
+    s_travel_px    = 0;
+    s_peak_n       = 1U;
 
     taskENTER_CRITICAL();
     s_ring_tail = s_ring_head;
@@ -142,10 +159,24 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
     if (n == 0U)
     {
         s_have_primary = 0U;
+
         if (s_active != 0U)
         {
+            uint32_t held = (uint32_t)(xTaskGetTickCount() - s_contact_tick);
+
             s_active = 0U;
             s_ended  = 1U;
+
+            /* Tap-to-click.  "Short and it stayed put" is the whole rule, and
+             * it must have been a single finger the entire time: a two-finger
+             * scroll that happens to end quickly is not a click.  The contact
+             * had to begin inside the pad to get here at all, which is what
+             * keeps the glass buttons from double-firing. */
+            if ((held <= TP_TAP_MS) && (s_travel_px < TP_TAP_MOVE_PX) && (s_peak_n == 1U))
+            {
+                usb_mouse_click(USB_MOUSE_BTN_LEFT);
+                s_taps++;
+            }
         }
         return;
     }
@@ -158,6 +189,7 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
     if (n >= 2U)
     {
         s_multi++;
+        s_peak_n       = 2U;    /* this contact is no longer a tap candidate */
         s_have_primary = 0U;    /* the remaining finger must not inherit this */
         return;
     }
@@ -200,6 +232,11 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
         dx = lx - s_last_x;
         dy = ly - s_last_y;
 
+        /* Absolute travel, for tap detection.  Summing |dx|+|dy| means a slow
+         * wiggle that ends where it started still counts as movement, so it
+         * becomes a (tiny) drag instead of a click. */
+        s_travel_px += ((dx < 0) ? -dx : dx) + ((dy < 0) ? -dy : dy);
+
         if ((dx == 0) && (dy == 0))
         {
             return;
@@ -232,6 +269,10 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
     /* ---- New contact: only starts when it lands inside the pad ---------- */
     if ((lx < 0) || (ly < 0) || (lx >= s_area_w) || (ly >= s_area_h))
     {
+        /* Counted so the status dump can tell "the finger never reached the
+         * pad" (huge count) from "the pad area is wrong" (0) - both look the
+         * same from the outside, namely: the pointer does not move. */
+        s_outside++;
         return;
     }
 
@@ -242,6 +283,9 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
     s_last_x  = lx;
     s_last_y  = ly;
     s_last_tick = xTaskGetTickCount();
+    s_contact_tick = s_last_tick;
+    s_travel_px    = 0;
+    s_peak_n       = 1U;
     s_dot_x   = lx;
     s_dot_y   = ly;
     s_clicks++;
@@ -301,4 +345,6 @@ void trackpad_get_stats(trackpad_stats_t *out)
     out->dropped = s_dropped;
     out->multi   = s_multi;
     out->reanchor = s_reanchor;
+    out->outside = s_outside;
+    out->taps    = s_taps;
 }

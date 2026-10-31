@@ -59,6 +59,8 @@ typedef struct
     uint32_t dropped;   /* trail points lost because the ring was full  */
     uint32_t multi;     /* samples with 2+ contacts (pointer frozen)    */
     uint32_t reanchor;  /* primary finger changed / lifted, no delta    */
+    uint32_t outside;   /* contacts whose START was outside the pad     */
+    uint32_t taps;      /* taps that produced a left-button click       */
 } trackpad_stats_t;
 
 #ifdef __cplusplus
@@ -85,7 +87,9 @@ void trackpad_clear_area(void);
  *    - n >= 2: two-finger gesture territory.  The pointer is FROZEN - it does
  *      not move and no trail is drawn - otherwise a scroll would drag the
  *      cursor across the desktop.
- *    - n == 0: release, as before.
+ *    - n == 0: release, as before.  A contact that began inside the pad, was
+ *      single-finger the whole time, lasted <= 260 ms and travelled < 14 px is
+ *      a TAP: it emits one left-button click (tap-to-click).
  *
  * @param  pts  contacts of this sample, already mapped onto the canvas
  * @param  n    number of valid entries (0 = every finger is up)

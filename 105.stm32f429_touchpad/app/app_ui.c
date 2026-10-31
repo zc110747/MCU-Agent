@@ -442,6 +442,13 @@ static void handle_event(const gesture_evt_t *ev)
 {
     switch (ev->type)
     {
+    case GESTURE_EVT_TAP:
+        /* The click itself is emitted by trackpad.c (it is the layer that knows
+         * the pad area, and it is the one that must not fire when the contact
+         * started on a glass key).  This is only the readout. */
+        set_gesture_text("单指轻点: 左键");
+        break;
+
     case GESTURE_EVT_TAP2:
         set_gesture_text("双指轻点");
         break;
@@ -979,6 +986,50 @@ static void report_points(void)
     }
 }
 
+/**
+ * @brief  Hex dump of the raw coordinate block.
+ *
+ *  Printed twice: the bytes of the last frame the driver parsed, and a live
+ *  read done right now.  Together they pin down whether a wrong coordinate
+ *  comes from the chip (both dumps agree) or from the parsing / frame handling
+ *  (only the live read looks sane).  Layout, 8 bytes per contact starting at
+ *  the track id in 0x814F: [id, xL, xH, yL, yH, sizeL, sizeH, rsv].
+ */
+static void report_block(void)
+{
+    uint8_t buf[GT9147_MAX_POINTS * GT9147_POINT_STRIDE];
+    uint8_t n;
+    uint8_t i;
+    char    hex[3U * 40U + 1U];
+    size_t  off;
+
+    n = bsp_gt9147_last_block(buf, (uint8_t)sizeof(buf));
+    off = 0U;
+    for (i = 0U; (i < n) && ((off + 4U) < sizeof(hex)); i++)
+    {
+        (void)snprintf(&hex[off], sizeof(hex) - off, "%02X ", buf[i]);
+        off += 3U;
+    }
+    hex[off] = '\0';
+    PRINT_LOG("[BLK ] last n=%u: %s\r\n", (unsigned int)n, hex);
+
+    if (bsp_gt9147_dump_block(buf, 8U) == 0)
+    {
+        off = 0U;
+        for (i = 0U; i < 8U; i++)
+        {
+            (void)snprintf(&hex[off], sizeof(hex) - off, "%02X ", buf[i]);
+            off += 3U;
+        }
+        hex[off] = '\0';
+        PRINT_LOG("[BLK ] now  (0x814F): %s\r\n", hex);
+    }
+    else
+    {
+        PRINT_LOG("[BLK ] now  (0x814F): read FAILED\r\n");
+    }
+}
+
 static void report_status(void)
 {
     gesture_status_t   st;
@@ -991,6 +1042,8 @@ static void report_status(void)
     uint32_t f_release = 0U;
     uint16_t touch_x = 0U;
     uint16_t touch_y = 0U;
+    uint16_t raw_x   = 0U;
+    uint16_t raw_y   = 0U;
     uint8_t  touch_pressed = 0U;
 
     gesture_get_status(&st);
@@ -998,6 +1051,7 @@ static void report_status(void)
     trackpad_get_stats(&tp);
     bsp_touch_frame_stats(&f_new, &f_empty, &f_release);
     bsp_touch_get(&touch_x, &touch_y, &touch_pressed);
+    bsp_touch_raw(&raw_x, &raw_y);
     (void)sd_card_usage_mb(&total_mb, &used_mb);
 
     PRINT_LOG("[USB ] mounted=%u suspended=%u buttons=0x%02X reports=%lu\r\n",
@@ -1010,10 +1064,13 @@ static void report_status(void)
               (unsigned long)ms.tries, (unsigned long)ms.endpoint_busy,
               (unsigned long)ms.lat_avg_ms,
               (unsigned long)(SystemCoreClock / 1000000U));
-    PRINT_LOG("[PAD ] feeds=%lu moves=%lu clicks=%lu drop=%lu multi=%lu reanchor=%lu\r\n",
+    PRINT_LOG("[PAD ] feeds=%lu moves=%lu clicks=%lu taps=%lu outside=%lu "
+              "drop=%lu multi=%lu reanchor=%lu\r\n",
               (unsigned long)tp.feeds, (unsigned long)tp.moves,
-              (unsigned long)tp.clicks, (unsigned long)tp.dropped,
-              (unsigned long)tp.multi, (unsigned long)tp.reanchor);
+              (unsigned long)tp.clicks, (unsigned long)tp.taps,
+              (unsigned long)tp.outside,
+              (unsigned long)tp.dropped, (unsigned long)tp.multi,
+              (unsigned long)tp.reanchor);
     PRINT_LOG("[MOVE] x=%ld y=%ld\r\n", (long)ms.x_total, (long)ms.y_total);
     PRINT_LOG("[SD  ] %s %lu/%lu MB\r\n",
               (sd_card_is_ready() != 0) ? "0: mounted" : "0: absent",
@@ -1022,14 +1079,16 @@ static void report_status(void)
               lcd_driver_font_source(),
               (unsigned long)lcd_driver_font_status());
     PRINT_LOG("[TOUCH] irq=%lu ready=%d fingers=%u maxp=%u peak=%lu multi=%lu st=0x%02X "
-              "pos=%u,%u press=%u frame=%lu empty=%lu release=%lu\r\n",
+              "raw=%u,%u pos=%u,%u clamp=%lu press=%u frame=%lu empty=%lu release=%lu\r\n",
               (unsigned long)bsp_touch_irq_count(), bsp_touch_is_ready(),
               (unsigned int)st.fingers,
               (unsigned int)bsp_touch_max_points(),
               (unsigned long)bsp_touch_peak_points(),
               (unsigned long)bsp_touch_multi_frames(),
               (unsigned int)bsp_gt9147_last_status(),
+              (unsigned int)raw_x, (unsigned int)raw_y,
               (unsigned int)touch_x, (unsigned int)touch_y,
+              (unsigned long)bsp_touch_clamp_count(),
               (unsigned int)touch_pressed,
               (unsigned long)f_new, (unsigned long)f_empty,
               (unsigned long)f_release);
@@ -1045,7 +1104,7 @@ static void report_status(void)
 static void report_help(void)
 {
     PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  p=points  "
-              "s=status  f=font check  h=help\r\n");
+              "b=raw block  d=raw trace  s=status  f=font check  h=help\r\n");
 }
 #endif /* PRINT_LOG_ENABLE */
 
@@ -1127,6 +1186,24 @@ void app_ui_command(char c)
          * fingers are on the glass to see what the controller really reports. */
         report_points();
         break;
+
+    case 'b':
+    case 'B':
+        /* Hex dump of the raw coordinate block (see report_block). */
+        report_block();
+        break;
+
+    case 'd':
+    case 'D':
+    {
+        /* Toggle the per-frame raw trace.  Bring-up only: while it is on the
+         * console gets one line per contact every 300 ms as long as a finger
+         * is down, which buries the command replies. */
+        uint8_t on = bsp_gt9147_trace((bsp_gt9147_trace(0xFFU) == 0U) ? 1U : 0U);
+
+        PRINT_LOG("[CMD ] raw trace %s\r\n", (on != 0U) ? "ON" : "OFF");
+        break;
+    }
 
     case 's':
     case 'S':

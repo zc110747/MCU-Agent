@@ -87,6 +87,23 @@ void usb_mouse_move_ex(int16_t dx, int16_t dy, uint32_t dt_ms);
 /** Press (pressed != 0) or release one or more buttons of @p mask. */
 void usb_mouse_set_button(uint8_t mask, int pressed);
 
+/**
+ * @brief  Emit one self-timed click of @p mask (press, hold USB_MOUSE_CLICK_MS,
+ *         release).  Safe from any task; the pulse is driven by the USB task.
+ *
+ *  Why this is not just set_button(1) + set_button(0): mouse_send() compares
+ *  the current mask against the one it last *sent*, and the pump only runs once
+ *  every 2 ms.  A click that is pressed and released inside one interval has a
+ *  net delta of zero, so nothing is transmitted and the host never sees it.
+ *  The pulse keeps the press asserted until a report carrying it has actually
+ *  been accepted by the host.
+ */
+void usb_mouse_click(uint8_t mask);
+
+/* How long a click stays asserted.  Long enough that a 1 ms host polling
+ * interval cannot miss it, short enough to feel instantaneous. */
+#define USB_MOUSE_CLICK_MS      40U
+
 /** Release every button (used the UI is torn down / on unmount). */
 void usb_mouse_release_all(void);
 
