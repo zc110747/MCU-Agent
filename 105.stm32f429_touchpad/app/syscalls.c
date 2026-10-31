@@ -2,12 +2,38 @@
   ******************************************************************************
   * @file    syscalls.c
  * @brief   Minimal newlib syscalls for STM32 + FreeRTOS.
- *          _write() is provided in bsp_uart.c (retarget to USART1).
+ *          _write() is provided here and forwards to USART1 via bsp_uart.
+ *
+ *          GCC (newlib) and MDK-ARM (ARM C library) use completely different
+ *          retarget hooks, so the two are kept in separate branches of one
+ *          file: newlib needs _write()/_sbrk(), the ARM C library needs
+ *          fputc().  Compiling both would give duplicate symbols.
   ******************************************************************************
   */
+#include <stdint.h>
+#include "bsp_uart.h"
+
+#if defined(__ARMCC_VERSION)
+
+/* ---------------- MDK-ARM / ARM Compiler 6 (MicroLIB) --------------------
+ * printf() -> fputc().  MicroLIB is selected in stm32f429_touchpad.uvprojx,
+ * which keeps the retarget to this single function.
+ */
+#include <stdio.h>
+
+int fputc(int ch, FILE *f)
+{
+  uint8_t c = (uint8_t)ch;
+
+  (void)f;
+  uart_write(&c, 1U);
+  return ch;
+}
+
+#else  /* GCC / newlib */
+
 #include <sys/stat.h>
 #include <errno.h>
-#include <stdint.h>
 #include <unistd.h>
 
 extern char _end;            /* provided by the linker script */
@@ -27,7 +53,6 @@ void *_sbrk(int incr)
 }
 
 /* Retarget stdout/stderr to the interrupt-driven UART (thread-safe). */
-#include "bsp_uart.h"
 int _write(int fd, char *ptr, int len)
 {
   if (fd == STDOUT_FILENO || fd == STDERR_FILENO)
@@ -48,3 +73,5 @@ int _open(const char *path, int flags, int mode) { (void)path; (void)flags; (voi
 void _exit(int status)    { (void)status; while (1) { } }
 int _kill(int pid, int sig) { (void)pid; (void)sig; return -1; }
 int _getpid(void)         { return 1; }
+
+#endif /* __ARMCC_VERSION */

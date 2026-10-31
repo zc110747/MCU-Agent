@@ -1,0 +1,37 @@
+; *****************************************************************************
+; *** Scatter-Loading Description File (MDK-ARM / armlink)                  ***
+; *** Mirrors sys_startup/STM32F429IGTx_FLASH.ld byte for byte.             ***
+; ***                                                                       ***
+; ***   FLASH   0x08000000  1024 KB   (vectors + code + rodata)             ***
+; ***   RAM     0x20000000   192 KB   (SRAM1+2+3, contiguous)               ***
+; ***   SDRAM   0xC0000000    32 MB   (FMC, FreeRTOS heap_5 region)         ***
+; ***                                                                       ***
+; *** NOTE  RW_SDRAM is UNINIT on purpose: SDRAM is only brought up inside  ***
+; ***       main() (FMC init).  If the C library tried to zero this region  ***
+; ***       during scatter loading the core would HardFault before main().  ***
+; *****************************************************************************
+
+LR_IROM1 0x08000000 0x00100000
+{
+  ER_IROM1 0x08000000 0x00100000
+  {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+    .ANY (+XO)
+  }
+
+  ; RW data + ZI (bss, STACK, HEAP) in internal SRAM
+  RW_IRAM1 0x20000000 0x00030000
+  {
+    .ANY (+RW +ZI)
+  }
+
+  ; FreeRTOS ucHeap (.bss.freertos_heap, ZI) -- NOT zeroed at startup.
+  ; The .bss. name is what makes ARM Compiler 6 emit it as zero-init data;
+  ; see the comment in app/sdram_heap.c.
+  RW_SDRAM 0xC0000000 UNINIT 0x02000000
+  {
+    *(.bss.freertos_heap)
+  }
+}

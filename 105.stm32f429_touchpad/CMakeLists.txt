@@ -98,6 +98,10 @@ set(HAL_SOURCES
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
+  # hal_flash.c calls FLASH_Erase_Sector()/FLASH_FlushCaches() from the _ex
+  # file.  GNU ld drops the unused HAL_FLASHEx_Erase() section before resolving
+  # it, armlink does not, so the file has to be present for the MDK build.
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sdram.c
