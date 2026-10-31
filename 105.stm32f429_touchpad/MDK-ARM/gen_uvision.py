@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Generate the MDK-ARM (Keil uVision) project for 105.stm32f429_touchpad.
 
-The file list follows exactly the same rules as CMakeLists.txt, so adding a
-.c under app/ or bsp/ only needs a re-run instead of hand-editing 260+ XML
-nodes:
+Everything Keil needs lives in this folder, the same layout as 101/102:
+the .uvprojx, the .uvoptx, the scatter file and this generator.  The file list
+follows exactly the same rules as ../CMakeLists.txt, so adding a .c under app/
+or bsp/ only needs a re-run instead of hand-editing 260+ XML nodes:
 
-    python tools/gen_keil_project.py           # (re)write stm32f429_touchpad.uvprojx
-    python tools/gen_keil_project.py --check    # exit 1 if the file is stale
+    python MDK-ARM/gen_uvision.py            # (re)write MDK-ARM/stm32f429_touchpad.uvprojx
+    python MDK-ARM/gen_uvision.py --check    # exit 1 if the file is stale
 
-Nothing else in the repository is touched: the generated project, the scatter
-file (stm32f429_touchpad.sct, hand-written) and the ARM-syntax startup file
-are plain checked-in files.
+Paths inside the project are relative to this folder (..\\app, ..\\bsp, ...),
+which is why uVision must be opened on MDK-ARM/stm32f429_touchpad.uvprojx and
+not from the project root.  Build output goes to MDK-ARM/Objects/<target>/.
 """
 
 from __future__ import annotations
@@ -22,7 +23,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = "stm32f429_touchpad"
-UVPROJX = ROOT / f"{PROJECT}.uvprojx"
+# The project lives next to this script, so every path inside it is one level
+# below ROOT (see rel() and INCLUDES).
+MDK = Path(__file__).resolve().parent
+UVPROJX = MDK / f"{PROJECT}.uvprojx"
 SCT = f".\\{PROJECT}.sct"
 
 DEVICE = "STM32F429IGTx"
@@ -52,17 +56,17 @@ DEFINES = ",".join([
 ])
 
 INCLUDES = ";".join([
-    ".\\app",
-    ".\\bsp",
-    ".\\sys_startup",
-    ".\\Drivers\\CMSIS\\Include",
-    ".\\Drivers\\STM32F4xx_HAL_Driver\\Inc",
-    ".\\third_party\\FreeRTOS-Kernel\\include",
-    ".\\third_party\\FreeRTOS-Kernel\\portable\\GCC\\ARM_CM4F",
-    ".\\third_party\\Fatfs",
-    ".\\third_party\\lvgl",
-    ".\\third_party\\lvgl\\src",
-    ".\\third_party\\tinyusb\\src",
+    "..\\app",
+    "..\\bsp",
+    "..\\sys_startup",
+    "..\\Drivers\\CMSIS\\Include",
+    "..\\Drivers\\STM32F4xx_HAL_Driver\\Inc",
+    "..\\third_party\\FreeRTOS-Kernel\\include",
+    "..\\third_party\\FreeRTOS-Kernel\\portable\\GCC\\ARM_CM4F",
+    "..\\third_party\\Fatfs",
+    "..\\third_party\\lvgl",
+    "..\\third_party\\lvgl\\src",
+    "..\\third_party\\tinyusb\\src",
 ])
 
 # Same sources CMakeLists.txt links, in the same order.  Kept as an explicit
@@ -123,8 +127,8 @@ TINYUSB_SOURCES = [
 
 
 def rel(p: Path) -> str:
-    """Project-relative path in the backslash form uVision expects."""
-    return ".\\" + str(p.relative_to(ROOT)).replace("/", "\\")
+    """Path from MDK-ARM/ to p, in the backslash form uVision expects."""
+    return "..\\" + str(p.relative_to(ROOT)).replace("/", "\\")
 
 
 def collect() -> list[tuple[str, list[tuple[str, str, int]]]]:
@@ -199,7 +203,7 @@ TARGET_TMPL = """    <Target>
           <SLE66CMisc />
           <SLE66AMisc />
           <SLE66LinkerMisc />
-          <SFDFile>.\\STM32F429x.svd</SFDFile>
+          <SFDFile>$$Device:{device}$CMSIS\\SVD\\STM32F429.svd</SFDFile>
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
           <BinPath />
@@ -214,14 +218,14 @@ TARGET_TMPL = """    <Target>
             <NotGenerated>0</NotGenerated>
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
-          <OutputDirectory>.\\build_mdk\\{name}\\</OutputDirectory>
+          <OutputDirectory>.\\Objects\\{name}\\</OutputDirectory>
           <OutputName>{project}</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
           <CreateHexFile>1</CreateHexFile>
           <DebugInformation>{debug_info}</DebugInformation>
           <BrowseInformation>1</BrowseInformation>
-          <ListingPath>.\\build_mdk\\{name}\\</ListingPath>
+          <ListingPath>.\\Objects\\{name}\\</ListingPath>
           <HexFormatSelection>1</HexFormatSelection>
           <Merge32K>0</Merge32K>
           <CreateBatchFile>0</CreateBatchFile>

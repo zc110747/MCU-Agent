@@ -2,10 +2,19 @@
 # The .uvprojx itself is checked in, this is not.
 *.uvoptx
 
+# Keil build output.  uVision writes it into MDK-ARM\Objects\<target>\ because
+# the project lives in MDK-ARM\ (same layout as 101/102).
+Objects/
+*.axf
+*.map
+*.dep
+*.crf
+*.iex
+*.htm
+
 # The repository root .gitignore contains "*.BAT" (a Keil build-artifact
-# convention).  Git matches that case-insensitively on Windows, so every
-# one-key script in this project (build.bat, build_mdk.bat, test_logic.bat) was
-# being dropped from the index *silently* - `git add` reports nothing, the file
-# simply never appears in `git status` and never reaches a clone.
-# Re-include them here; they are source, not artifacts.
+# convention).  Git matches that case-insensitively on Windows, so build_oneclick.bat
+# was being dropped from the index *silently* - `git add` reports nothing, the
+# file simply never appears in `git status` and never reaches a clone.
+# Re-include it here; it is source, not an artifact.
 !*.bat

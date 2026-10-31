@@ -4,7 +4,7 @@
 Reads the armlink map file, so the numbers are available even when UV4 skipped
 the link step (nothing changed), which is when "Program Size:" is not printed.
 
-    python tools/mdk_size.py build_mdk/Debug
+    python tools/mdk_size.py MDK-ARM/Objects/Debug
 """
 
 from __future__ import annotations

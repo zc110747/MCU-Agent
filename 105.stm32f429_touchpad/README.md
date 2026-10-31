@@ -141,7 +141,7 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 挂起）则 200 ms 超时放弃，不会把按键卡住。
 
 `tools/test_trackpad_tap.c` 把这套判据钉在 7 个用例上（轻点/拖动/长按/双指/键上起手/
-来回蹭/双指后抬起一指），跑 `test_logic.bat` 即可，不需要板子。
+来回蹭/双指后抬起一指），跑 `build_oneclick.bat test` 即可，不需要板子。
 
 加速度（`usb_mouse.c`，Q8 定点，无浮点）。阈值是**速度**（px / 10 ms），不是
 "每 tick 位移" —— 采样率变过两次（84 Hz → 172 Hz），按 tick 判档会让同样的手速
@@ -547,16 +547,25 @@ report descriptor。改对之后 `00 09 01 00 …`（SET_CONFIGURATION）立刻�
 
 ### 6.1 一键脚本（GCC）
 
+整个工程只有一个命令行入口，与 101/102 一致：
+
 ```bat
-build.bat              :: Debug   -> build\
-build.bat release      :: Release -> build-release\
-build.bat all          :: 两个都编
-build.bat clean        :: 删 build\ build-release\ build_mdk\
+build_oneclick.bat              :: Debug   -> build\         构建 + 烧录 + 重启
+build_oneclick.bat release      :: Release -> build-release\ 构建 + 烧录 + 重启
+build_oneclick.bat all          :: 两个都编，烧 Debug 镜像
+build_oneclick.bat build        :: 只构建，不碰板子
+build_oneclick.bat flash        :: 只烧录现有 ELF，不重编
+build_oneclick.bat test         :: 宿主机逻辑单测（不需要板子）
+build_oneclick.bat clean        :: 删 build\ build-release\ MDK-ARM\Objects\
 ```
 
+开关可任意组合：`--no-flash`（只编）、`--no-restart`（烧完不启动）、
+`--log`（重启后抓串口）、`--port COMx`、`--seconds N`。
+
 脚本自己 configure（`Release` 自动带 `-DENABLE_PRINT_LOG=OFF`）、编译、统计警告数，
-末尾打印 FLASH/RAM 占比。**警告数不为 0 时返回退出码 4**（零警告硬约束，可直接当门禁用）。
-尺寸只在真正链接的那次才变，所以增量构建会复用上次结果。
+末尾打印 FLASH/RAM 占比；**警告数不为 0 时按构建失败返回**（零警告硬约束，可直接当门禁用）。
+烧录后不用 `reset run` —— 见下面的复位说明，脚本会从 ELF 里读 `_estack` / `Reset_Handler`
+手工装好 SP/PC 再 `resume`。
 
 ### 6.2 手工 CMake
 
@@ -568,7 +577,7 @@ cmake --build build          # 产物: build/stm32f429_touchpad.elf / .hex / .bi
 cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_PRINT_LOG=OFF
 cmake --build build-release
 
-openocd -f openocd.cfg -c "program build/stm32f429_touchpad.elf verify reset exit"
+openocd -f openocd.cfg -c "program build/stm32f429_touchpad.elf verify exit"
 ```
 
 > 纯 GCC 构建（arm-none-eabi-gcc 15.3.1 + CMake + Ninja），零警告是硬要求：
@@ -580,22 +589,45 @@ openocd -f openocd.cfg -c "program build/stm32f429_touchpad.elf verify reset exi
 
 ### 6.3 MDK-ARM / uVision（ARM Compiler 6）
 
-```bat
-build_mdk.bat              :: Debug   -> build_mdk\Debug\
-build_mdk.bat release      :: Release -> build_mdk\Release\
-build_mdk.bat all          :: 两个都编
-build_mdk.bat gen          :: 只重新生成 .uvprojx（源文件增删后跑这个）
-build_mdk.bat all gen      :: 先重新生成再双构
+Keil 工程整体放在 `MDK-ARM\`，与 101/102 完全同构，**双击打开这个文件**：
+
+```
+MDK-ARM\stm32f429_touchpad.uvprojx
 ```
 
-也可以直接双击 `stm32f429_touchpad.uvprojx` 用 IDE 打开。
+工程里所有路径都是相对 `MDK-ARM\` 的 `..\app`、`..\bsp` 形式，所以必须打开
+`MDK-ARM\` 下的工程文件，从工程根打开旧副本会全部找不到源文件。
 
 | 文件 | 作用 |
 |------|------|
-| `stm32f429_touchpad.uvprojx` | 两个 target（Debug/Release）、8 个分组、263 个文件 |
-| `stm32f429_touchpad.sct` | armlink 分散加载文件，逐字节对应 `STM32F429IGTx_FLASH.ld` |
-| `tools/gen_keil_project.py` | 生成 uvprojx；文件列表规则与 `CMakeLists.txt` 同源 |
-| `tools/mdk_size.py` | 从 `.map` 出 FLASH/RAM/SDRAM 占比（UV4 只在重链接时打印 `Program Size`） |
+| `MDK-ARM/stm32f429_touchpad.uvprojx` | 两个 target（Debug/Release）、8 个分组、263 个文件 |
+| `MDK-ARM/stm32f429_touchpad.sct` | armlink 分散加载文件，逐字节对应 `STM32F429IGTx_FLASH.ld` |
+| `MDK-ARM/stm32f429_touchpad.uvoptx` | 每用户状态（调试器选择/断点/窗口），不入库 |
+| `MDK-ARM/gen_uvision.py` | 生成 uvprojx；文件列表规则与 `CMakeLists.txt` 同源 |
+| `MDK-ARM/Objects/<target>/` | 编译产物 `.axf/.hex/.map`，不入库 |
+| `tools/mdk_size.py` | 从 `.map` 出占比：`python tools/mdk_size.py MDK-ARM/Objects/Debug` |
+
+源文件增删后重新生成工程（不要手改 260+ 个 XML 节点）：
+
+```bat
+python MDK-ARM\gen_uvision.py            :: 重写 MDK-ARM\stm32f429_touchpad.uvprojx
+python MDK-ARM\gen_uvision.py --check    :: 过期则返回 1，可当 CI 门禁
+```
+
+需要在命令行里编（CI、批量验证）时，**必须先把当前目录切到 `MDK-ARM\`**：
+UV4 的 `-o` 日志路径和工程内相对路径都按当前工作目录解析，从工程根调用会
+编译成功但日志文件静默不生成。
+
+```bat
+cd MDK-ARM
+UV4.exe -b stm32f429_touchpad.uvprojx -t Debug   -j0 -o "Objects\Debug\uv4.log"
+UV4.exe -b stm32f429_touchpad.uvprojx -t Release -j0 -o "Objects\Release\uv4.log"
+:: 退出码 0 = 0 error 0 warning，1 = 有警告，2 = 有错误
+```
+
+> **`MDK-ARM/mdk_target.c` 不参与本工程**。它是从 102 拷来的 semihosting 抑制文件，
+> 里面定义了 `fputc()`，而本工程已由 `app/syscalls.c` 的 `__ARMCC_VERSION` 分支提供
+> 同一个符号，加进工程会重复定义。105 的 Keil 侧不需要它。
 
 几点与 GCC 侧不同的处理，都是实测撞出来的：
 
@@ -614,6 +646,8 @@ build_mdk.bat all gen      :: 先重新生成再双构
   两侧体积没变。
 - **`printf` 重定向**：AC6 + MicroLIB 走 `fputc()`，newlib 走 `_write()`，
   在 `app/syscalls.c` 里用 `__ARMCC_VERSION` 分成两支，不会重复定义。
+- **SVD 用 DFP 自带的**：`<SFDFile>` 指向 `$$Device:STM32F429IGTx$CMSIS\SVD\STM32F429.svd`，
+  工程根不再需要放一份 `STM32F429x.svd`（102 也是这么做的）。
 
 ---
 
@@ -630,7 +664,7 @@ MDK-ARM（armclang 6.16，MicroLIB）：
 
 | 项目 | Debug（-O1） | Release（-O2） |
 |------|-------------|----------------|
-| FLASH | 380 224 B / 1 MB（**36.26 %**） | 252 512 B / 1 MB（**24.08 %**） |
+| FLASH | 380 224 B / 1 MB（**36.26 %**） | 252 544 B / 1 MB（**24.08 %**） |
 | 内部 RAM | 29 504 B / 192 KB（**15.01 %**） | 29 312 B / 192 KB（**14.91 %**） |
 | SDRAM | 524 288 B（`RW_SDRAM`，UNINIT） | 同左 |
 
@@ -705,18 +739,24 @@ app/     main.c  usb_mouse.c  usb_descriptors.c  tusb_config.h
          trackpad.c  touch_task.c  gesture.c  app_ui.c  ui_task.c
          sd_card.c  fs_diskio.c  image_sd.c  log.c  sdram_heap.c
          stm32f4xx_it.c  stm32f4xx_hal_timebase_tim.c  FreeRTOSConfig.h
+         syscalls.c
 bsp/     bsp_usb_hw.c  bsp_lcd.c  bsp_lcd_text.c  lcd_ascii_font.c
          lv_font_gbk.c  lv_gbk_map.c  bsp_touch.c  bsp_gt9147.c  bsp_sw_i2c.c
          bsp_sdio.c  bsp_sdram.c  bsp_key.c  bsp_led.c  bsp_uart.c  bsp_delay.c
          lv_port_disp.c  lv_port_indev.c
+MDK-ARM/ stm32f429_touchpad.uvprojx  <- Keil 工程（Debug / Release 双 target）
+         stm32f429_touchpad.sct        <- armlink 分散加载
+         stm32f429_touchpad.uvoptx     <- 每用户状态，不入库
+         gen_uvision.py                <- 生成 uvprojx，规则与 CMakeLists 同源
+         Objects/<target>/             <- 编译产物，不入库
 tools/   img2bin.py  gbk_font_gen.py  serial_capture.py  serial_verify.py
-         gen_keil_project.py  mdk_size.py
+         mdk_size.py
          test_gesture_mt.c      <- 宿主机跑的多点手势单测（不碰硬件）
-         test_trackpad_tap.c    <- 宿主机跑的轻触左键判据单测
+         test_trackpad_tap.c    <- 宿主机跑的轻触左键+滚轮判据单测
          hoststub/              <- FreeRTOS/task.h 的宿主机替身（仅单测用）
          touch_pointer_probe.py <- 同时采样主机光标/左键与板端 [MOVE]、taps
          wheel_probe.py         <- WH_MOUSE_LL 钩子：证明滚轮字节真的到了主机
-build.bat  build_mdk.bat  test_logic.bat
+CMakeLists.txt  build_oneclick.bat  openocd.cfg
 ```
 
 > `third_party/tinyusb/` 只编译 device 侧：`tusb.c`、`common/tusb_fifo.c`、
@@ -741,7 +781,7 @@ build.bat  build_mdk.bat  test_logic.bat
 | 触摸 IC | GT911，addr=0x14，cfg=0x51，480×800；`irq` 持续增长 |
 | 串口命令 | `PASS 17 / FAIL 0` |
 | 跟手延迟 | UI 循环 172 Hz、扫描 793 µs、报告排队 1 ms、端点忙 0 |
-| 多点逻辑 | `test_logic.bat` → `PASS 51 / FAIL 0`（手势 36：单指笔迹、第二指抢笔、双指滚动 1 格/24 px、第三指不产生假滚动、单/双指轻点、抬指不落墨；触摸板 15：轻触左键 7 项 + 滚轮 8 项） |
+| 多点逻辑 | `build_oneclick.bat test` → `PASS 51 / FAIL 0`（手势 36：单指笔迹、第二指抢笔、双指滚动 1 格/24 px、第三指不产生假滚动、单/双指轻点、抬指不落墨；触摸板 15：轻触左键 7 项 + 滚轮 8 项） |
 | 多点硬件 | 芯片配置块读出 `points=5`，驱动按 `count*8` 一次突发读全表 |
 | 手指→PC 端到端 | `tools/touch_pointer_probe.py`：板端 `MOVE x=172 y=-459` 与主机光标 `(1704,17)→(890,893)` 同时变化，`raw` 与 `pos` 一致、`clamp=0` |
 | 单指轻触 = 左键 | 真机确认：触摸区内轻点即产生一次左键（`tap-to-click`），点玻璃键不连带点击桌面 |
