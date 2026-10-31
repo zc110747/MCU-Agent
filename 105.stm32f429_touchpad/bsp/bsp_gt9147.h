@@ -22,8 +22,14 @@
 
 #include <stdint.h>
 
-/* Maximum number of simultaneous touch points the driver reports. */
+/* Maximum number of simultaneous touch points the driver reports.  The GT9147
+ * reports 5; the value actually in use comes from the configuration block
+ * (0x804C) and is returned by bsp_gt9147_points(). */
 #define GT9147_MAX_POINTS   5U
+
+/* Bytes per point in the coordinate block at 0x8150:
+ *   [0] track id   [1..2] x   [3..4] y   [5..6] contact size   [7] reserved */
+#define GT9147_POINT_STRIDE 8U
 
 /* Length of the Product ID string stored at GT_PID_REG (not zero terminated). */
 #define GT9147_ID_LEN       4U
@@ -36,6 +42,10 @@
 
 typedef struct
 {
+    uint8_t  id;        /* track id (0..9): stable while that finger stays down,
+                         * so the caller can tell "same finger moved" from
+                         * "another finger appeared in this buffer slot"       */
+    uint8_t  size;      /* reported contact area, 0..255 (pressure proxy)      */
     uint16_t x;         /* raw touch X (0 .. GT9147_PANEL_X-1) */
     uint16_t y;         /* raw touch Y (0 .. GT9147_PANEL_Y-1) */
 } gt9147_point_t;
@@ -95,6 +105,15 @@ uint8_t bsp_gt9147_last_status(void);
 uint16_t bsp_gt9147_panel_x(void);
 uint16_t bsp_gt9147_panel_y(void);
 
+/**
+  * @brief  Number of simultaneous contacts the chip is configured to report
+  *         (configuration block 0x804C, capped at GT9147_MAX_POINTS).
+  *         Read back from the chip during init, so it also proves whether the
+  *         uploaded configuration really enabled multi-touch: a module left at
+  *         the factory value 2 can never report three fingers.
+  */
+uint8_t bsp_gt9147_points(void);
+
 /* Returned by bsp_gt9147_read() when the controller had nothing new to say.
  * This is NOT the same thing as a release: the GT9xx only sets bit 7 of
  * 0x814E once it has a fresh frame, and a poll that lands between two frames
@@ -104,13 +123,18 @@ uint16_t bsp_gt9147_panel_y(void);
 
 /**
   * @brief  Read the touch status register and, when a new frame is pending,
-  *         all reported coordinates.  Clears the status register afterwards so
-  *         the chip can raise the next interrupt.
+  *         the whole coordinate block in ONE burst.
   *
   *  The status register is only consumed when bit 7 (buffer ready) is set:
   *    - bit 7 set, count 0  -> the finger(s) really went up
   *    - bit 7 set, count n  -> a new coordinate frame
   *    - bit 7 clear         -> nothing new, register left untouched
+  *
+  *  All @p n points come from a single I2C transaction: the controller rewrites
+  *  the complete block every report period, so reading the points one by one
+  *  could mix two frames into one sample (a finger would appear to jump between
+  *  two positions).  Each entry carries the track id, which is what makes
+  *  multi-touch usable upstream.
   *
   *  @param points  destination array of at least GT9147_MAX_POINTS entries
   *  @param max     number of entries available in @p points

@@ -85,6 +85,25 @@ static volatile uint16_t s_last_x = 0U;
 static volatile uint16_t s_last_y = 0U;
 static volatile uint8_t  s_last_pressed = 0U;
 
+/* Sticky primary contact: the track id the single-pointer consumers follow. */
+static uint8_t s_primary_id    = 0U;
+static uint8_t s_primary_valid = 0U;
+
+/* Whole-frame snapshot of the contacts, published by bsp_touch_scan() and
+ * copied out by bsp_touch_get_points().  The producer is the touch task, the
+ * consumers are the UI task (dots) and the console (status); it is a plain
+ * array behind a short critical section rather than a queue because a reader
+ * only ever wants the latest frame, never a history. */
+static bsp_touch_point_t s_pts[BSP_TOUCH_MAX_POINTS];
+static volatile uint8_t  s_pts_n = 0U;
+
+/* Multi-touch evidence: the biggest frame seen, and how many frames carried
+ * more than one contact.  A panel that never reports two contacts shows peak=1
+ * here, which separates "the driver drops fingers" from "the panel does not
+ * see them". */
+static volatile uint32_t s_peak_points  = 0U;
+static volatile uint32_t s_multi_frames = 0U;
+
 /* LVGL canvas (= the active GRAM window); refreshed on every scan because the
  * panel is brought up by another thread. */
 static uint16_t s_max_x   = 1U;
@@ -275,12 +294,20 @@ int bsp_touch_init(void)
     touch_refresh_geometry();
 
     PRINT_LOG("[TOUCH] ready: id=%s addr=0x%02X cfg=0x%02X, touch %ux%u -> canvas %ux%u, "
-              "swap=%d invX=%d invY=%d\r\n",
+              "points=%u, swap=%d invX=%d invY=%d\r\n",
               bsp_gt9147_id(), (unsigned int)bsp_gt9147_addr(),
               (unsigned int)bsp_gt9147_cfg_version(),
               (unsigned int)s_panel_x, (unsigned int)s_panel_y,
               (unsigned int)s_max_x, (unsigned int)s_max_y,
+              (unsigned int)bsp_gt9147_points(),
               (int)TOUCH_SWAP_XY, (int)TOUCH_INVERT_X, (int)TOUCH_INVERT_Y);
+
+    if (bsp_gt9147_points() < 2U)
+    {
+        PRINT_LOG("[TOUCH] WARNING: chip reports only %u contact(s) - multi-touch "
+                  "is off in its configuration block (0x804C)\r\n",
+                  (unsigned int)bsp_gt9147_points());
+    }
 
     return 0;
 }
@@ -342,19 +369,73 @@ int bsp_touch_scan(bsp_touch_point_t *pts, uint8_t max)
 
     for (i = 0U; i < (uint8_t)n; i++)
     {
+        pts[i].id   = raw[i].id;
+        pts[i].size = raw[i].size;
         map_point(raw[i].x, raw[i].y, &pts[i].x, &pts[i].y);
+    }
+
+    /* Publish the whole frame for bsp_touch_get_points().  n is capped by the
+     * caller's buffer size, so copy exactly that many entries. */
+    taskENTER_CRITICAL();
+    for (i = 0U; i < (uint8_t)n; i++)
+    {
+        s_pts[i] = pts[i];
+    }
+    s_pts_n = (uint8_t)n;
+    taskEXIT_CRITICAL();
+
+    if ((uint32_t)n > s_peak_points)
+    {
+        s_peak_points = (uint32_t)n;
+    }
+    if (n >= 2)
+    {
+        s_multi_frames++;
     }
 
     if (n > 0)
     {
-        s_last_x       = pts[0].x;
-        s_last_y       = pts[0].y;
+        /* Primary contact = the finger the single-pointer consumers follow
+         * (LVGL indev, the on-screen dot).  It is STICKY: once a finger owns
+         * the pointer it keeps it until that exact track id disappears.
+         *
+         * "lowest id" alone is not enough.  The controller hands the lowest
+         * free id to a new finger, so after "A down (id 0), B down (id 1),
+         * A up" a third finger can take id 0 again while B is still down -
+         * lowest-id would hand the pointer to the newcomer and the glass
+         * buttons would see a click from out of nowhere.  The track id is what
+         * makes the choice stable, the buffer slot is not. */
+        uint8_t primary = 0xFFU;
+        uint8_t lowest  = 0U;
+
+        for (i = 0U; i < (uint8_t)n; i++)
+        {
+            if ((s_primary_valid != 0U) && (pts[i].id == s_primary_id))
+            {
+                primary = i;
+            }
+            if (pts[i].id < pts[lowest].id)
+            {
+                lowest = i;
+            }
+        }
+
+        if (primary == 0xFFU)
+        {
+            primary        = lowest;
+            s_primary_id   = pts[primary].id;
+            s_primary_valid = 1U;
+        }
+
+        s_last_x       = pts[primary].x;
+        s_last_y       = pts[primary].y;
         s_last_pressed = 1U;
     }
     else
     {
         s_frame_release++;
-        s_last_pressed = 0U;
+        s_last_pressed  = 0U;
+        s_primary_valid = 0U;
     }
 
     touch_scan_account(t0);
@@ -367,6 +448,46 @@ void bsp_touch_get(uint16_t *x, uint16_t *y, uint8_t *pressed)
     if (x != NULL)       { *x = s_last_x; }
     if (y != NULL)       { *y = s_last_y; }
     if (pressed != NULL) { *pressed = s_last_pressed; }
+}
+
+uint8_t bsp_touch_get_points(bsp_touch_point_t *pts, uint8_t max)
+{
+    uint8_t n;
+    uint8_t i;
+
+    if ((pts == NULL) || (max == 0U))
+    {
+        return 0U;
+    }
+
+    taskENTER_CRITICAL();
+    n = s_pts_n;
+    if (n > max)
+    {
+        n = max;
+    }
+    for (i = 0U; i < n; i++)
+    {
+        pts[i] = s_pts[i];
+    }
+    taskEXIT_CRITICAL();
+
+    return n;
+}
+
+uint8_t bsp_touch_max_points(void)
+{
+    return bsp_gt9147_points();
+}
+
+uint32_t bsp_touch_peak_points(void)
+{
+    return s_peak_points;
+}
+
+uint32_t bsp_touch_multi_frames(void)
+{
+    return s_multi_frames;
 }
 
 uint32_t bsp_touch_irq_count(void)

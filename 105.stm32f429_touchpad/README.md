@@ -117,7 +117,7 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 | 单指滑出触摸区（滑到按键上） | **继续移动光标**（触摸板的正常手感），圆点停在边界 |
 | 单指抬起 | 圆点立即消失，轨迹保留 600 ms 后淡出 |
 | 手指**一开始**就按在玻璃键上 | 不移动光标，交给 LVGL 处理按键 |
-| 双指 / 三指 | 手势状态机照常识别，界面显示「滚轮未启用」；**不产生滚轮报告** |
+| 双指 / 三指 | 每个触点画一个空心环；**光标冻结不动**，识别为滚动 / 平移 / 多指轻点；**不产生滚轮报告** |
 
 加速度（`usb_mouse.c`，Q8 定点，无浮点）。阈值是**速度**（px / 10 ms），不是
 "每 tick 位移" —— 采样率变过两次（84 Hz → 172 Hz），按 tick 判档会让同样的手速
@@ -131,6 +131,56 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 
 累积器是 Q8（1/256 px），**亚像素余量跨报告保留**，慢速拖动不会因为取整而丢失位移；
 单份报告最多 ±127 px，超出的部分留在累积器里下一份继续发。
+
+#### 多点触控（5 点）：三处必须改对，否则"能读却不听使唤"
+
+GT911/GT9147 本身支持 5 点，配置块 0x804C 就是触点数。本机的芯片读出
+`points=5`（`[TOUCH] stored config: ... points=5`），所以硬件侧早就是多点了；
+真正让它"能用"的是下面三件事：
+
+**① 一次突发读完整个坐标块（0x8150 起，每点 8 字节）**
+
+原实现是"读一点、回一次 start/stop"，5 点就是 5 次独立 I2C 事务。控制器每个上报
+周期（~10 ms）会把整块重写一遍，所以分次读可能把**第 k 帧的第 1 点和第 k+1 帧的
+第 2 点**混进同一次采样——手指看起来在跳。现在按 `count*8` 字节一次读完，同时省掉
+4 次寄存器地址阶段（软 I2C 165 kHz 上这不是小数目）。
+
+**② 保留 track id，按 id 认手指，不按缓冲区槽位**
+
+每点第一个字节是 track id：只要手指不抬，id 不变；缓冲区里的顺序却可能变。所以
+"第 0 个点"不等于"第一根手指"。上层现在全程用 id：
+
+| 层 | 用途 |
+|---|---|
+| `bsp_touch.c` | 选**粘性主指**（见下）喂 LVGL 指针和屏幕大圆点 |
+| `trackpad.c` | 指针只跟主指 id；id 换了 = **静默重锚**，不产生位移 |
+| `gesture.c` | 5 槽 id 表，主指 = 出生戳最小者；滚动/平移用"最老两根"的逐指位移 |
+
+"粘性主指"是这里唯一容易写错的地方：不能简单取"id 最小"。控制器把**最小的空闲 id**
+发给新手指，于是"A 按下(id 0)、B 按下(id 1)、A 抬走、C 按下"时 C 又拿到 id 0——
+按最小 id 选主指就会把指针交给刚落下的 C，玻璃键会莫名其妙被按下。正确做法是记住
+当前主指的 id，只有它真的消失才换人。
+
+**③ 双指时冻结指针、滚动用逐指位移而不是质心**
+
+- `trackpad_feed()` 收到 `n >= 2` 就直接返回：光标不动、不画轨迹，否则双指滚动会
+  把光标拖过整个桌面（"滚一下顺手点了确定"的经典事故）。等只剩一根手指时再按 id
+  重锚，所以冻结也不会变成一次跳跃。
+- `gesture.c` 的滚动量取**最老两根匹配手指**的平均位移。用整帧质心时，第三根手指
+  一落下就把参考点拽走 → 凭空多出几格滚轮；用"全部匹配手指的平均"时，一根静止的
+  手指又会把两指滑动摊薄成 2/3 速度。这两种错法都在宿主单测里固化成用例了。
+
+**可验证性**：界面上每个触点画一个空心环（最多 5 个），状态行显示 `触点 n/5`；
+串口 `p` 命令直接打印当前帧的触点表：
+
+```
+[TPTS] n=2 of 5  peak=2 multi_frames=37
+[TPTS]   #0 id=0 x=182 y=321 size=24
+[TPTS]   #1 id=1 x=296 y=338 size=22
+```
+
+`peak` 是开机以来见过的最大触点数，`multi_frames` 是"≥2 点"的帧数——两个数一起
+就能区分"驱动丢手指"和"面板根本没看见"。
 
 #### 跟手优化：四个延迟源
 
@@ -233,6 +283,7 @@ GT911 ──(软 I2C, 只在 touch_task 里)──► bsp_touch_scan()  每 5 ms
 | `r` | 点一下右键 | `c` | 清触摸轨迹 |
 | `x` | 光标右移（10×4 px 的"手指"位移） | `f` | 字库自检：逐字验证 12/16/24 px 字形能否读到 |
 | `y` | 光标下移 | `k` | 裸扇区读测试（SDIO 层，绕开 FatFs） |
+| `p` | 打印当前触点表（id / 坐标 / 面积） | `s` / `?` | 状态快照（含触点峰值、多指帧数） |
 | 其它字符 | `[CMD ] unknown '<c>' (h for help)` | | |
 
 ```
@@ -505,8 +556,8 @@ build_mdk.bat all gen      :: 先重新生成再双构
 
 | 项目 | GCC Debug | GCC Release（无日志） |
 |------|-----------|----------------------|
-| FLASH | 246 772 B / 1 MB（**23.53 %**） | 274 720 B / 1 MB（**26.20 %**） |
-| 内部 RAM（.data + .bss） | 29 744 B / 192 KB（**15.13 %**） | 29 664 B / 192 KB（**15.09 %**） |
+| FLASH | 249 228 B / 1 MB（**23.77 %**） | 278 080 B / 1 MB（**26.52 %**） |
+| 内部 RAM（.data + .bss） | 30 504 B / 192 KB（**15.52 %**） | 29 832 B / 192 KB（**15.17 %**） |
 | SDRAM | 512 KB（FreeRTOS 堆，NOLOAD）+ 256 KB（LVGL 堆，固定地址） | 同左 |
 | FreeRTOS 堆内的运行期分配 | 显示缓冲 57 KB + 任务栈 ~15 KB + 轨迹缓冲 | 同左 |
 
@@ -514,8 +565,8 @@ MDK-ARM（armclang 6.16，MicroLIB）：
 
 | 项目 | Debug（-O1） | Release（-O2） |
 |------|-------------|----------------|
-| FLASH | 371 744 B / 1 MB（**35.45 %**） | 246 400 B / 1 MB（**23.50 %**） |
-| 内部 RAM | 29 072 B / 192 KB（**14.79 %**） | 28 944 B / 192 KB（**14.72 %**） |
+| FLASH | 375 648 B / 1 MB（**35.82 %**） | 248 960 B / 1 MB（**23.74 %**） |
+| 内部 RAM | 29 264 B / 192 KB（**14.88 %**） | 29 136 B / 192 KB（**14.82 %**） |
 | SDRAM | 524 288 B（`RW_SDRAM`，UNINIT） | 同左 |
 
 > 四档都是零警告。MDK 的 Debug 比 GCC 的大 123 KB，主要是 `-O1` 与 `-Og` 在 LVGL 上的
@@ -542,11 +593,23 @@ FreeRTOS heap: 512 KB @0xC0000000 (SDRAM)
 [SD  ] mounted 0:
 [UI  ] GBK glyph files: 0: (mask=0x1F)
 [TOUCH] product ID = "911" (addr 0x14) -> MATCH
-[TOUCH] stored config: version=0x51 resolution=480x800
+[TOUCH] stored config: version=0x51 resolution=480x800 points=5
 [TOUCH] EXTI cfg: EXTICR2=0x00007000 IMR=0x0080 FTSR=0x0080 prio=6
-[TOUCH] ready: id=911 addr=0x14 cfg=0x51, touch 480x800 -> canvas 480x800, swap=0 invX=0 invY=0
+[TOUCH] ready: id=911 addr=0x14 cfg=0x51, touch 480x800 -> canvas 480x800, points=5, swap=0 invX=0 invY=0
 [USB ] mounted by host
 [UI  ] screen built (storage ready)
+```
+
+`points=5` 是芯片配置块 0x804C 读回来的触点数：小于 2 会额外打一条 WARNING，
+因为那时无论驱动怎么写都只能收到一根手指。
+
+带 `p` / `s` 命令的诊断输出（空闲时）：
+
+```
+[PERF] ui=168Hz touch_scan=8612 us=453 send=22728 ep_busy=0 lat=1ms clk=168MHz
+[PAD ] feeds=346 moves=0 clicks=0 drop=0 multi=0 reanchor=0
+[TOUCH] irq=344 ready=1 fingers=0 maxp=5 peak=0 multi=0 st=0x00 pos=0,0 press=0 frame=3 empty=8609 release=3
+[TPTS] n=0 of 5  peak=0 multi_frames=0
 ```
 
 Windows 侧识别结果：
@@ -582,6 +645,9 @@ bsp/     bsp_usb_hw.c  bsp_lcd.c  bsp_lcd_text.c  lcd_ascii_font.c
          bsp_sdio.c  bsp_sdram.c  bsp_key.c  bsp_led.c  bsp_uart.c  bsp_delay.c
          lv_port_disp.c  lv_port_indev.c
 tools/   img2bin.py  gbk_font_gen.py  serial_capture.py  serial_verify.py
+         gen_keil_project.py  mdk_size.py
+         test_gesture_mt.c      <- 宿主机跑的多点手势单测（不碰硬件）
+build.bat  build_mdk.bat  test_logic.bat
 ```
 
 > `third_party/tinyusb/` 只编译 device 侧：`tusb.c`、`common/tusb_fifo.c`、
@@ -606,6 +672,8 @@ tools/   img2bin.py  gbk_font_gen.py  serial_capture.py  serial_verify.py
 | 触摸 IC | GT911，addr=0x14，cfg=0x51，480×800；`irq` 持续增长 |
 | 串口命令 | `PASS 17 / FAIL 0` |
 | 跟手延迟 | UI 循环 172 Hz、扫描 793 µs、报告排队 1 ms、端点忙 0 |
+| 多点逻辑 | `test_logic.bat` → `PASS 36 / FAIL 0`（单指笔迹、第二指抢笔、双指滚动 1 格/24 px、第三指不产生假滚动、单/双指轻点、抬指不落墨） |
+| 多点硬件 | 芯片配置块读出 `points=5`，驱动按 `count*8` 一次突发读全表 |
 
 仍需**手感确认**（SWD 与串口都替代不了）：
 
@@ -618,6 +686,9 @@ tools/   img2bin.py  gbk_font_gen.py  serial_capture.py  serial_verify.py
 3. **灵敏度**：默认 1.25× / 1.75× / 2.5× 三段（按 px/10 ms 判档）。觉得慢就整体乘一个
    系数（`usb_mouse.c` 的 `GAIN_*_Q8`），Windows 侧"提高指针精确度"也会叠加加速。
 4. **三个玻璃键**：按住左键拖动图标试试；手指滑出按钮应立即松开（`PRESS_LOST`）。
-5. **手势区**：双指上下/左右滑应显示"滚轮未启用"，不产生滚轮报告（符合当前需求）。
+5. **多点触控**：两指同时按下 —— 屏幕上应出现**两个空心环**、状态行 `触点 2/5`，
+   **PC 光标必须停在原地**；两指上下滑时 `s` 的 `multi` 增长、`滚动` 计数增加，
+   但光标不动。三指点一下应显示「三指轻点」。按住两指时发 `p` 可以看芯片实际
+   报了几个点（`peak` 应变成 2 或 3；一直是 1 说明面板/配置只认单点）。
 6. **滚轮**（下一步）：在 `usb_descriptors.c` 描述符尾部加 HID Usage `0x38`（Wheel），
    报告加第 4 字节；`gesture` 的 `SCROLL` 事件已经带 ±格数，接上即可。

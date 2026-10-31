@@ -36,9 +36,11 @@ static volatile int32_t s_area_h = 0;
 static volatile uint8_t s_area_valid = 0U;
 
 /* Contact state (producer only). */
-static uint8_t s_active = 0U;
+static uint8_t  s_active = 0U;
 static int32_t s_last_x = 0;
 static int32_t s_last_y = 0;
+static uint8_t  s_primary_id = 0U;
+static uint8_t  s_have_primary = 0U;
 static TickType_t s_last_tick = 0;
 static uint8_t s_started = 0U;
 static uint8_t s_ended   = 0U;
@@ -58,6 +60,8 @@ static volatile uint32_t s_feeds   = 0U;
 static volatile uint32_t s_moves   = 0U;
 static volatile uint32_t s_clicks  = 0U;
 static volatile uint32_t s_dropped = 0U;
+static volatile uint32_t s_multi   = 0U;
+static volatile uint32_t s_reanchor = 0U;
 
 /* -------------------------------------------------------------------------- */
 /* Trail ring                                                                 */
@@ -104,13 +108,14 @@ void trackpad_clear_area(void)
     s_active     = 0U;
     s_started    = 0U;
     s_ended      = 0U;
+    s_have_primary = 0U;
 
     taskENTER_CRITICAL();
     s_ring_tail = s_ring_head;
     taskEXIT_CRITICAL();
 }
 
-void trackpad_feed(uint16_t x, uint16_t y, uint8_t pressed)
+void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
 {
     int32_t lx;
     int32_t ly;
@@ -122,14 +127,21 @@ void trackpad_feed(uint16_t x, uint16_t y, uint8_t pressed)
         return;
     }
 
+    if ((pts == NULL) || (n == 0U))
+    {
+        n = 0U;
+    }
+    if (n > TRACKPAD_MAX_POINTS)
+    {
+        n = TRACKPAD_MAX_POINTS;
+    }
+
     s_feeds++;
 
-    lx = (int32_t)x - s_area_x;
-    ly = (int32_t)y - s_area_y;
-
     /* ---- Release -------------------------------------------------------- */
-    if (pressed == 0U)
+    if (n == 0U)
     {
+        s_have_primary = 0U;
         if (s_active != 0U)
         {
             s_active = 0U;
@@ -137,6 +149,21 @@ void trackpad_feed(uint16_t x, uint16_t y, uint8_t pressed)
         }
         return;
     }
+
+    /* ---- Two or more fingers: gesture territory, pointer frozen ---------- *
+     * Without this the centroid of a two-finger scroll would drag the cursor
+     * across the desktop - the classic "trackpad scrolls and clicks things"
+     * failure.  The position is re-anchored below, on the frame where a single
+     * finger is left again, so the freeze cannot turn into a jump either. */
+    if (n >= 2U)
+    {
+        s_multi++;
+        s_have_primary = 0U;    /* the remaining finger must not inherit this */
+        return;
+    }
+
+    lx = (int32_t)pts[0].x - s_area_x;
+    ly = (int32_t)pts[0].y - s_area_y;
 
     /* ---- Already tracking ----------------------------------------------- *
      * Once a contact began inside the pad it keeps moving the pointer even if
@@ -148,6 +175,27 @@ void trackpad_feed(uint16_t x, uint16_t y, uint8_t pressed)
     {
         TickType_t now = xTaskGetTickCount();
         uint32_t   dt  = (uint32_t)(now - s_last_tick);
+
+        if ((s_have_primary == 0U) || (pts[0].id != s_primary_id))
+        {
+            /* The finger that owned the pointer is gone (or a second finger
+             * just lifted and this is the survivor).  Take the new finger over
+             * at its current position instead of reporting the distance from
+             * the previous owner's position, which would be a visible jump. */
+            s_reanchor++;
+            s_primary_id   = pts[0].id;
+            s_have_primary = 1U;
+            s_last_x       = lx;
+            s_last_y       = ly;
+            s_last_tick    = now;
+
+            if ((lx >= 0) && (ly >= 0) && (lx < s_area_w) && (ly < s_area_h))
+            {
+                s_dot_x = lx;
+                s_dot_y = ly;
+            }
+            return;
+        }
 
         dx = lx - s_last_x;
         dy = ly - s_last_y;
@@ -189,6 +237,8 @@ void trackpad_feed(uint16_t x, uint16_t y, uint8_t pressed)
 
     s_active  = 1U;
     s_started = 1U;
+    s_primary_id   = pts[0].id;
+    s_have_primary = 1U;
     s_last_x  = lx;
     s_last_y  = ly;
     s_last_tick = xTaskGetTickCount();
@@ -249,4 +299,6 @@ void trackpad_get_stats(trackpad_stats_t *out)
     out->moves   = s_moves;
     out->clicks  = s_clicks;
     out->dropped = s_dropped;
+    out->multi   = s_multi;
+    out->reanchor = s_reanchor;
 }

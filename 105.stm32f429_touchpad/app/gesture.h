@@ -12,6 +12,17 @@
  *    two finger tap        -> TAP2
  *    three finger tap      -> TAP3
  *
+ *  Multi-touch model
+ *  -----------------
+ *  Every sample carries the controller's track id per contact.  The engine
+ *  keeps a small table of live ids and uses it for two things:
+ *
+ *    - the PRIMARY finger (the one that has been down the longest) drives the
+ *      stroke, so adding a second finger never makes the ink jump to it;
+ *    - scroll / pan use the per-id delta of the fingers present in BOTH frames,
+ *      not the centroid of the frame.  A third finger landing or the two
+ *      fingers drifting apart therefore no longer produces a phantom notch.
+ *
  *  The engine is a pure state machine: it never touches hardware, never blocks
  *  and owns no task.  The touch task feeds it one sample per poll; the UI task
  *  drains the event queue while pumping LVGL, so every event is consumed in the
@@ -29,6 +40,8 @@ typedef struct
 {
     uint16_t x;     /* canvas X */
     uint16_t y;     /* canvas Y */
+    uint8_t  id;    /* controller track id, stable while the finger stays down */
+    uint8_t  size;  /* contact area, 0..255                                    */
 } gesture_point_t;
 
 /* ---- Events -------------------------------------------------------------- */

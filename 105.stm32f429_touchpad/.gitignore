@@ -1,3 +1,11 @@
 # Keil uVision per-user state: debugger selection, breakpoints, window layout.
 # The .uvprojx itself is checked in, this is not.
 *.uvoptx
+
+# The repository root .gitignore contains "*.BAT" (a Keil build-artifact
+# convention).  Git matches that case-insensitively on Windows, so every
+# one-key script in this project (build.bat, build_mdk.bat, test_logic.bat) was
+# being dropped from the index *silently* - `git add` reports nothing, the file
+# simply never appears in `git status` and never reaches a clone.
+# Re-include them here; they are source, not artifacts.
+!*.bat

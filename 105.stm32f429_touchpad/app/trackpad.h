@@ -29,6 +29,16 @@
  * handful per pass is the normal case; the ring itself holds 64. */
 #define TRACKPAD_TRAIL_MAX      24
 
+/* Contacts per sample the engine accepts (matches the touch controller). */
+#define TRACKPAD_MAX_POINTS     5U
+
+typedef struct
+{
+    uint16_t x;     /* canvas X, already mapped by bsp_touch_scan */
+    uint16_t y;
+    uint8_t  id;    /* controller track id */
+} trackpad_point_t;
+
 typedef struct
 {
     uint8_t  active;                    /* finger currently tracked        */
@@ -47,6 +57,8 @@ typedef struct
     uint32_t moves;     /* samples that produced a non-zero HID delta   */
     uint32_t clicks;    /* contacts that began inside the pad           */
     uint32_t dropped;   /* trail points lost because the ring was full  */
+    uint32_t multi;     /* samples with 2+ contacts (pointer frozen)    */
+    uint32_t reanchor;  /* primary finger changed / lifted, no delta    */
 } trackpad_stats_t;
 
 #ifdef __cplusplus
@@ -65,10 +77,20 @@ void trackpad_clear_area(void);
  * @brief  Feed one sample.  MUST be called from a single task (touch_task);
  *         the only work it does is arithmetic plus a short critical section
  *         around the trail ring, so it never blocks.
- * @param  x,y      canvas coordinates (already mapped by bsp_touch_scan)
- * @param  pressed  non-zero while at least one contact is down
+ *
+ *  Multi-touch policy (this is what keeps the pointer usable):
+ *    - n == 1: the pointer follows that finger, by track id.  A different id
+ *      taking over is a re-anchor, not a movement: the last position is
+ *      silently replaced instead of sending a huge HID delta.
+ *    - n >= 2: two-finger gesture territory.  The pointer is FROZEN - it does
+ *      not move and no trail is drawn - otherwise a scroll would drag the
+ *      cursor across the desktop.
+ *    - n == 0: release, as before.
+ *
+ * @param  pts  contacts of this sample, already mapped onto the canvas
+ * @param  n    number of valid entries (0 = every finger is up)
  */
-void trackpad_feed(uint16_t x, uint16_t y, uint8_t pressed);
+void trackpad_feed(const trackpad_point_t *pts, uint8_t n);
 
 /**
  * @brief  Drain the visual state for the UI task.  @p out is fully written.

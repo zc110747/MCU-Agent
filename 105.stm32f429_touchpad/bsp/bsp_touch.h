@@ -16,9 +16,11 @@
   *  module pulses INT for the whole contact.
   *
   *  Unlike 102 this module publishes **all** contacts (up to
-  *  BSP_TOUCH_MAX_POINTS) because the touchpad gesture engine needs two
-  *  fingers for scrolling.  Coordinates are already mapped onto the LCD
-  *  canvas, so a caller never has to deal with the chip's own resolution.
+  *  BSP_TOUCH_MAX_POINTS) together with their track id, because the touchpad
+  *  gesture engine needs two fingers for scrolling and because "which finger is
+  *  this" - not the buffer slot - is what keeps the pointer from jumping when a
+  *  second finger lands.  Coordinates are already mapped onto the LCD canvas,
+  *  so a caller never has to deal with the chip's own resolution.
   ******************************************************************************
   */
 #ifndef __BSP_TOUCH_H__
@@ -59,6 +61,8 @@ typedef struct
 {
     uint16_t x;     /* canvas X (0 .. canvas width  - 1) */
     uint16_t y;     /* canvas Y (0 .. canvas height - 1) */
+    uint8_t  id;    /* track id: identical for the same finger across frames */
+    uint8_t  size;  /* reported contact area, 0..255                       */
 } bsp_touch_point_t;
 
 #ifdef __cplusplus
@@ -114,11 +118,43 @@ void bsp_touch_frame_stats(uint32_t *frames, uint32_t *empty, uint32_t *releases
   *         Written by bsp_touch_scan() in the touch task and read by LVGL, so
   *         it is deliberately just three volatile words - no locking and no
   *         bus traffic on the render path.
-  *  @param  x        canvas X of the first reported contact (may be NULL)
-  *  @param  y        canvas Y of the first reported contact (may be NULL)
+  *
+  *         With multi-touch the values come from the PRIMARY contact, i.e. the
+  *         finger with the lowest track id = the one that has been down the
+  *         longest.  Using the buffer order instead would hand LVGL a different
+  *         finger whenever a second one landed, and the pointer would jump.
+  *
+  *  @param  x        canvas X of the primary contact (may be NULL)
+  *  @param  y        canvas Y of the primary contact (may be NULL)
   *  @param  pressed  1 while at least one contact is down (may be NULL)
   */
 void bsp_touch_get(uint16_t *x, uint16_t *y, uint8_t *pressed);
+
+/**
+  * @brief  Full snapshot of the contacts of the most recent frame, in the order
+  *         the controller reports them (already mapped onto the LCD canvas).
+  *         Same no-locking contract as bsp_touch_get(): the array is copied
+  *         under a short critical section so a scan cannot tear it.
+  *  @param  pts  destination array
+  *  @param  max  entries available in @p pts
+  *  @retval number of contacts copied (0 = no contact)
+  */
+uint8_t bsp_touch_get_points(bsp_touch_point_t *pts, uint8_t max);
+
+/**
+  * @brief  Number of simultaneous contacts the controller is configured for
+  *         (from the touch chip's configuration block).  Anything above 1 means
+  *         multi-touch is really enabled in hardware, not just in this driver.
+  */
+uint8_t bsp_touch_max_points(void);
+
+/**
+  * @brief  Diagnostics: largest number of simultaneous contacts seen since
+  *         boot, and how many frames carried two or more contacts.  Together
+  *         they answer "did the panel ever report more than one finger?".
+  */
+uint32_t bsp_touch_peak_points(void);
+uint32_t bsp_touch_multi_frames(void);
 
 /**
   * @brief  Re-arm EXTI line 7 after the ISR (or a scan) masked it.  Drops any

@@ -92,6 +92,12 @@
 #define TRAIL_MAX       64
 #define TRAIL_LINGER_MS 600U
 
+/* One small ring per reported contact.  With multi-touch enabled the panel can
+ * report up to five at once; drawing every one of them is what makes "did the
+ * second finger get through?" answerable by looking at the glass instead of
+ * reading a counter. */
+#define CT_SIZE         20
+
 /* The trail line spans the whole touch surface, so every update invalidates
  * ~456x380 px = 350 KB of pixels (the NT35510 then needs ~35 ms to push it).
  * Committing it on every LVGL pass therefore pinned the UI at 13 Hz while a
@@ -118,6 +124,9 @@ static lv_obj_t *s_pad;
 static lv_obj_t *s_dot;
 static lv_obj_t *s_trail_line;
 static lv_obj_t *s_hint;
+
+/* One ring per contact reported by the controller (see CT_SIZE). */
+static lv_obj_t *s_ct_obj[BSP_TOUCH_MAX_POINTS];
 
 static lv_obj_t *s_btn_obj[3];      /* left, middle, right (visual only) */
 static const uint8_t k_btn_mask[3] = { USB_MOUSE_BTN_LEFT,
@@ -304,6 +313,52 @@ static void poll_trackpad(uint32_t now)
 }
 
 /* -------------------------------------------------------------------------- */
+/* Per-contact rings                                                          */
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief  Draw one ring per contact of the newest frame.
+ *
+ *  bsp_touch_get_points() returns the whole frame (the touch task publishes it
+ *  from the T_PEN-driven poll), so this is pure painting: no I2C, no gesture
+ *  logic.  Canvas coordinates are converted to pad-relative ones because the
+ *  rings are children of the touch surface card.
+ */
+static void poll_contacts(void)
+{
+    bsp_touch_point_t pts[BSP_TOUCH_MAX_POINTS];
+    uint8_t n;
+    uint8_t i;
+
+    if (s_pad == NULL)
+    {
+        return;
+    }
+
+    n = bsp_touch_get_points(pts, (uint8_t)BSP_TOUCH_MAX_POINTS);
+
+    for (i = 0U; i < (uint8_t)BSP_TOUCH_MAX_POINTS; i++)
+    {
+        lv_obj_t *ring = s_ct_obj[i];
+
+        if (ring == NULL)
+        {
+            continue;
+        }
+
+        if (i >= n)
+        {
+            lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+
+        lv_obj_set_pos(ring,
+                       (lv_coord_t)((int32_t)pts[i].x - PAD_X - (CT_SIZE / 2)),
+                       (lv_coord_t)((int32_t)pts[i].y - PAD_Y - (CT_SIZE / 2)));
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
 /* Glass buttons                                                              */
 /* -------------------------------------------------------------------------- */
 static void key_visual(uint8_t mask, int pressed)
@@ -433,8 +488,9 @@ static void refresh_stats(void)
                           (long)ms.x_total, (long)ms.y_total,
                           (unsigned long)ms.reports);
 
-    lv_label_set_text_fmt(s_touch_label, "触点 %u   单指 %lu   多指 %lu   滚动 %lu",
+    lv_label_set_text_fmt(s_touch_label, "触点 %u/%u   单指 %lu   多指 %lu   滚动 %lu",
                           (unsigned int)st.fingers,
+                          (unsigned int)bsp_touch_max_points(),
                           (unsigned long)st.taps,
                           (unsigned long)st.multi_taps,
                           (unsigned long)st.scrolls);
@@ -475,6 +531,7 @@ void app_ui_boot(const char *ascii_msg)
     s_btn_obj[0]    = NULL;
     s_btn_obj[1]    = NULL;
     s_btn_obj[2]    = NULL;
+    (void)memset(s_ct_obj, 0, sizeof(s_ct_obj));
     s_trail_n       = 0U;
     s_pulse_mask    = 0U;
     trackpad_clear_area();
@@ -496,6 +553,7 @@ void app_ui_create(void)
 {
     lv_obj_t *card;
     lv_obj_t *label;
+    uint8_t   i;
     uint32_t total_mb = 0U;
     uint32_t used_mb  = 0U;
 
@@ -556,6 +614,22 @@ void app_ui_create(void)
     lv_obj_set_style_border_color(s_dot, lv_color_hex(C_TEXT), 0);
     lv_obj_clear_flag(s_dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
+
+    /* Contact rings: hollow, one per finger, so a second (third, ...) contact
+     * is visible even while the pointer dot stays frozen in two-finger mode. */
+    for (i = 0U; i < (uint8_t)BSP_TOUCH_MAX_POINTS; i++)
+    {
+        lv_obj_t *ring = lv_obj_create(s_pad);
+
+        s_ct_obj[i] = ring;
+        lv_obj_set_size(ring, CT_SIZE, CT_SIZE);
+        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(ring, 2, 0);
+        lv_obj_set_style_border_color(ring, lv_color_hex(C_TEXT), 0);
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* ---- Glass buttons: left / middle / right ---------------------------- */
     s_btn_obj[0] = make_key_button(s_scr, "左键", "LEFT",   PAD_X, USB_MOUSE_BTN_LEFT);
@@ -681,6 +755,7 @@ void app_ui_poll(void)
     now = HAL_GetTick();
 
     poll_trackpad(now);
+    poll_contacts();
     poll_pulse(now);
     poll_keys();
 
@@ -735,7 +810,7 @@ static const char *k_ui_text[] =
     "USB 未连接",
     "左键 松开   中键 松开   右键 松开",
     "位移 X 0  Y 0    报告 0",
-    "触点 1   单指 0   多指 0   滚动 0",
+    "触点 1/5   单指 0   多指 0   滚动 0",
     "等待触摸…",
     "双指轻点",
     "三指轻点",
@@ -882,6 +957,28 @@ static void font_check(void)
               (unsigned long)missing_glyph);
 }
 
+/* Dump the contacts of the newest frame.  This is the "did the panel really
+ * report two fingers?" evidence: one line per contact, with its track id. */
+static void report_points(void)
+{
+    bsp_touch_point_t pts[BSP_TOUCH_MAX_POINTS];
+    uint8_t n = bsp_touch_get_points(pts, (uint8_t)BSP_TOUCH_MAX_POINTS);
+    uint8_t i;
+
+    PRINT_LOG("[TPTS] n=%u of %u  peak=%lu multi_frames=%lu\r\n",
+              (unsigned int)n, (unsigned int)bsp_touch_max_points(),
+              (unsigned long)bsp_touch_peak_points(),
+              (unsigned long)bsp_touch_multi_frames());
+
+    for (i = 0U; i < n; i++)
+    {
+        PRINT_LOG("[TPTS]   #%u id=%u x=%u y=%u size=%u\r\n",
+                  (unsigned int)i, (unsigned int)pts[i].id,
+                  (unsigned int)pts[i].x, (unsigned int)pts[i].y,
+                  (unsigned int)pts[i].size);
+    }
+}
+
 static void report_status(void)
 {
     gesture_status_t   st;
@@ -913,9 +1010,10 @@ static void report_status(void)
               (unsigned long)ms.tries, (unsigned long)ms.endpoint_busy,
               (unsigned long)ms.lat_avg_ms,
               (unsigned long)(SystemCoreClock / 1000000U));
-    PRINT_LOG("[PAD ] feeds=%lu moves=%lu clicks=%lu drop=%lu\r\n",
+    PRINT_LOG("[PAD ] feeds=%lu moves=%lu clicks=%lu drop=%lu multi=%lu reanchor=%lu\r\n",
               (unsigned long)tp.feeds, (unsigned long)tp.moves,
-              (unsigned long)tp.clicks, (unsigned long)tp.dropped);
+              (unsigned long)tp.clicks, (unsigned long)tp.dropped,
+              (unsigned long)tp.multi, (unsigned long)tp.reanchor);
     PRINT_LOG("[MOVE] x=%ld y=%ld\r\n", (long)ms.x_total, (long)ms.y_total);
     PRINT_LOG("[SD  ] %s %lu/%lu MB\r\n",
               (sd_card_is_ready() != 0) ? "0: mounted" : "0: absent",
@@ -923,15 +1021,19 @@ static void report_status(void)
     PRINT_LOG("[FONT] src=%s mask=0x%02lX\r\n",
               lcd_driver_font_source(),
               (unsigned long)lcd_driver_font_status());
-    PRINT_LOG("[TOUCH] irq=%lu ready=%d fingers=%u st=0x%02X pos=%u,%u press=%u "
-              "frame=%lu empty=%lu release=%lu\r\n",
+    PRINT_LOG("[TOUCH] irq=%lu ready=%d fingers=%u maxp=%u peak=%lu multi=%lu st=0x%02X "
+              "pos=%u,%u press=%u frame=%lu empty=%lu release=%lu\r\n",
               (unsigned long)bsp_touch_irq_count(), bsp_touch_is_ready(),
               (unsigned int)st.fingers,
+              (unsigned int)bsp_touch_max_points(),
+              (unsigned long)bsp_touch_peak_points(),
+              (unsigned long)bsp_touch_multi_frames(),
               (unsigned int)bsp_gt9147_last_status(),
               (unsigned int)touch_x, (unsigned int)touch_y,
               (unsigned int)touch_pressed,
               (unsigned long)f_new, (unsigned long)f_empty,
               (unsigned long)f_release);
+    report_points();
     PRINT_LOG("[GEST] press=%lu tap=%lu multi=%lu scroll=%lu pan=%lu drop=%lu\r\n",
               (unsigned long)st.presses, (unsigned long)st.taps,
               (unsigned long)st.multi_taps, (unsigned long)st.scrolls,
@@ -942,7 +1044,8 @@ static void report_status(void)
 
 static void report_help(void)
 {
-    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  s=status  f=font check  h=help\r\n");
+    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  p=points  "
+              "s=status  f=font check  h=help\r\n");
 }
 #endif /* PRINT_LOG_ENABLE */
 
@@ -1018,6 +1121,13 @@ void app_ui_command(char c)
         break;
 
 #if PRINT_LOG_ENABLE
+    case 'p':
+    case 'P':
+        /* Snapshot of the newest contact frame.  Send it while two or three
+         * fingers are on the glass to see what the controller really reports. */
+        report_points();
+        break;
+
     case 's':
     case 'S':
     case '?':

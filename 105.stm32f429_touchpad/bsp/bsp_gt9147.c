@@ -43,7 +43,7 @@
 #define GT_GSTID_REG        0x814EU         /* touch status / point count     */
 #define GT_TP1_REG          0x8150U         /* point 1 (8 bytes per point)    */
 
-#define GT_TP_STRIDE        8U              /* bytes between consecutive pts  */
+#define GT_TP_STRIDE        GT9147_POINT_STRIDE
 
 /* Bit 7 of the status register: the coordinate buffer has been updated. */
 #define GT_BUFFER_READY     0x80U
@@ -59,7 +59,9 @@
 /**
   * Configuration block for the 800x480 NT35510 module wired to this board.
   * Byte 0 is the version, bytes 1..4 are the touch resolution (480 x 800,
-  * little endian); the remaining bytes are the panel-specific sensing and
+  * little endian), byte 5 is the number of simultaneous touch points (0x05 -
+  * this is what enables multi-touch, a module left at 2 can never report a
+  * third finger); the remaining bytes are the panel-specific sensing and
   * reporting parameters.
   */
 static const uint8_t GT_CFG_TBL[GT_CFG_LEN] =
@@ -88,6 +90,7 @@ static const uint8_t GT_CFG_TBL[GT_CFG_LEN] =
 static uint8_t  s_addr   = 0U;      /* 7-bit address the chip answered on   */
 static uint8_t  s_ready  = 0U;      /* 1 once init completed successfully   */
 static uint8_t  s_ver    = 0U;      /* configuration version in the chip    */
+static uint8_t  s_points = GT9147_MAX_POINTS;   /* contacts per frame, 0x804C */
 static uint16_t s_panel_x = 0U;     /* touch resolution, from the config    */
 static uint16_t s_panel_y = 0U;
 static char     s_id[GT9147_ID_LEN + 1U] = "?";
@@ -182,6 +185,7 @@ int bsp_gt9147_init(void)
     s_ready = 0U;
     s_addr  = 0U;
     s_ver   = 0U;
+    s_points = GT9147_MAX_POINTS;
     (void)memset(s_id, 0, sizeof(s_id));
     s_id[0] = '?';
 
@@ -284,16 +288,22 @@ int bsp_gt9147_init(void)
      * map a touch onto the display.  (Only the 9147 gets the configuration
      * block below uploaded - the block is 9147 specific.) */
     {
-        uint8_t cfg[5];
+        uint8_t cfg[6];
 
         if (gt_read(GT_CFGS_REG, cfg, sizeof(cfg)) == 0)
         {
             s_ver     = cfg[0];
             s_panel_x = (uint16_t)(((uint16_t)cfg[2] << 8) | cfg[1]);
             s_panel_y = (uint16_t)(((uint16_t)cfg[4] << 8) | cfg[3]);
+            s_points  = cfg[5];
+            if ((s_points == 0U) || (s_points > GT9147_MAX_POINTS))
+            {
+                s_points = GT9147_MAX_POINTS;
+            }
         }
-        PRINT_LOG("[TOUCH] stored config: version=0x%02X resolution=%ux%u\r\n",
-               (unsigned int)s_ver, (unsigned int)s_panel_x, (unsigned int)s_panel_y);
+        PRINT_LOG("[TOUCH] stored config: version=0x%02X resolution=%ux%u points=%u\r\n",
+               (unsigned int)s_ver, (unsigned int)s_panel_x, (unsigned int)s_panel_y,
+               (unsigned int)s_points);
     }
 
     /* ---- GT9147: refresh the configuration if it is out of date --------- */
@@ -315,12 +325,14 @@ int bsp_gt9147_init(void)
             }
             else
             {
-                PRINT_LOG("[TOUCH] config updated (%u bytes, %ux%u) and saved\r\n",
+                PRINT_LOG("[TOUCH] config updated (%u bytes, %ux%u, %u points) and saved\r\n",
                        (unsigned int)GT_CFG_LEN,
-                       (unsigned int)GT9147_PANEL_X, (unsigned int)GT9147_PANEL_Y);
+                       (unsigned int)GT9147_PANEL_X, (unsigned int)GT9147_PANEL_Y,
+                       (unsigned int)GT_CFG_TBL[5]);
                 s_ver     = GT_CFG_VERSION;
                 s_panel_x = GT9147_PANEL_X;
                 s_panel_y = GT9147_PANEL_Y;
+                s_points  = GT_CFG_TBL[5];
             }
         }
         else
@@ -332,6 +344,30 @@ int bsp_gt9147_init(void)
         tmp = 0x00U;
         (void)gt_write(GT_CTRL_REG, &tmp, 1U);
         bsp_delay_ms(10U);
+
+        /* ---- read back what the chip really accepted --------------------- *
+         * The configuration block is only taken when its checksum matches, and
+         * a silently rejected block leaves multi-touch off without any other
+         * symptom than "the second finger never appears".  Reading 0x804C back
+         * turns that into a single log line. */
+        {
+            uint8_t chk[6];
+
+            if (gt_read(GT_CFGS_REG, chk, sizeof(chk)) == 0)
+            {
+                s_ver     = chk[0];
+                s_panel_x = (uint16_t)(((uint16_t)chk[2] << 8) | chk[1]);
+                s_panel_y = (uint16_t)(((uint16_t)chk[4] << 8) | chk[3]);
+                s_points  = chk[5];
+                if ((s_points == 0U) || (s_points > GT9147_MAX_POINTS))
+                {
+                    s_points = GT9147_MAX_POINTS;
+                }
+                PRINT_LOG("[TOUCH] active config readback: v=0x%02X %ux%u points=%u\r\n",
+                       (unsigned int)s_ver, (unsigned int)s_panel_x,
+                       (unsigned int)s_panel_y, (unsigned int)s_points);
+            }
+        }
     }
 
     s_ready = 1U;
@@ -368,6 +404,11 @@ uint16_t bsp_gt9147_panel_x(void)
     return s_panel_x;
 }
 
+uint8_t bsp_gt9147_points(void)
+{
+    return s_points;
+}
+
 uint16_t bsp_gt9147_panel_y(void)
 {
     return s_panel_y;
@@ -377,7 +418,7 @@ int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
 {
     uint8_t status = 0U;
     uint8_t count;
-    uint8_t buf[4];
+    uint8_t buf[GT9147_MAX_POINTS * GT_TP_STRIDE];
     uint8_t i;
     uint8_t zero = 0U;
 
@@ -405,6 +446,10 @@ int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
     }
 
     count = (uint8_t)(status & 0x0FU);
+    if (count > s_points)
+    {
+        count = s_points;
+    }
     if (count > GT9147_MAX_POINTS)
     {
         count = GT9147_MAX_POINTS;
@@ -416,16 +461,28 @@ int bsp_gt9147_read(gt9147_point_t *points, uint8_t max)
 
     if (count != 0U)
     {
+        /* ONE transaction for the whole block.  The controller rewrites every
+         * slot once per report period, so per-point reads can return slot 1
+         * from frame k and slot 2 from frame k+1; a moving finger then appears
+         * to jump.  It is also faster: 5 transactions cost 5 start/stop pairs
+         * and 5 register-address phases on a ~165 kHz bit-banged bus. */
+        if (gt_read(GT_TP1_REG, buf, (uint16_t)(count * GT_TP_STRIDE)) != 0)
+        {
+            /* Bus died mid-transaction, so the block is not trustworthy.  Do
+             * not report a release (that would look like "finger lifted"); let
+             * the caller treat it as a controller error. */
+            return -1;
+        }
+
         for (i = 0U; i < count; i++)
         {
-            if (gt_read((uint16_t)(GT_TP1_REG + (i * GT_TP_STRIDE)), buf, 4U) != 0)
-            {
-                break;
-            }
-            points[i].x = (uint16_t)(((uint16_t)buf[1] << 8) | buf[0]);
-            points[i].y = (uint16_t)(((uint16_t)buf[3] << 8) | buf[2]);
+            const uint8_t *p = &buf[i * GT_TP_STRIDE];
+
+            points[i].id   = (uint8_t)(p[0] & 0x0FU);
+            points[i].x    = (uint16_t)(((uint16_t)p[2] << 8) | p[1]);
+            points[i].y    = (uint16_t)(((uint16_t)p[4] << 8) | p[3]);
+            points[i].size = p[5];      /* high byte is 0 for a normal contact */
         }
-        count = i;
     }
 
     /* Clear the status register: the chip only raises the next interrupt once

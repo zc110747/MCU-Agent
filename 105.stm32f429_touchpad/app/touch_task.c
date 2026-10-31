@@ -34,8 +34,9 @@
 
 void touch_task(void *arg)
 {
-    bsp_touch_point_t raw[BSP_TOUCH_MAX_POINTS];
-    gesture_point_t   pts[GESTURE_MAX_POINTS];
+    bsp_touch_point_t  raw[BSP_TOUCH_MAX_POINTS];
+    gesture_point_t    pts[GESTURE_MAX_POINTS];
+    trackpad_point_t   tpts[TRACKPAD_MAX_POINTS];
     uint8_t  storm_logged = 0U;
     uint8_t  err_logged   = 0U;
     uint32_t irq_window_at   = 0U;
@@ -111,7 +112,7 @@ void touch_task(void *arg)
                      * contact (or the finger lifted without a release frame).
                      * Close the stroke so the host does not keep a button
                      * stuck and the next touch cannot look like a big jump. */
-                    trackpad_feed(0U, 0U, 0U);
+                    trackpad_feed(NULL, 0U);
                     gesture_feed(HAL_GetTick(), NULL, 0U);
                     idle = TOUCH_RELEASE_POLLS;
                 }
@@ -134,7 +135,7 @@ void touch_task(void *arg)
 
                 /* Do not leave the pointer logically pressed: the host would
                  * keep whatever button state we last reported. */
-                trackpad_feed(0U, 0U, 0U);
+                trackpad_feed(NULL, 0U);
                 break;
             }
 
@@ -145,22 +146,23 @@ void touch_task(void *arg)
             cnt = (uint8_t)n;
             for (i = 0U; i < cnt; i++)
             {
-                pts[i].x = raw[i].x;
-                pts[i].y = raw[i].y;
+                pts[i].x    = raw[i].x;
+                pts[i].y    = raw[i].y;
+                pts[i].id   = raw[i].id;
+                pts[i].size = raw[i].size;
+
+                tpts[i].x   = raw[i].x;
+                tpts[i].y   = raw[i].y;
+                tpts[i].id  = raw[i].id;
             }
 
-            /* Pointer first: it is what the user feels.  The gesture engine
-             * runs afterwards because its state machine costs more than the
-             * two comparisons trackpad_feed() does. */
-            if (cnt > 0U)
-            {
-                trackpad_feed(raw[0].x, raw[0].y, 1U);
-            }
-            else
-            {
-                trackpad_feed(0U, 0U, 0U);
-            }
-
+            /* Pointer first: it is what the user feels.  It is fed the WHOLE
+             * sample, not just the first contact, because the engine has to see
+             * how many fingers are down: with two it freezes the pointer
+             * instead of dragging it along the scroll.  The gesture engine runs
+             * afterwards because its state machine costs more than the two
+             * comparisons trackpad_feed() does. */
+            trackpad_feed(tpts, cnt);
             gesture_feed(HAL_GetTick(), pts, cnt);
 
             if (n > 0)
@@ -184,7 +186,7 @@ void touch_task(void *arg)
          * pointer does not stay "pressed" across the gap. */
         if (idle < TOUCH_RELEASE_POLLS)
         {
-            trackpad_feed(0U, 0U, 0U);
+            trackpad_feed(NULL, 0U);
             gesture_feed(HAL_GetTick(), NULL, 0U);
             PRINT_LOG("[TOUCH] contact aborted after %lu polls\r\n",
                       (unsigned long)polls);
