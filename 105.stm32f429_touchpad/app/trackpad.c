@@ -37,13 +37,39 @@
 #define TP_TAP_MS        260U
 #define TP_TAP_MOVE_PX   14
 
+/* Wheel strip: pixels of finger travel per notch.  A wheel notch is one text
+ * line (~40 px on screen), which would feel far too coarse if it were 1:1, and
+ * 18 px keeps a slow drag from emitting a notch per sample.  Because the
+ * remainder is carried (not reset per sample), the notch rate is exactly
+ * travel/18 regardless of how finely the motion was sampled. */
+#define TP_WHEEL_NOTCH_PX 18
+
+/* +1 because a finger moving up must scroll up (towards the start of the
+ * document), which is the same direction as pushing a scrollbar thumb up. */
+#define TP_WHEEL_INVERT   0
+
+typedef enum
+{
+    TP_MODE_NONE = 0,   /* no contact, or the contact started nowhere useful  */
+    TP_MODE_POINTER,    /* contact that began inside the touch surface        */
+    TP_MODE_WHEEL       /* contact that began inside the wheel strip          */
+} tp_mode_t;
+
 static volatile int32_t s_area_x = 0;
 static volatile int32_t s_area_y = 0;
 static volatile int32_t s_area_w = 0;
 static volatile int32_t s_area_h = 0;
 static volatile uint8_t s_area_valid = 0U;
 
+/* Wheel strip geometry (canvas coordinates). */
+static volatile int32_t s_whl_x = 0;
+static volatile int32_t s_whl_y = 0;
+static volatile int32_t s_whl_w = 0;
+static volatile int32_t s_whl_h = 0;
+static volatile uint8_t s_whl_valid = 0U;
+
 /* Contact state (producer only). */
+static tp_mode_t s_mode = TP_MODE_NONE;
 static uint8_t  s_active = 0U;
 static int32_t s_last_x = 0;
 static int32_t s_last_y = 0;
@@ -58,9 +84,23 @@ static TickType_t s_contact_tick = 0;
 static int32_t    s_travel_px    = 0;
 static uint8_t    s_peak_n       = 1U;
 
+/* Wheel strip contact state (producer only).  The notch remainder survives
+ * between samples but not between contacts: a new finger must not inherit half
+ * a notch from the previous one. */
+static int32_t  s_whl_last_y    = 0;
+static int32_t  s_whl_acc       = 0;
+static uint8_t  s_whl_primary_id = 0U;
+static uint8_t  s_whl_have_id    = 0U;
+
 /* Latest position for the on-glass dot (producer writes, UI reads). */
 static volatile int32_t s_dot_x = 0;
 static volatile int32_t s_dot_y = 0;
+
+/* Latest wheel-strip position + notch total (producer writes, UI reads). */
+static volatile int32_t  s_whl_dot_x = 0;
+static volatile int32_t  s_whl_dot_y = 0;
+static volatile uint8_t  s_whl_active = 0U;
+static volatile uint32_t s_whl_notches = 0U;
 
 /* Trail ring. */
 static int16_t s_ring_x[TP_RING_SIZE];
@@ -77,6 +117,8 @@ static volatile uint32_t s_multi   = 0U;
 static volatile uint32_t s_reanchor = 0U;
 static volatile uint32_t s_outside = 0U;
 static volatile uint32_t s_taps    = 0U;
+static volatile uint32_t s_wheel_contacts = 0U;
+static volatile uint32_t s_wheel_notches   = 0U;
 
 /* -------------------------------------------------------------------------- */
 /* Trail ring                                                                 */
@@ -117,19 +159,106 @@ void trackpad_set_area(int32_t x, int32_t y, int32_t w, int32_t h)
     s_area_valid = 1U;
 }
 
+void trackpad_set_wheel_area(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    if ((w <= 0) || (h <= 0))
+    {
+        s_whl_valid = 0U;
+        return;
+    }
+
+    s_whl_x = x;
+    s_whl_y = y;
+    s_whl_w = w;
+    s_whl_h = h;
+    s_whl_valid = 1U;
+
+    /* Park the knob in the middle until the first drag. */
+    s_whl_dot_x = x + (w / 2);
+    s_whl_dot_y = y + (h / 2);
+}
+
 void trackpad_clear_area(void)
 {
     s_area_valid = 0U;
+    s_whl_valid  = 0U;
+    s_mode       = TP_MODE_NONE;
     s_active     = 0U;
     s_started    = 0U;
     s_ended      = 0U;
     s_have_primary = 0U;
     s_travel_px    = 0;
     s_peak_n       = 1U;
+    s_whl_acc      = 0;
+    s_whl_have_id  = 0U;
+    s_whl_active   = 0U;
 
     taskENTER_CRITICAL();
     s_ring_tail = s_ring_head;
     taskEXIT_CRITICAL();
+}
+
+/**
+ * @brief  Turn finger travel inside the wheel strip into wheel notches.
+ *
+ *  Only the Y delta is used - that is the whole point of a dedicated strip:
+ *  horizontal wobble during a vertical drag must not turn into anything, and
+ *  there is exactly one axis a 1-byte wheel can carry.
+ */
+static void wheel_track(const trackpad_point_t *p)
+{
+    int32_t  ly = (int32_t)p->y;
+    int32_t  dy;
+    int32_t  notch;
+
+    /* A different track id means the finger that owned the strip is gone and
+     * this is the survivor of a multi-finger contact: adopt its position
+     * silently instead of reporting the distance between two fingers. */
+    if ((s_whl_have_id == 0U) || (p->id != s_whl_primary_id))
+    {
+        s_whl_primary_id = p->id;
+        s_whl_have_id    = 1U;
+        s_whl_last_y     = ly;
+        s_whl_dot_x      = (int32_t)p->x;
+        s_whl_dot_y      = ly;
+        return;
+    }
+
+    dy = ly - s_whl_last_y;
+    s_whl_last_y = ly;
+    s_whl_dot_x  = (int32_t)p->x;
+    s_whl_dot_y  = ly;
+
+    if (dy == 0)
+    {
+        return;
+    }
+
+    s_whl_acc += dy;
+
+    /* Emit every whole notch that has accumulated.  A finger moving up the
+     * glass (dy < 0) scrolls up, i.e. a positive wheel value. */
+    while ((s_whl_acc <= -TP_WHEEL_NOTCH_PX) || (s_whl_acc >= TP_WHEEL_NOTCH_PX))
+    {
+        if (s_whl_acc <= -TP_WHEEL_NOTCH_PX)
+        {
+            notch = 1;
+            s_whl_acc += TP_WHEEL_NOTCH_PX;
+        }
+        else
+        {
+            notch = -1;
+            s_whl_acc -= TP_WHEEL_NOTCH_PX;
+        }
+
+#if TP_WHEEL_INVERT
+        notch = -notch;
+#endif
+
+        usb_mouse_wheel((int8_t)notch);
+        s_whl_notches++;
+        s_wheel_notches++;
+    }
 }
 
 void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
@@ -159,6 +288,18 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
     if (n == 0U)
     {
         s_have_primary = 0U;
+        s_whl_have_id  = 0U;
+
+        if (s_mode == TP_MODE_WHEEL)
+        {
+            /* End of a scroll drag.  The knob stays where it was released and
+             * the notch remainder is dropped, so the next contact starts from
+             * a clean slate instead of inheriting half a notch. */
+            s_whl_active = 0U;
+            s_whl_acc    = 0;
+            s_mode       = TP_MODE_NONE;
+            return;
+        }
 
         if (s_active != 0U)
         {
@@ -178,6 +319,8 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
                 s_taps++;
             }
         }
+
+        s_mode = TP_MODE_NONE;
         return;
     }
 
@@ -185,12 +328,22 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
      * Without this the centroid of a two-finger scroll would drag the cursor
      * across the desktop - the classic "trackpad scrolls and clicks things"
      * failure.  The position is re-anchored below, on the frame where a single
-     * finger is left again, so the freeze cannot turn into a jump either. */
+     * finger is left again, so the freeze cannot turn into a jump either.
+     * The same applies to the wheel strip: a second finger landing while the
+     * user scrolls must not add half a notch. */
     if (n >= 2U)
     {
         s_multi++;
         s_peak_n       = 2U;    /* this contact is no longer a tap candidate */
         s_have_primary = 0U;    /* the remaining finger must not inherit this */
+        s_whl_have_id  = 0U;
+        return;
+    }
+
+    /* ---- Wheel strip owns contacts that started in it -------------------- */
+    if (s_mode == TP_MODE_WHEEL)
+    {
+        wheel_track(&pts[0]);
         return;
     }
 
@@ -203,7 +356,7 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
      * edge is what makes a trackpad feel "sticky".  A contact that *starts* on
      * a button never enters this branch, so tapping a glass key cannot drag
      * the cursor. */
-    if (s_active != 0U)
+    if (s_mode == TP_MODE_POINTER)
     {
         TickType_t now = xTaskGetTickCount();
         uint32_t   dt  = (uint32_t)(now - s_last_tick);
@@ -266,33 +419,57 @@ void trackpad_feed(const trackpad_point_t *pts, uint8_t n)
         return;
     }
 
-    /* ---- New contact: only starts when it lands inside the pad ---------- */
-    if ((lx < 0) || (ly < 0) || (lx >= s_area_w) || (ly >= s_area_h))
+    /* ---- New contact: the region it LANDS in decides what it does -------- *
+     * Pad first, wheel strip second, everything else is dropped.  Checking the
+     * pad first is what keeps the strip from stealing a finger that starts
+     * next to it, and vice versa. */
+    if ((lx >= 0) && (ly >= 0) && (lx < s_area_w) && (ly < s_area_h))
     {
-        /* Counted so the status dump can tell "the finger never reached the
-         * pad" (huge count) from "the pad area is wrong" (0) - both look the
-         * same from the outside, namely: the pointer does not move. */
-        s_outside++;
+        s_mode    = TP_MODE_POINTER;
+        s_active  = 1U;
+        s_started = 1U;
+        s_primary_id   = pts[0].id;
+        s_have_primary = 1U;
+        s_last_x  = lx;
+        s_last_y  = ly;
+        s_last_tick = xTaskGetTickCount();
+        s_contact_tick = s_last_tick;
+        s_travel_px    = 0;
+        s_peak_n       = 1U;
+        s_dot_x   = lx;
+        s_dot_y   = ly;
+        s_clicks++;
+
+        taskENTER_CRITICAL();
+        ring_push(lx, ly);
+        taskEXIT_CRITICAL();
         return;
     }
 
-    s_active  = 1U;
-    s_started = 1U;
-    s_primary_id   = pts[0].id;
-    s_have_primary = 1U;
-    s_last_x  = lx;
-    s_last_y  = ly;
-    s_last_tick = xTaskGetTickCount();
-    s_contact_tick = s_last_tick;
-    s_travel_px    = 0;
-    s_peak_n       = 1U;
-    s_dot_x   = lx;
-    s_dot_y   = ly;
-    s_clicks++;
+    if (s_whl_valid != 0U)
+    {
+        int32_t wx = (int32_t)pts[0].x - s_whl_x;
+        int32_t wy = (int32_t)pts[0].y - s_whl_y;
 
-    taskENTER_CRITICAL();
-    ring_push(lx, ly);
-    taskEXIT_CRITICAL();
+        if ((wx >= 0) && (wy >= 0) && (wx < s_whl_w) && (wy < s_whl_h))
+        {
+            s_mode       = TP_MODE_WHEEL;
+            s_whl_primary_id = pts[0].id;
+            s_whl_have_id    = 1U;
+            s_whl_last_y     = (int32_t)pts[0].y;
+            s_whl_acc        = 0;
+            s_whl_active     = 1U;
+            s_whl_dot_x      = (int32_t)pts[0].x;
+            s_whl_dot_y      = (int32_t)pts[0].y;
+            s_wheel_contacts++;
+            return;
+        }
+    }
+
+    /* Counted so the status dump can tell "the finger never reached the pad"
+     * (huge count) from "the pad area is wrong" (0) - both look the same from
+     * the outside, namely: the pointer does not move. */
+    s_outside++;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -318,6 +495,10 @@ void trackpad_poll(trackpad_visual_t *out)
     out->ended   = s_ended;
     out->x       = s_dot_x;
     out->y       = s_dot_y;
+    out->wheel_active  = s_whl_active;
+    out->wheel_x       = s_whl_dot_x;
+    out->wheel_y       = s_whl_dot_y;
+    out->wheel_notches = s_whl_notches;
     s_started    = 0U;
     s_ended      = 0U;
 
@@ -347,4 +528,6 @@ void trackpad_get_stats(trackpad_stats_t *out)
     out->reanchor = s_reanchor;
     out->outside = s_outside;
     out->taps    = s_taps;
+    out->wheel   = s_wheel_contacts;
+    out->wheel_notches = s_wheel_notches;
 }

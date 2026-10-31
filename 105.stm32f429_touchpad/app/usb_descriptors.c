@@ -3,15 +3,15 @@
  * @file    usb_descriptors.c
  * @brief   USB descriptors for the composite-free HID mouse device.
  *
- *  Report layout (3 bytes, no Report ID so the device also works from a BIOS):
+ *  Report layout (4 bytes, no Report ID so the device also works from a BIOS):
  *
  *      byte 0  buttons   bit0 = left, bit1 = right, bit2 = middle
  *      byte 1  X         signed, relative, -127 .. +127
  *      byte 2  Y         signed, relative, -127 .. +127
+ *      byte 3  wheel     signed, relative, -127 .. +127 (+1 = one notch up)
  *
- *  There is deliberately no wheel byte: scrolling is out of scope for now.
- *  Adding one later only means appending a 4th byte to the descriptor and to
- *  the report written by usb_mouse.c.
+ *  The wheel is fed only by the dedicated scroll strip next to the status
+ *  card; the touch surface itself still produces X/Y only.
  ******************************************************************************
  */
 #include <string.h>
@@ -70,6 +70,12 @@ static uint8_t const desc_hid_report[] =
     0x75, 0x08,        /*     Report Size (8)                              */
     0x95, 0x02,        /*     Report Count (2)                             */
     0x81, 0x06,        /*     Input (Data, Var, Rel)                       */
+    0x09, 0x38,        /*     Usage (Wheel)                                */
+    0x15, 0x81,        /*     Logical Minimum (-127)                       */
+    0x25, 0x7F,        /*     Logical Maximum (127)                        */
+    0x75, 0x08,        /*     Report Size (8)                              */
+    0x95, 0x01,        /*     Report Count (1)                             */
+    0x81, 0x06,        /*     Input (Data, Var, Rel)  <- byte 3 of report  */
     0xC0,              /*   End Collection                                 */
     0xC0               /* End Collection                                   */
 };

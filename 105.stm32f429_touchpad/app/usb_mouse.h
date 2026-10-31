@@ -1,7 +1,8 @@
 /**
  ******************************************************************************
  * @file    usb_mouse.h
- * @brief   HID mouse service on top of TinyUSB (relative pointer, 3 buttons).
+ * @brief   HID mouse service on top of TinyUSB (relative pointer, 3 buttons,
+ *          one wheel byte).
  *
  *  Model
  *  -----
@@ -12,10 +13,12 @@
  *
  *  Report (see app/usb_descriptors.c):
  *      byte 0  bit0 = left, bit1 = right, bit2 = middle
- *      byte 1  X  (relative, -127..127)
- *      byte 2  Y  (relative, -127..127)
+ *      byte 1  X      (relative, -127..127)
+ *      byte 2  Y      (relative, -127..127)
+ *      byte 3  wheel  (relative, -127..127, +1 = one notch up / away)
  *
- *  No wheel yet, by design.
+ *  The wheel has its own accumulator: notches arrive far more slowly than
+ *  pixels, and a report must be sent even when only the wheel changed.
  ******************************************************************************
  */
 #ifndef __USB_MOUSE_H__
@@ -51,6 +54,8 @@ typedef struct
     uint32_t lat_avg_ms;    /* mean (queue -> report) latency, milliseconds */
     int32_t  x_total;       /* signed pixel sum sent since boot             */
     int32_t  y_total;
+    int32_t  wheel_total;   /* signed notches sent since boot (+ = up)      */
+    uint32_t wheel_reports; /* reports that carried a wheel notch           */
 } usb_mouse_status_t;
 
 #ifdef __cplusplus
@@ -86,6 +91,17 @@ void usb_mouse_move_ex(int16_t dx, int16_t dy, uint32_t dt_ms);
 
 /** Press (pressed != 0) or release one or more buttons of @p mask. */
 void usb_mouse_set_button(uint8_t mask, int pressed);
+
+/**
+ * @brief  Queue @p notches wheel steps (positive = up / away from the user).
+ *
+ *  Notches are accumulated and sent by the USB task; the value is clamped to
+ *  +/-127 per report and the remainder survives, exactly like the pixel
+ *  accumulator does for X/Y.  A report is emitted even when only the wheel
+ *  changed, otherwise a pure scroll (which never moves the pointer) would sit
+ *  in the accumulator for ever.
+ */
+void usb_mouse_wheel(int8_t notches);
 
 /**
  * @brief  Emit one self-timed click of @p mask (press, hold USB_MOUSE_CLICK_MS,

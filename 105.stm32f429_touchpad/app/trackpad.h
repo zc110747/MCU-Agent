@@ -49,6 +49,14 @@ typedef struct
     uint8_t  n;                         /* trail points in tx[] / ty[]     */
     int16_t  tx[TRACKPAD_TRAIL_MAX];
     int16_t  ty[TRACKPAD_TRAIL_MAX];
+
+    /* Wheel strip (see trackpad_set_wheel_area).  Kept apart from the pointer
+     * fields so the UI can draw a knob without having to know whether the
+     * pointer is frozen. */
+    uint8_t  wheel_active;              /* finger is dragging the strip     */
+    int32_t  wheel_x;                   /* latest strip position, canvas px */
+    int32_t  wheel_y;
+    uint32_t wheel_notches;             /* total notches sent since boot    */
 } trackpad_visual_t;
 
 typedef struct
@@ -59,8 +67,10 @@ typedef struct
     uint32_t dropped;   /* trail points lost because the ring was full  */
     uint32_t multi;     /* samples with 2+ contacts (pointer frozen)    */
     uint32_t reanchor;  /* primary finger changed / lifted, no delta    */
-    uint32_t outside;   /* contacts whose START was outside the pad     */
+    uint32_t outside;   /* contacts whose START was in neither area     */
     uint32_t taps;      /* taps that produced a left-button click       */
+    uint32_t wheel;     /* contacts that began inside the wheel strip   */
+    uint32_t wheel_notches; /* notches handed to usb_mouse_wheel()      */
 } trackpad_stats_t;
 
 #ifdef __cplusplus
@@ -73,6 +83,22 @@ extern "C" {
  *         is ignored, which is what the splash screen wants.
  */
 void trackpad_set_area(int32_t x, int32_t y, int32_t w, int32_t h);
+
+/**
+ * @brief  Declare the wheel strip (a second, independent touch region).
+ *
+ *  A contact belongs to whichever region it STARTED in - never both:
+ *    - started inside the pad  -> pointer motion (X and Y)
+ *    - started inside the strip -> wheel notches from the Y delta only; the
+ *      X delta is ignored entirely and the pointer is not touched
+ *    - started elsewhere        -> dropped (glass key, header, ...)
+ *
+ *  The strip is deliberately Y-only: a horizontal component would either be
+ *  discarded noise or, worse, be mistaken for a second axis the host does not
+ *  expect from a wheel byte.
+ */
+void trackpad_set_wheel_area(int32_t x, int32_t y, int32_t w, int32_t h);
+
 void trackpad_clear_area(void);
 
 /**
@@ -90,6 +116,9 @@ void trackpad_clear_area(void);
  *    - n == 0: release, as before.  A contact that began inside the pad, was
  *      single-finger the whole time, lasted <= 260 ms and travelled < 14 px is
  *      a TAP: it emits one left-button click (tap-to-click).
+ *    - the wheel strip (trackpad_set_wheel_area) is a separate region: only
+ *      contacts that started there produce notches, and those never move the
+ *      pointer nor click.  Two fingers on the strip freeze it like the pad.
  *
  * @param  pts  contacts of this sample, already mapped onto the canvas
  * @param  n    number of valid entries (0 = every finger is up)

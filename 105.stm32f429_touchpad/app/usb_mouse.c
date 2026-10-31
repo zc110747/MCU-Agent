@@ -32,14 +32,17 @@
 /* ---- Shared state (guarded by taskENTER_CRITICAL) ------------------------ */
 static volatile int32_t  s_acc_x_q8 = 0;    /* pending motion, 1/256 px      */
 static volatile int32_t  s_acc_y_q8 = 0;
+static volatile int32_t  s_acc_wheel = 0;   /* pending wheel notches         */
 static volatile uint8_t  s_buttons  = 0;
 static volatile uint8_t  s_mounted  = 0;
 static volatile uint8_t  s_suspended = 0;
 static volatile uint32_t s_reports  = 0;
+static volatile uint32_t s_wheel_reports = 0; /* reports carrying a notch    */
 static volatile uint32_t s_tries    = 0;   /* mouse_send() calls               */
 static volatile uint32_t s_endpoint_busy = 0; /* host had not fetched the last one */
 static volatile int32_t  s_total_x  = 0;
 static volatile int32_t  s_total_y  = 0;
+static volatile int32_t  s_total_wheel = 0;
 
 /* End-to-end latency: how long a delta waits between usb_mouse_move*() and the
  * report that carries it.  Tick based (1 ms at configTICK_RATE_HZ = 1000),
@@ -86,8 +89,9 @@ static void mouse_send(void)
 {
     int32_t dx;
     int32_t dy;
+    int32_t dw;
     uint8_t btn;
-    uint8_t rep[3];
+    uint8_t rep[4];
 
     if (!tud_hid_ready())
     {
@@ -102,10 +106,13 @@ static void mouse_send(void)
     btn = s_buttons;
     dx  = s_acc_x_q8 >> 8;
     dy  = s_acc_y_q8 >> 8;
+    dw  = s_acc_wheel;
     taskEXIT_CRITICAL();
 
-    /* Nothing changed: do not waste an interrupt IN token. */
-    if ((dx == 0) && (dy == 0) && (btn == s_sent_buttons))
+    /* Nothing changed: do not waste an interrupt IN token.  The wheel has to be
+     * part of this comparison - a pure scroll never changes dx, dy or the
+     * button mask, so leaving it out would swallow every notch. */
+    if ((dx == 0) && (dy == 0) && (dw == 0) && (btn == s_sent_buttons))
     {
         return;
     }
@@ -114,10 +121,13 @@ static void mouse_send(void)
     if (dx < -127) { dx = -127; }
     if (dy >  127) { dy =  127; }
     if (dy < -127) { dy = -127; }
+    if (dw >  127) { dw =  127; }
+    if (dw < -127) { dw = -127; }
 
     rep[0] = btn;
     rep[1] = (uint8_t)(int8_t)dx;
     rep[2] = (uint8_t)(int8_t)dy;
+    rep[3] = (uint8_t)(int8_t)dw;
 
     if (tud_hid_report(0, rep, sizeof(rep)))
     {
@@ -126,9 +136,15 @@ static void mouse_send(void)
          * meanwhile stays queued for the next report. */
         s_acc_x_q8 -= (dx << 8);
         s_acc_y_q8 -= (dy << 8);
+        s_acc_wheel -= dw;
         s_reports++;
         s_total_x += dx;
         s_total_y += dy;
+        if (dw != 0)
+        {
+            s_wheel_reports++;
+            s_total_wheel += dw;
+        }
         if (s_pend_valid != 0U)
         {
             uint32_t waited = (uint32_t)(xTaskGetTickCount() - s_pend_tick);
@@ -175,7 +191,7 @@ int usb_mouse_init(void)
     HAL_NVIC_SetPriority(OTG_FS_IRQn,
                          configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY, 0);
 
-    PRINT_LOG("[USB ] OTG FS device ready (HID mouse, 3 buttons, no wheel)\r\n");
+    PRINT_LOG("[USB ] OTG FS device ready (HID mouse, 3 buttons + wheel)\r\n");
     return 0;
 }
 
@@ -289,6 +305,31 @@ void usb_mouse_click(uint8_t mask)
     taskEXIT_CRITICAL();
 }
 
+void usb_mouse_wheel(int8_t notches)
+{
+    if (notches == 0)
+    {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    /* A finger can flick faster than the 2 ms pump, so cap the backlog at what
+     * four reports can carry; beyond that the host would only feel lag. */
+    if (s_acc_wheel > 508)
+    {
+        s_acc_wheel = 508;
+    }
+    else if (s_acc_wheel < -508)
+    {
+        s_acc_wheel = -508;
+    }
+    else
+    {
+        s_acc_wheel += (int32_t)notches;
+    }
+    taskEXIT_CRITICAL();
+}
+
 /**
  * @brief  Drive one pending click pulse.  Called from the USB task right before
  *         mouse_send() so the press leaves in the same 2 ms slot.
@@ -378,6 +419,8 @@ void usb_mouse_get_status(usb_mouse_status_t *out)
     out->lat_avg_ms = (s_lat_n != 0U) ? (s_lat_ms_sum / s_lat_n) : 0U;
     out->x_total   = s_total_x;
     out->y_total   = s_total_y;
+    out->wheel_total   = s_total_wheel;
+    out->wheel_reports = s_wheel_reports;
     taskEXIT_CRITICAL();
 }
 
@@ -401,6 +444,7 @@ void tud_umount_cb(void)
     s_buttons  = 0U;
     s_acc_x_q8 = 0;
     s_acc_y_q8 = 0;
+    s_acc_wheel = 0;
     taskEXIT_CRITICAL();
 
     s_sent_buttons = 0U;

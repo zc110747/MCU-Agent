@@ -15,14 +15,23 @@
  *      |                                  |
  *      +----------------------------------+
  *      |  [ 左键 ]  [ 中键 ]  [ 右键 ]     |  buttons (144x96 each)
- *      +----------------------------------+
- *      | USB state / buttons / motion     |  status  (456x196)
- *      +----------------------------------+
+ *      +--------------------------+-------+
+ *      | USB state / buttons /    |  wheel |  status (348x196)
+ *      | touch / motion           |  strip |  strip  (96x196)
+ *      +--------------------------+-------+
  *      | hints                            |  footer
  *      +----------------------------------+
  *
  *  Input model
  *  -----------
+ *  Two independent touch regions:
+ *    - the pad: trackpad.c turns finger motion into HID X/Y and a light tap
+ *      into a left click;
+ *    - the strip right of the status card: a Y-only scroll region that emits
+ *      wheel notches (18 px of travel per notch) and never moves the pointer.
+ *  trackpad.c decides which region a contact belongs to from where it STARTED,
+ *  so the two can never fight over the same finger.
+ *
  *  trackpad.c owns the pointer: it is fed from touch_task, i.e. from the
  *  T_PEN-driven sampling loop, and turns sample-to-sample deltas into HID
  *  reports.  This file only paints the feedback (dot + trail) from what
@@ -30,7 +39,7 @@
  *  LVGL's pointer indev keeps hit-testing the three glass buttons.
  *
  *  The gesture engine still runs (touch_task feeds it) and its events are used
- *  for the counters / the two-finger readout only - no wheel yet, by design.
+ *  for the counters / the two-finger readout only.
  *
  *  Everything here runs in the UI task (the only task allowed to touch LVGL).
  ******************************************************************************
@@ -81,9 +90,26 @@
 #define BTN_GAP         12
 #define BTN_W           ((SCR_W - 2 * PAD_X - 2 * BTN_GAP) / 3)   /* 144 */
 
-/* Status card. */
+/* Status card + the wheel strip to its right.  The card used to span the full
+ * pad width; it gives 96 px away so the strip has its own touch region instead
+ * of sharing one with the pointer. */
 #define STAT_Y          556
 #define STAT_H          196
+#define WHL_W           96
+#define WHL_GAP         12
+#define STAT_W          (PAD_W - WHL_W - WHL_GAP)      /* 348 */
+#define WHL_X           (PAD_X + STAT_W + WHL_GAP)     /* 372 */
+
+/* Wheel strip internals (coordinates inside the 96x196 card). */
+#define WHL_TRACK_X     34
+#define WHL_TRACK_W     28
+#define WHL_TRACK_Y     40
+#define WHL_TRACK_H     104
+#define WHL_KNOB_W      24
+#define WHL_KNOB_H      14
+#define WHL_KNOB_MIN    (WHL_TRACK_Y + 2)
+#define WHL_KNOB_MAX    (WHL_TRACK_Y + WHL_TRACK_H - 2 - WHL_KNOB_H)
+#define WHL_KNOB_X      (WHL_TRACK_X + ((WHL_TRACK_W - WHL_KNOB_W) / 2))
 
 #define FTR_Y           758
 
@@ -140,6 +166,11 @@ static lv_obj_t *s_touch_label;
 static lv_obj_t *s_gesture_label;
 static lv_obj_t *s_sd_label;
 static lv_obj_t *s_rate_label;
+
+/* Wheel strip. */
+static lv_obj_t *s_whl_knob;
+static lv_obj_t *s_whl_count;
+static uint32_t  s_whl_shown = 0xFFFFFFFFU;   /* notches last painted */
 
 static lv_point_t s_trail_pts[TRAIL_MAX];
 static uint16_t   s_trail_n = 0U;
@@ -310,6 +341,27 @@ static void poll_trackpad(uint32_t now)
     {
         /* idle */
     }
+
+    /* Wheel strip feedback: the knob follows the finger's Y inside the strip,
+     * exactly like a scrollbar thumb.  The notch counter only repaints when the
+     * number really changed - this runs on every UI pass. */
+    if (s_whl_knob != NULL)
+    {
+        if (vis.wheel_active != 0U)
+        {
+            int32_t ky = vis.wheel_y - STAT_Y - (WHL_KNOB_H / 2);
+
+            if (ky < WHL_KNOB_MIN) { ky = WHL_KNOB_MIN; }
+            if (ky > WHL_KNOB_MAX) { ky = WHL_KNOB_MAX; }
+            lv_obj_set_pos(s_whl_knob, 2, (lv_coord_t)(ky - WHL_TRACK_Y));
+        }
+    }
+
+    if ((s_whl_count != NULL) && (vis.wheel_notches != s_whl_shown))
+    {
+        s_whl_shown = vis.wheel_notches;
+        lv_label_set_text_fmt(s_whl_count, "%lu 格", (unsigned long)vis.wheel_notches);
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -428,6 +480,77 @@ static lv_obj_t *make_key_button(lv_obj_t *parent, const char *txt, const char *
 }
 
 /* -------------------------------------------------------------------------- */
+/* Wheel strip                                                                */
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief  Build the dedicated scroll strip that sits right of the status card.
+ *
+ *  It is a touch region of its own: trackpad.c checks it *after* the pad, so a
+ *  finger that lands here scrolls and can never drag the pointer or click.
+ *  Only the vertical axis is wired - see wheel_track() in trackpad.c.
+ *
+ *  The knob is pure feedback.  Its travel is the strip's own Y range, not the
+ *  notch count, so it behaves like a scrollbar thumb under the finger.
+ */
+static lv_obj_t *make_wheel_strip(void)
+{
+    lv_obj_t *card = make_card(s_scr, WHL_X, STAT_Y, WHL_W, STAT_H);
+    lv_obj_t *label;
+    lv_obj_t *track;
+
+    /* Children use absolute coordinates inside the card; the 8 px padding that
+     * make_card() applies would shift the track off centre. */
+    lv_obj_set_style_pad_all(card, 0, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    label = make_label(card, &lv_font_gbk_12, C_DIM);
+    lv_label_set_text(label, "滚轮");
+    lv_obj_set_width(label, WHL_W);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(label, 0, 4);
+
+    label = make_label(card, &lv_font_gbk_12, C_DIM);
+    lv_label_set_text(label, "上");
+    lv_obj_set_width(label, WHL_W);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(label, 0, 22);
+
+    track = lv_obj_create(card);
+    lv_obj_set_pos(track, WHL_TRACK_X, WHL_TRACK_Y);
+    lv_obj_set_size(track, WHL_TRACK_W, WHL_TRACK_H);
+    lv_obj_set_style_radius(track, WHL_TRACK_W / 2, 0);
+    lv_obj_set_style_bg_color(track, lv_color_hex(C_PAD), 0);
+    lv_obj_set_style_border_width(track, 1, 0);
+    lv_obj_set_style_border_color(track, lv_color_hex(C_BORDER), 0);
+    lv_obj_set_style_pad_all(track, 0, 0);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    s_whl_knob = lv_obj_create(track);
+    lv_obj_set_size(s_whl_knob, WHL_KNOB_W, WHL_KNOB_H);
+    lv_obj_set_style_radius(s_whl_knob, WHL_KNOB_H / 2, 0);
+    lv_obj_set_style_bg_color(s_whl_knob, lv_color_hex(C_ACCENT), 0);
+    lv_obj_set_style_bg_opa(s_whl_knob, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(s_whl_knob, 0, 0);
+    lv_obj_clear_flag(s_whl_knob, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(s_whl_knob, 2, WHL_KNOB_MIN - WHL_TRACK_Y);
+
+    label = make_label(card, &lv_font_gbk_12, C_DIM);
+    lv_label_set_text(label, "下");
+    lv_obj_set_width(label, WHL_W);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(label, 0, 150);
+
+    s_whl_count = make_label(card, &lv_font_gbk_12, C_ACCENT);
+    lv_label_set_text(s_whl_count, "0 格");
+    lv_obj_set_width(s_whl_count, WHL_W);
+    lv_obj_set_style_text_align(s_whl_count, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_whl_count, 0, 170);
+    s_whl_shown = 0U;
+
+    return card;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Status                                                                     */
 /* -------------------------------------------------------------------------- */
 static void set_gesture_text(const char *txt)
@@ -445,8 +568,17 @@ static void handle_event(const gesture_evt_t *ev)
     case GESTURE_EVT_TAP:
         /* The click itself is emitted by trackpad.c (it is the layer that knows
          * the pad area, and it is the one that must not fire when the contact
-         * started on a glass key).  This is only the readout. */
-        set_gesture_text("单指轻点: 左键");
+         * started on a glass key).  This is only the readout - and a tap in the
+         * wheel strip produces no click at all, so say so instead of claiming
+         * one happened. */
+        if ((ev->x >= WHL_X) && (ev->y >= STAT_Y))
+        {
+            set_gesture_text("滚轮区: 只滚动");
+        }
+        else
+        {
+            set_gesture_text("单指轻点: 左键");
+        }
         break;
 
     case GESTURE_EVT_TAP2:
@@ -458,15 +590,16 @@ static void handle_event(const gesture_evt_t *ev)
         break;
 
     case GESTURE_EVT_SCROLL:
-        /* Wheel output is intentionally not implemented yet (requirement:
-         * scroll comes later), so the readout is all that happens here. */
-        set_gesture_text((ev->d >= 0) ? "双指下滑 (滚轮未启用)"
-                                     : "双指上滑 (滚轮未启用)");
+        /* The wheel is driven by the strip on the right, not by two fingers on
+         * the pad, so this stays a readout.  Saying "见右侧" is what stops the
+         * user from concluding that scrolling is broken. */
+        set_gesture_text((ev->d >= 0) ? "双指下滑 (滚轮见右侧)"
+                                     : "双指上滑 (滚轮见右侧)");
         break;
 
     case GESTURE_EVT_PAN:
-        set_gesture_text((ev->d >= 0) ? "双指右滑 (滚轮未启用)"
-                                     : "双指左滑 (滚轮未启用)");
+        set_gesture_text((ev->d >= 0) ? "双指右滑 (滚轮见右侧)"
+                                     : "双指左滑 (滚轮见右侧)");
         break;
 
     default:
@@ -535,6 +668,9 @@ void app_ui_boot(const char *ascii_msg)
     s_gesture_label = NULL;
     s_sd_label      = NULL;
     s_rate_label    = NULL;
+    s_whl_knob      = NULL;
+    s_whl_count     = NULL;
+    s_whl_shown     = 0xFFFFFFFFU;
     s_btn_obj[0]    = NULL;
     s_btn_obj[1]    = NULL;
     s_btn_obj[2]    = NULL;
@@ -583,6 +719,10 @@ void app_ui_create(void)
     /* Tell the pointer engine where the touch surface is.  Until this call
      * every sample is ignored (splash / boot screens). */
     trackpad_set_area(PAD_X, PAD_Y, PAD_W, PAD_H);
+
+    /* Second, independent region: contacts that land here scroll instead of
+     * moving the pointer (see trackpad_set_wheel_area). */
+    trackpad_set_wheel_area(WHL_X, STAT_Y, WHL_W, STAT_H);
 
     /* ---- Header ---------------------------------------------------------- */
     label = make_label(s_scr, &lv_font_gbk_24, C_TEXT);
@@ -645,8 +785,8 @@ void app_ui_create(void)
     s_btn_obj[2] = make_key_button(s_scr, "右键", "RIGHT",  PAD_X + 2 * (BTN_W + BTN_GAP),
                                    USB_MOUSE_BTN_RIGHT);
 
-    /* ---- Status card ----------------------------------------------------- */
-    card = make_card(s_scr, PAD_X, STAT_Y, PAD_W, STAT_H);
+    /* ---- Status card + wheel strip --------------------------------------- */
+    card = make_card(s_scr, PAD_X, STAT_Y, STAT_W, STAT_H);
 
     label = make_label(card, &lv_font_gbk_16, C_DIM);
     lv_label_set_text(label, "USB 状态");
@@ -658,20 +798,22 @@ void app_ui_create(void)
 
     s_btn_label = make_label(card, &lv_font_gbk_16, C_TEXT);
     lv_obj_set_pos(s_btn_label, 0, 58);
-    lv_obj_set_width(s_btn_label, PAD_W - 16);
+    lv_obj_set_width(s_btn_label, STAT_W - 16);
 
     s_move_label = make_label(card, &lv_font_gbk_16, C_TEXT);
     lv_obj_set_pos(s_move_label, 0, 86);
-    lv_obj_set_width(s_move_label, PAD_W - 16);
+    lv_obj_set_width(s_move_label, STAT_W - 16);
 
     s_touch_label = make_label(card, &lv_font_gbk_16, C_TEXT);
     lv_obj_set_pos(s_touch_label, 0, 114);
-    lv_obj_set_width(s_touch_label, PAD_W - 16);
+    lv_obj_set_width(s_touch_label, STAT_W - 16);
 
     s_gesture_label = make_label(card, &lv_font_gbk_16, C_ACCENT);
     lv_label_set_text(s_gesture_label, "等待触摸…");
     lv_obj_set_pos(s_gesture_label, 0, 146);
-    lv_obj_set_width(s_gesture_label, PAD_W - 16);
+    lv_obj_set_width(s_gesture_label, STAT_W - 16);
+
+    (void)make_wheel_strip();
 
     /* ---- Footer ---------------------------------------------------------- */
     if (sd_card_is_ready() != 0)
@@ -693,8 +835,8 @@ void app_ui_create(void)
     }
 
     label = make_label(s_scr, &lv_font_gbk_12, C_DIM);
-    lv_label_set_text(label, "触摸板 = 鼠标移动   下方三键 = 左/中/右\n"
-                             "串口 l/m/r 模拟按键  x/y 移动  s 状态");
+    lv_label_set_text(label, "触摸板 = 鼠标移动   右侧 = 滚轮   下方三键 = 左/中/右\n"
+                             "串口 l/m/r 模拟按键  x/y 移动  u/j 滚轮  s 状态");
     lv_obj_set_pos(label, 12, FTR_Y);
 
     refresh_stats();
@@ -813,21 +955,34 @@ static const char *k_ui_text[] =
     "中键",
     "右键",
     "USB 状态",
+    "滚轮",
+    "上",
+    "下",
+    "0 格",
     "HID 鼠标已连接",
     "USB 未连接",
     "左键 松开   中键 松开   右键 松开",
     "位移 X 0  Y 0    报告 0",
     "触点 1/5   单指 0   多指 0   滚动 0",
     "等待触摸…",
+    "单指轻点: 左键",
+    "滚轮区: 只滚动",
     "双指轻点",
     "三指轻点",
-    "双指下滑 (滚轮未启用)",
-    "双指上滑 (滚轮未启用)",
+    "双指下滑 (滚轮见右侧)",
+    "双指上滑 (滚轮见右侧)",
+    "双指右滑 (滚轮见右侧)",
+    "双指左滑 (滚轮见右侧)",
     "已清除轨迹",
     "串口: 左键",
+    "串口: 右移",
+    "串口: 下移",
+    "串口: 滚轮上",
+    "串口: 滚轮下",
+    "串口: 清轨迹",
     "SD: 无卡 (仅 ASCII)",
-    "触摸板 = 鼠标移动   下方三键 = 左/中/右",
-    "串口 l/m/r 模拟按键  x/y 移动  s 状态",
+    "触摸板 = 鼠标移动   右侧 = 滚轮   下方三键 = 左/中/右",
+    "串口 l/m/r 模拟按键  x/y 移动  u/j 滚轮  s 状态",
 };
 
 static const char *utf8_next(const char *s, uint32_t *cp)
@@ -1065,13 +1220,16 @@ static void report_status(void)
               (unsigned long)ms.lat_avg_ms,
               (unsigned long)(SystemCoreClock / 1000000U));
     PRINT_LOG("[PAD ] feeds=%lu moves=%lu clicks=%lu taps=%lu outside=%lu "
-              "drop=%lu multi=%lu reanchor=%lu\r\n",
+              "drop=%lu multi=%lu reanchor=%lu wheel=%lu notches=%lu\r\n",
               (unsigned long)tp.feeds, (unsigned long)tp.moves,
               (unsigned long)tp.clicks, (unsigned long)tp.taps,
               (unsigned long)tp.outside,
               (unsigned long)tp.dropped, (unsigned long)tp.multi,
-              (unsigned long)tp.reanchor);
+              (unsigned long)tp.reanchor,
+              (unsigned long)tp.wheel, (unsigned long)tp.wheel_notches);
     PRINT_LOG("[MOVE] x=%ld y=%ld\r\n", (long)ms.x_total, (long)ms.y_total);
+    PRINT_LOG("[WHEL] usb_total=%ld reports=%lu\r\n",
+              (long)ms.wheel_total, (unsigned long)ms.wheel_reports);
     PRINT_LOG("[SD  ] %s %lu/%lu MB\r\n",
               (sd_card_is_ready() != 0) ? "0: mounted" : "0: absent",
               (unsigned long)used_mb, (unsigned long)total_mb);
@@ -1103,8 +1261,9 @@ static void report_status(void)
 
 static void report_help(void)
 {
-    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  c=clear  p=points  "
-              "b=raw block  d=raw trace  s=status  f=font check  h=help\r\n");
+    PRINT_LOG("[CMD ] l/m/r=tap button  x/y=nudge pointer  u/j=wheel up/down  "
+              "c=clear  p=points  b=raw block  d=raw trace  s=status  "
+              "f=font check  h=help\r\n");
 }
 #endif /* PRINT_LOG_ENABLE */
 
@@ -1177,6 +1336,26 @@ void app_ui_command(char c)
         dot_hide();
         set_gesture_text("串口: 清轨迹");
         PRINT_LOG("[CMD ] trail cleared\r\n");
+        break;
+
+    case 'u':
+    case 'U':
+        /* Scroll up three notches.  Lets a host-side script prove the wheel
+         * byte without touching the glass, exactly like x / y do for X / Y. */
+        usb_mouse_wheel(1);
+        usb_mouse_wheel(1);
+        usb_mouse_wheel(1);
+        set_gesture_text("串口: 滚轮上");
+        PRINT_LOG("[CMD ] wheel up x3\r\n");
+        break;
+
+    case 'j':
+    case 'J':
+        usb_mouse_wheel(-1);
+        usb_mouse_wheel(-1);
+        usb_mouse_wheel(-1);
+        set_gesture_text("串口: 滚轮下");
+        PRINT_LOG("[CMD ] wheel down x3\r\n");
         break;
 
 #if PRINT_LOG_ENABLE
