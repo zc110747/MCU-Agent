@@ -52,3 +52,19 @@
 - 半主机验证：`fromelf --text -c Objects/*.axf | grep -c " BKPT"` 期望 0。
 - 004 工程 GCC 构建必须走 CMakePresets：`cmake --preset release` + `cmake --build --preset release`
   （直接 `cmake -S . -B build` 不会加载 arm-none-eabi 工具链，误用宿主 cc.exe 报 -mthumb 不识别）。
+
+## Skills 库（全局 `~/.workbuddy/skills/` ⇄ `E:\cnb\git\EmbedSkills`）
+
+- **唯一权威副本 = 全局目录**；EmbedSkills 是它的逐字节 git 镜像。各工程**直接**用全局 skills，
+  不再在工程内维护 `.workbuddy/skills/`（历史遗留的两份已于 2026-11-01 删除）。
+- 同步只在 EmbedSkills 侧跑 `./sync_skills.sh`：默认全局→镜像，`--check` 判漂移，
+  `--restore` 反向恢复（**换机/灾后**用），`--prune` 清残留。纳管清单是自动发现的，不要写死白名单。
+- **动手前先 `--check`**：若报漂移，先确认方向（镜像新还是全局新）。
+  踩过：镜像里已提交的更新在全局是旧版，直接 sync 会把它们覆盖回去。
+- **镜像仓库必须显式声明行尾**：已加 `.gitattributes` → `* text=auto eol=lf`。
+  依赖 `core.autocrlf=true` 的隐式转换会让 checkout 后 `diff -rq` 报全库漂移。
+- **skill 内容不带具体项目信息**：不写工程目录名、板卡产品名、本机路径；
+  平台限定只到芯片系列/外设/工具链这一层。判据必须可写"满足 X 则 Y"，禁止故事体。
+- **正文只留判据**：`SKILL.md` ≤150 行（目标 60~120），完整代码/配置/长推导进 `references/`；
+  `description` ≤150 字符且含触发词。改完用脚本校验，别靠目测。
+- **一个知识点只有一个归属**：跨 skill 重复的内容收敛到唯一主副本，其余位置只写一行引用。
