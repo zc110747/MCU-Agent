@@ -4,6 +4,7 @@
 
 #include "sd_app.h"
 #include "bsp_sdcard.h"
+#include "bsp_sdcache.h"
 #include "ff.h"
 #include "tusb.h"
 
@@ -136,6 +137,13 @@ void cmd_sd(void)
     (unsigned long) (bytes / (1024UL * 1024UL)));
     sd_printf("  FS mount : %s\r\n", g_sd_app.mounted ? "yes" : "no");
     sd_printf("  host use : %s\r\n", g_sd_app.host ? "yes - device file ops blocked" : "no");
+
+    SDCACHE_STATS_T c;
+    sdcache_stats(&c);
+    sd_printf("  blk cache: %lu/%lu sectors cached, %lu dirty (see 'scache')\r\n",
+              (unsigned long) c.valid,
+              (unsigned long) c.sectors,
+              (unsigned long) c.dirty);
 }
 
 void cmd_ls(void)
@@ -200,4 +208,73 @@ void cmd_remount(void)
     FRESULT fr = f_mount(&g_sd_app.fs, SD_VOL, 1);
     g_sd_app.mounted = (fr == FR_OK);
     sd_printf("FatFs remounted: %s\r\n", g_sd_app.mounted ? "ok" : "fail");
+}
+
+/* Force the write-back window to the card. The same thing happens on a host
+ * eject, on SCSI SYNCHRONIZE CACHE and on FatFs CTRL_SYNC (f_sync/f_close);
+ * this command exists so the behaviour can be observed from the CDC side. */
+void cmd_sync(void)
+{
+    uint32_t const before = sdcache_dirty();
+    uint32_t const t0 = board_millis();
+    int32_t  const st = sdcache_flush();
+    uint32_t const dt = board_millis() - t0;
+
+    sd_printf("cache flush: %s  dirty %lu -> %lu  %lu ms\r\n",
+              (st == SD_ST_OK) ? "ok" : "FAILED",
+              (unsigned long) before,
+              (unsigned long) sdcache_dirty(),
+              (unsigned long) dt);
+}
+
+void cmd_scache(void)
+{
+    SDCACHE_STATS_T s;
+    sdcache_stats(&s);
+
+    uint32_t const total = s.rd_hit + s.rd_miss + s.rd_direct;
+    uint32_t const hit_pct = (total == 0u) ? 0u : (100u * s.rd_hit) / total;
+
+    sd_printf("SD block cache (write-back)\r\n");
+    sd_printf("  window   : %lu KB = %lu sectors, %lu cached / %lu dirty\r\n",
+              (unsigned long) (SDCACHE_BYTES / 1024u),
+              (unsigned long) s.sectors,
+              (unsigned long) s.valid,
+              (unsigned long) s.dirty);
+    sd_printf("  read     : %lu hit  %lu fill  %lu direct  (%lu%% hit)\r\n",
+              (unsigned long) s.rd_hit,
+              (unsigned long) s.rd_miss,
+              (unsigned long) s.rd_direct,
+              (unsigned long) hit_pct);
+    sd_printf("  write    : %lu hit  %lu buffered  %lu direct\r\n",
+              (unsigned long) s.wr_hit,
+              (unsigned long) s.wr_miss,
+              (unsigned long) s.wr_direct);
+    sd_printf("  writeback: %lu ops, %lu sectors, %lu dirty evictions, "
+              "%lu drops\r\n",
+              (unsigned long) s.wb_ops,
+              (unsigned long) s.wb_sectors,
+              (unsigned long) s.evict_dirty,
+              (unsigned long) s.dropped);
+    sd_printf("  prewarm  : %lu sectors (system %lu, fat %lu), status %ld\r\n",
+              (unsigned long) s.prewarm_secs,
+              (unsigned long) s.prewarm_sys,
+              (unsigned long) s.prewarm_fat,
+              (long) s.prewarm_st);
+
+    if (s.fs_type != 0u)
+    {
+        sd_printf("  layout   : FAT%u  part@%lu  rsvd %lu  fatsz %lu  "
+                  "root %lu  spc %lu\r\n",
+                  (unsigned) s.fs_type,
+                  (unsigned long) s.part_lba,
+                  (unsigned long) s.rsvd,
+                  (unsigned long) s.fatsz,
+                  (unsigned long) s.root_secs,
+                  (unsigned long) s.sec_per_clus);
+    }
+    else
+    {
+        sd_printf("  layout   : not recognised (blank or unsupported)\r\n");
+    }
 }

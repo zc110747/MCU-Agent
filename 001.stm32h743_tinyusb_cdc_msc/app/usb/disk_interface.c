@@ -9,6 +9,7 @@
 #include "disk_interface.h"
 #include "diskio.h"
 #include "bsp_sdcard.h"
+#include "bsp_sdcache.h"
 #include <string.h>
 
 extern SD_HandleTypeDef hsd1;
@@ -122,6 +123,9 @@ int MMC_disk_ioctl(BYTE cmd, void *buff)
             }
             break;
         case CTRL_SYNC:
+            /* f_sync() / f_close(): the device-side data must reach the card
+             * before the USB host is allowed to look at the volume. */
+            res = (sdcache_flush() == SD_ST_OK) ? RES_OK : RES_ERROR;
             break;
         default:
             res = RES_PARERR;

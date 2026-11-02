@@ -25,6 +25,7 @@
 #include "bsp_log.h"  /* USART1 debug logging           */
 #include "tusb.h"
 #include "bsp_sdcard.h"   /* SDMMC1 / SD card block interface */
+#include "bsp_sdcache.h"  /* 128 KB write-back block cache    */
 #include "sd_app.h"   /* SD-card FatFs app: init + CDC file commands */
 
 /* ------------------------------------------------------------------------ */
@@ -134,6 +135,8 @@ static void cmd_help(void)
     "  led on|off    drive the user LED (PG7)\r\n"
     "  flood <n>     send n lines back to back (throughput test)\r\n"
     "  sd            SD card / filesystem status\r\n"
+    "  scache        block-cache counters + detected volume layout\r\n"
+    "  sync          flush the write-back cache to the card now\r\n"
     "  ls            list files on the SD card\r\n"
     "  cat <file>    print a file from the SD card\r\n"
     "  remount       re-read the SD card filesystem (after host edits)\r\n"
@@ -253,6 +256,14 @@ static void handle_line(char* line)
     {
         cmd_sd();
     }
+    else if (strcmp(line, "scache") == 0)
+    {
+        cmd_scache();
+    }
+    else if (strcmp(line, "sync") == 0)
+    {
+        cmd_sync();
+    }
     else if (strcmp(line, "ls") == 0)
     {
         cmd_ls();
@@ -286,30 +297,41 @@ static void handle_line(char* line)
 /* ------------------------------------------------------------------------ */
 static void cdc_task(void)
 {
+    uint8_t  in[128];
+    uint8_t  echo[sizeof(in) * 3];   /* worst case: backspace -> "\b \b" */
+    uint32_t echo_len = 0;
+
     if (!tud_cdc_available()) return;
 
-    uint8_t buf[64];
-    uint32_t count = tud_cdc_read(buf, sizeof(buf));
+    uint32_t const count = tud_cdc_read(in, sizeof(in));
     g_cdc.rx_bytes += count;
 
+    /* Echo is batched per read chunk instead of per byte: with a 32 KB TX
+     * FIFO one write covers the whole chunk, and each 64-byte endpoint packet
+     * carries real payload instead of a single character. */
     for (uint32_t i = 0; i < count; i++)
     {
-        uint8_t c = buf[i];
+        uint8_t const c = in[i];
 
         if (c == '\r' || c == '\n')
         {
-            cdc_puts("\r\n");
+            echo[echo_len++] = '\r';
+            echo[echo_len++] = '\n';
+            if (echo_len != 0u) cdc_write_all(echo, echo_len);   /* keep order */
+            echo_len = 0;
+
             g_cdc.line[g_cdc.line_len] = '\0';
             g_cdc.line_len = 0;
             handle_line(g_cdc.line);
         }
         else if (c == '\b' || c == 0x7F)
         {
-            /* backspace / delete */
             if (g_cdc.line_len > 0)
             {
                 g_cdc.line_len--;
-                cdc_puts("\b \b");
+                echo[echo_len++] = '\b';
+                echo[echo_len++] = ' ';
+                echo[echo_len++] = '\b';
             }
         }
         else
@@ -318,9 +340,10 @@ static void cdc_task(void)
             {
                 g_cdc.line[g_cdc.line_len++] = c;
             }
-            cdc_write_all(&c, 1);                       /* echo as it arrives */
+            echo[echo_len++] = c;                     /* echo as it arrives */
         }
     }
+    if (echo_len != 0u) cdc_write_all(echo, echo_len);
 }
 
 static void heartbeat_task(void)
@@ -366,6 +389,18 @@ int main(void)
     (unsigned long) (g_hclk_hz   / 1000000U));
 
     sdcard_init();          /* bring up SDMMC1 and the SD card */
+
+    /* Boot sequence matters: identify the card, spin up the 128 KB write-back
+     * window, then prewarm it with the system area + FATs *before* the USB
+     * stack exists. By the time the host asks for the MBR/BPB/FAT during its
+     * mount, those sectors are already in RAM. */
+    sdcache_init();
+    int32_t const pw = sdcache_prewarm();
+    SDCACHE_STATS_T cs;
+    sdcache_stats(&cs);
+    PRINT_LOG("SD cache: %lu/%lu sectors prewarmed (status %ld)\r\n",
+              (unsigned long) cs.prewarm_secs, (unsigned long) cs.sectors, (long) pw);
+
     fatfs_init();           /* mount (or format+seed) the FAT volume */
 
     /* VBUS sensing off: the device assumes bus power is always present, which
@@ -404,12 +439,15 @@ void tud_umount_cb(void)
 {
     g_cdc.link = LINK_UNMOUNTED;
     sd_trace_add(SD_TR_UMOUNT, 0, 0, 0);
+    /* The host is gone: nothing may stay in the write-back window. */
+    (void) sdcache_flush();
 }
 
 void tud_suspend_cb(bool remote_wakeup_en)
 {
     (void) remote_wakeup_en;
     g_cdc.link = LINK_SUSPENDED;
+    (void) sdcache_flush();
 }
 
 void tud_resume_cb(void)

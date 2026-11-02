@@ -12,6 +12,7 @@
 
 #include "tusb.h"
 #include "bsp_sdcard.h"
+#include "bsp_sdcache.h"
 #include "sd_app.h"   /* fatfs_release_for_host / fatfs_reacquire */
 
 #include <string.h>
@@ -145,12 +146,22 @@ int32_t tud_msc_write10_cb(uint8_t lun,
             return -1;
         }
         sd_trace_add(SD_TR_WROK, 0, (uint16_t) bufsize, lba);
+
+        /* End of this transfer: push the cached sectors of exactly this range
+         * to the card, so the host's data is durable at command granularity
+         * while the cache still merges the FAT/dir updates into one write. */
+        if (sdcache_flush_range(lba, bufsize / blk) != SD_ST_OK)
+        {
+            sd_trace_add(SD_TR_FWDIRTY, 4, (uint16_t) (bufsize / blk), lba);
+            return -1;
+        }
         return (int32_t) bufsize;
     }
 
     /* Slow path: read-modify-write for the first and last partial sector. */
     uint32_t sector = lba + (offset / blk);
     uint32_t const skip = offset % blk;
+    uint32_t const first_sector = sector;
     uint32_t       pos  = 0;
 
     while (pos < bufsize)
@@ -182,6 +193,11 @@ int32_t tud_msc_write10_cb(uint8_t lun,
         sector++;
     }
     sd_trace_add(SD_TR_WROK, 1, (uint16_t) bufsize, lba);
+
+    if (sdcache_flush_range(first_sector, sector - first_sector) != SD_ST_OK)
+    {
+        return -1;
+    }
     return (int32_t) bufsize;
 }
 
@@ -202,13 +218,15 @@ int32_t tud_msc_scsi_cb(uint8_t lun,
          * cheaper than a STALL: every STALLed command makes the host run a
          * sense/recovery cycle before it carries on with the mount. */
 
-        case 0x35:  /* SYNCHRONIZE CACHE(10) - routine on Linux/macOS   */
         case 0x2F:  /* VERIFY(10)            - no data stage            */
         case 0x1D:  /* SEND DIAGNOSTIC       - no data stage            */
         case 0x1B:  /* START STOP UNIT       - handled by the stack too */
         case 0x1E:  /* PREVENT ALLOW MEDIUM REMOVAL                     */
         case 0x00:  /* TEST UNIT READY (already handled by the stack)   */
             return 0;
+
+        case 0x35:  /* SYNCHRONIZE CACHE(10) - flush the write-back window */
+            return (sdcache_flush() == SD_ST_OK) ? 0 : -1;
 
         case 0x9E:  /* READ CAPACITY(16)                                */
         {
@@ -245,6 +263,11 @@ bool tud_msc_start_stop_cb(uint8_t lun,
 
     if (load_eject)
     {
+        /* Both directions are a sync point: on "load" the host starts writing
+         * and must not see stale sectors, on "eject" (the removal command)
+         * everything still sitting in the window has to reach the card. */
+        (void) sdcache_flush();
+
         if (start) fatfs_release_for_host();
         else       fatfs_reacquire();
     }

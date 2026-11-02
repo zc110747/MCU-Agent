@@ -35,9 +35,13 @@ extern "C" {
  * Memory placement
  *
  * The DWC2 core runs in FIFO (slave) mode - no bus-master DMA - so the
- * buffers may live in DTCM. Keep 4-byte alignment for FIFO copies.
+ * buffers may live anywhere the CPU can reach. Everything the class
+ * drivers allocate through this attribute goes to AXI SRAM (RAM_D1),
+ * because 32 KB class buffers plus the 128 KB SD cache do not fit in the
+ * 128 KB DTCM. Only the CDC FIFOs stay implicit (.bss -> DTCM), since
+ * TinyUSB declares them without the attribute.
  *------------------------------------------------------------------*/
-#define CFG_TUSB_MEM_SECTION
+#define CFG_TUSB_MEM_SECTION  __attribute__((section(".ram_d1")))
 #define CFG_TUSB_MEM_ALIGN    __attribute__((aligned(4)))
 
 /* Debug level: 0 = off, 1 = errors, 2 = warnings, 3 = verbose.
@@ -72,9 +76,13 @@ extern "C" {
                                         size so transfers stay sector aligned,
                                         and below UINT16_MAX (TinyUSB asserts). */
 
-/* CDC FIFO sizes (bytes). 512 gives comfortable headroom for bulk echo. */
-#define CFG_TUD_CDC_RX_BUFSIZE  512
-#define CFG_TUD_CDC_TX_BUFSIZE  512
+/* CDC FIFO sizes (bytes). 32 KB each way: a host that stalls its reader for
+ * a moment, or a burst of `flood` lines, is absorbed here instead of being
+ * dropped by the application. 0x8000 is the hard ceiling of tu_fifo. These
+ * two land in .bss (DTCM) - TinyUSB does not put the CDC FIFOs in the MEM
+ * section - so keep an eye on the DTCM budget in the size report. */
+#define CFG_TUD_CDC_RX_BUFSIZE  32768
+#define CFG_TUD_CDC_TX_BUFSIZE  32768
 
 /* CDC bulk endpoint packet size - 64 is the max for full speed */
 #define CFG_TUD_CDC_EP_BUFSIZE  64

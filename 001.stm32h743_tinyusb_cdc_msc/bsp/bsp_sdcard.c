@@ -16,6 +16,7 @@
 * -------------------------------------------------------------------------*/
 
 #include "bsp_sdcard.h"
+#include "bsp_sdcache.h"
 #include "stm32h7xx_hal.h"
 
 #include <stdio.h>      /* snprintf (trace dump only) */
@@ -66,7 +67,8 @@ static const char* const g_tr_name[] =
     "?",        "BOOT",   "SDINIT", "SDREADY", "FATFS",  "TUSB",
     "MOUNT",    "UMOUNT", "TUR",    "CAP",     "RD",
     "RDOK",     "RDERR",  "WR",     "WROK",    "WRERR",
-    "SCSI",     "SCSIUNK","SSU",    "WARM",
+    "SCSI",     "SCSIUNK","SSU",    "WARM",    "PREWARM",
+    "FLUSH",    "FWDIRTY",
 };
 
 void sd_trace_add(uint8_t tag, uint8_t code, uint16_t sub, uint32_t arg)
@@ -181,6 +183,10 @@ void sdcard_init(void)
 {
     HAL_SD_CardInfoTypeDef info;
 
+    /* A card that had to be re-identified may be a different card, and dirty
+     * cache sectors were meant for the old one. Drop them (traced). */
+    sdcache_invalidate();
+
     g_sd_card.ready = false;
     g_sd_card.blocks = 0;
     g_sd_card.bsize  = 0;
@@ -227,7 +233,7 @@ void sdcard_init(void)
         uint8_t warm[512];
         for (uint32_t i = 0; i < SD_IO_RETRIES; i++)
         {
-            int32_t st = sdcard_read_blocks(warm, 0, 1);
+            int32_t st = sdcard_raw_read_blocks(warm, 0, 1);
             sd_trace_add(SD_TR_WARM, (uint8_t) i, 0, (uint32_t) st);
             if (st == SD_ST_OK) break;
         }
@@ -252,7 +258,30 @@ uint32_t sdcard_last_error(void)
     return g_sd_last_err;
 }
 
+/* ------------------------------------------------------------------------ */
+/* Cached block access - what FatFs and the MSC class see                   */
+/*                                                                          */
+/* Both views have to share one cache: msc_disk.c runs read-modify-write on  */
+/* partial sectors, and if the read were served from the cache while the     */
+/* write went straight to the card, an old sector would be flushed over new  */
+/* data. Routing at this level makes that impossible.                        */
+/* ------------------------------------------------------------------------ */
 int32_t sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count)
+{
+    if (sdcache_ready()) return sdcache_read(buf, lba, count);
+    return sdcard_raw_read_blocks(buf, lba, count);
+}
+
+int32_t sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count)
+{
+    if (sdcache_ready()) return sdcache_write(buf, lba, count);
+    return sdcard_raw_write_blocks(buf, lba, count);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Raw block access - cache fill, write-back, prewarm, driver warm-up       */
+/* ------------------------------------------------------------------------ */
+int32_t sdcard_raw_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count)
 {
     if (!g_sd_card.ready) return SD_ST_NO_CARD;
     if (count == 0)       return SD_ST_OK;
@@ -274,7 +303,7 @@ int32_t sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count)
     return SD_ST_ERR;
 }
 
-int32_t sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count)
+int32_t sdcard_raw_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count)
 {
     if (!g_sd_card.ready) return SD_ST_NO_CARD;
     if (count == 0)       return SD_ST_OK;

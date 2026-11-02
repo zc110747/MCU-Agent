@@ -22,6 +22,8 @@ void cmd_ls(void);                /* CDC: list root directory             */
 void cmd_cat(const char* fname);  /* CDC: print a file                    */
 void cmd_remount(void);           /* CDC: re-read the on-disk FAT (after  */
                                    /*       the USB host has changed files) */
+void cmd_sync(void);              /* CDC: force the write-back cache out  */
+void cmd_scache(void);            /* CDC: block-cache counters / layout   */
 
 #ifdef __cplusplus
 }

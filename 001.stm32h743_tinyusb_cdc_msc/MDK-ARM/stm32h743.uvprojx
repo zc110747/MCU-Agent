@@ -424,6 +424,11 @@
               <FilePath>..\bsp\bsp_sdcard.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_sdcache.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_sdcache.c</FilePath>
+            </File>
+            <File>
               <FileName>usb_descriptors.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\usb\usb_descriptors.c</FilePath>

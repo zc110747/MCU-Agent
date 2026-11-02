@@ -46,6 +46,7 @@ set(APP_SOURCES
   bsp/bsp_led.c
   bsp/bsp_log.c
   bsp/bsp_sdcard.c
+  bsp/bsp_sdcache.c
   app/usb/usb_descriptors.c
   app/usb/msc_disk.c
   app/usb/sd_app.c

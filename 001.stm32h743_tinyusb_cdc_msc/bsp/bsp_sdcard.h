@@ -65,6 +65,9 @@ enum {
   SD_TR_SCSIUNK,    /* unsupported SCSI    code=opcode               */
   SD_TR_SSU,        /* START STOP UNIT     code=start sub=load_eject */
   SD_TR_WARM,       /* warm-up read        code=attempt arg=status   */
+  SD_TR_PREWARM,    /* boot cache prewarm  code=ok sub=sectors       */
+  SD_TR_FLUSH,      /* cache write-back    code=0/1                  */
+  SD_TR_FWDIRTY,    /* dirty sector write-back  code=1 evict/2 drop/3 flush-fail */
 };
 
 void sd_trace_add(uint8_t tag, uint8_t code, uint16_t sub, uint32_t arg);
@@ -82,9 +85,15 @@ bool     sdcard_present(void);
 uint32_t sdcard_block_count(void);   /* number of 512-byte logical blocks */
 uint32_t sdcard_block_size(void);    /* 512 for SDSC/SDHC/SDXC           */
 
-/* Returns SD_ST_OK on success, negative on failure. lba is the block index. */
+/* Cached block access: what FatFs and the MSC class use. Goes through the
+ * 128 KB write-back window (bsp_sdcache.c) once sdcache_init() has run. */
 int32_t sdcard_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count);
 int32_t sdcard_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count);
+
+/* Raw card access, bypassing the window. Only the cache itself (fill / write-
+ * back / prewarm) and the driver's own warm-up read may use this. */
+int32_t sdcard_raw_read_blocks(uint8_t* buf, uint32_t lba, uint32_t count);
+int32_t sdcard_raw_write_blocks(const uint8_t* buf, uint32_t lba, uint32_t count);
 HAL_StatusTypeDef sdcard_read_disk(uint8_t *buf, uint32_t startBlocks,
                                    uint32_t NumberOfBlocks);
 HAL_StatusTypeDef sdcard_write_disk(const uint8_t *buf, uint32_t startBlocks,
