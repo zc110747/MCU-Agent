@@ -119,6 +119,31 @@ UV4.exe -b MDK-ARM\stm32f429_video.uvprojx -t Release -j0 -o build_log.htm
 
 ## 5. 运行行为
 
+### 支持的文件格式
+
+只有一种组合，任一条件不满足都会在 `avi_init()` 阶段报错退出：
+
+| 层 | 要求 | 判定位置 |
+|---|---|---|
+| 容器 | RIFF/AVI，顺序 `movi` chunk | `app/video_avi.c` |
+| 视频 | `MJPG`（`biCompression` 与 `strh.fccHandler` 都要匹配） | `video_avi.c:193` / `:212` |
+| 音频 | PCM（`wFormatTag == 1`），采样率在 `s_pll_presets[]` 内 | `video_avi.c` / `bsp/bsp_sai.c` |
+
+**MP4 / H.264 不做**（已决策放弃，不要再往这个方向改）。原因是三层全要换：ISOBMFF
+解复用要引入 `stbl` 五张表的随机访问，而 H.264 在 168 MHz Cortex-M4 上解 480p 差
+一到两个数量级（无 cache、无硬解核，运动补偿要反复读参考帧，SDRAM 有效带宽吃不住）。
+要播 MP4 请在 PC 端转码：
+
+```bash
+ffmpeg -i input.mp4 -c:v mjpeg -q:v 5 \
+  -vf "scale=800:-2:force_original_aspect_ratio=decrease" \
+  -c:a pcm_s16le -ar 44100 -ac 2 output.avi
+```
+
+MJPEG 每帧都是独立 JPEG，480p@15fps 约 2~4 MB/s，SD 卡至少要 Class 10。
+
+### 启动与交互
+
 - 上电顺序：`HAL_Init`(TIM12) → 168 MHz → LED/UART/KEY → **SDRAM** → heap_5 → SDIO 挂载 →
   WM8978 → 建任务 → `vTaskStartScheduler()`。SDRAM 必须先于任何 `pvPortMalloc`。
 - 播放列表：`0:/VIDEO` 下所有 `.avi`，启动时一次收集（上限 32 个），播完循环。
