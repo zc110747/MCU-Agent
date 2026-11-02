@@ -1,0 +1,35 @@
+---
+# mcu-code-style §2 落地配置：4 空格缩进 + Allman 开闭括号独立成行
+# struct / enum / union 的 { 与关键字同行（§2 例外）
+# ColumnLimit=0：不折行，保留既有手工换行，最小化 diff
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 0
+ContinuationIndentWidth: 4
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: true
+  AfterEnum: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: true
+  BeforeElse: true
+  AfterNamespace: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+SpaceBeforeParens: ControlStatements
+IndentCaseLabels: false
+PointerAlignment: Right
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+SortIncludes: false
+IncludeBlocks: Preserve
+...
