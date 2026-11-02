@@ -1,8 +1,6 @@
 /**
- ******************************************************************************
  * @file    stm32f4xx_it.h
  * @brief   Interrupt handler prototypes (all other IRQs come from the HAL).
- ******************************************************************************
  */
 #ifndef STM32F4XX_IT_H
 #define STM32F4XX_IT_H

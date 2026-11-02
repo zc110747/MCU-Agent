@@ -1,46 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_sdio.h
- * @brief   microSD card driver over SDIO (4-bit wide bus): DMA reads, polled
- *          writes.
- *
- *          Ported from embedded_based_on_stm32/code/00-Drivers/drv_sdio.c and
- *          adapted to this project's conventions (GlobalType_t instead of the
- *          foreign includes.h).
- *
- *  Pin map (STM32F429, AF12)
- *  ------------------------
- *    PC8  -> SDIO_D0
- *    PC9  -> SDIO_D1
- *    PC10 -> SDIO_D2
- *    PC11 -> SDIO_D3
- *    PC12 -> SDIO_CK
- *    PD2  -> SDIO_CMD
- *
- *  These pins are free on this board: the FMC (SDRAM + LCD) only claims
- *  PC0/PC2/PC3, PD0/PD1/PD8/PD9/PD10/PD14/PD15, PF*, PG* and PE*.
- *
- *  Clock
- *  -----
- *  SDIOCLK is the 48 MHz PLLQ output (the same one that feeds USB).  With
- *  ClockBypass disabled the card clock is SDIOCLK / (ClockDiv + 2):
- *      ClockDiv = 2  ->  48 MHz / 4 = 12 MHz   (conservative, very stable)
- *      ClockDiv = 0  ->  48 MHz / 2 = 24 MHz   (max rated for SDIO on F4)
- *  The card is enumerated in 1-bit mode and then switched to 4-bit.
- *
- *  DMA
- *  ---
- *  Reads use DMA2 Stream6 / Channel 4 (the SDIO request line on the F429;
- *  AN4031 Table 2 lists SDIO on both Stream3 Ch4 and Stream6 Ch4).  The audio
- *  path keeps DMA2 Stream3, so the two never have to be reconfigured for each
- *  other.  Writes stay polled -- they only come from USB MSC write10 and the
- *  TX FIFO has no overrun risk.
- *
- *  A short DMA burst is not an error: when the card ends the data path with a
- *  few words still queued in the SDIO FIFO, the driver drains them by hand and
- *  closes the transfer with HAL_SD_Abort().  Real errors are retried twice
- *  (SDIO_IO_RETRIES), each attempt preceded by HAL_SD_Abort().
- ******************************************************************************
+ * @brief   microSD card driver over SDIO (4-bit wide bus): DMA reads, polled writes.
+ * @note    document/stm32f429/video_player_port.md A5
  */
 #ifndef BSP_SDIO_H
 #define BSP_SDIO_H

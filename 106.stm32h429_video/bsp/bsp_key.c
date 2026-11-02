@@ -1,22 +1,16 @@
 /**
- ******************************************************************************
  * @file    bsp_key.c
  * @brief   Polled, debounced keypad for the four player keys.
- *
- *  Debounce state is kept per key as (last stable level, mismatch counter).
- *  A key only changes its stable level after BSP_KEY_DEBOUNCE_SAMPLES
- *  consecutive samples disagree with it.  Hold and press-edge views are
- *  derived from that stable level, so neither can report a bouncing edge.
- ******************************************************************************
+ * @note    按键语义见 document/stm32f429/video_player_port.md A6
  */
 #include "bsp_key.h"
 #include "stm32f4xx_hal.h"
 
 typedef struct
 {
-    uint8_t stable;     /* debounced level: 1 = pressed */
-    uint8_t mismatch;   /* consecutive samples that disagree */
-    uint8_t edge;       /* latched press edge, cleared by bsp_key_edge() */
+    uint8_t stable;   /* debounced level: 1 = pressed */
+    uint8_t mismatch; /* consecutive samples that disagree */
+    uint8_t edge;     /* latched press edge, cleared by bsp_key_edge() */
 } key_state_t;
 
 static key_state_t s_keys[BSP_KEY_COUNT];
@@ -25,13 +19,13 @@ static uint8_t key_read_raw(bsp_key_id_t id)
 {
     switch (id)
     {
-    case BSP_KEY_UP:    /* PA0, active high */
+    case BSP_KEY_UP: /* PA0, active high */
         return (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET) ? 1U : 0U;
-    case BSP_KEY_0:     /* PH3, active low */
+    case BSP_KEY_0: /* PH3, active low */
         return (HAL_GPIO_ReadPin(GPIOH, GPIO_PIN_3) == GPIO_PIN_RESET) ? 1U : 0U;
-    case BSP_KEY_1:     /* PH2, active low */
+    case BSP_KEY_1: /* PH2, active low */
         return (HAL_GPIO_ReadPin(GPIOH, GPIO_PIN_2) == GPIO_PIN_RESET) ? 1U : 0U;
-    case BSP_KEY_2:     /* PC13, active low */
+    case BSP_KEY_2: /* PC13, active low */
         return (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_RESET) ? 1U : 0U;
     default:
         return 0U;
@@ -95,7 +89,7 @@ void bsp_key_poll(void)
 
         if (raw != 0U)
         {
-            s_keys[i].edge = 1U;   /* press edge: released by bsp_key_edge() */
+            s_keys[i].edge = 1U; /* press edge: released by bsp_key_edge() */
         }
     }
 }

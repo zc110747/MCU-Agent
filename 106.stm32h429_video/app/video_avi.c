@@ -1,12 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_avi.c
  * @brief   AVI (RIFF) header parsing for the MJPEG player.
- *
- *          The layout checks mirror the ALIENTEK 实验47 reference: every step
- *          offsets from the previous block's own size field, so extra chunks
- *          (JUNK, idx1, ...) do not confuse the walk.
- ******************************************************************************
+ * @note    见 document/stm32f429/video_player_port.md A6
  */
 #include <string.h>
 
@@ -77,22 +72,22 @@ typedef struct
     uint32_t block_id;
     uint32_t block_size;
     uint32_t size;
-    int32_t width;
-    int32_t height;
+    int32_t  width;
+    int32_t  height;
     uint16_t planes;
     uint16_t bit_count;
     uint32_t compression;
     uint32_t size_image;
-    int32_t x_pels_per_meter;
-    int32_t y_pels_per_meter;
+    int32_t  x_pels_per_meter;
+    int32_t  y_pels_per_meter;
     uint32_t clr_used;
     uint32_t clr_important;
 } bmp_header_t;
 
 typedef struct
 {
-    uint32_t block_id;
-    uint32_t block_size;
+    uint32_t     block_id;
+    uint32_t     block_size;
     bmp_header_t bmi_header;
 } strf_bmp_header_t;
 
@@ -112,8 +107,8 @@ typedef struct
 static avi_info_t s_avi = {0};
 
 /* Stream tags per stream index: index 0/1 matches "00xx" and "01xx". */
-static const char *const s_vids_flags[2] = { "00dc", "01dc" };
-static const char *const s_auds_flags[2] = { "00wb", "01wb" };
+static const char *const s_vids_flags[2] = {"00dc", "01dc"};
+static const char *const s_auds_flags[2] = {"00wb", "01wb"};
 
 const avi_info_t *avi_info(void)
 {
@@ -121,14 +116,14 @@ const avi_info_t *avi_info(void)
 }
 
 /** Offset of a strf chunk that follows the strh block at @p strl. */
-static const uint8_t *avi_strf_after(const uint8_t *strl,
+static const uint8_t *avi_strf_after(const uint8_t       *strl,
                                      const strh_header_t *strh)
 {
     return strl + 12 + strh->block_size + 8;
 }
 
 /** Next list in the header, skipping the strl block at @p strl. */
-static const uint8_t *avi_next_list(const uint8_t *strl,
+static const uint8_t *avi_next_list(const uint8_t       *strl,
                                     const list_header_t *list)
 {
     return strl + list->block_size + 8;
@@ -138,11 +133,11 @@ static const uint8_t *avi_next_list(const uint8_t *strl,
  * @brief  Walk the one or two strl lists (video and/or audio) of the header.
  *         Width/height, audio format and both stream tags come out of here.
  */
-static avi_status_t avi_parse_streams(const uint8_t *strl,
+static avi_status_t avi_parse_streams(const uint8_t       *strl,
                                       const list_header_t *list)
 {
     const strh_header_t *strh;
-    const uint8_t *next;
+    const uint8_t       *next;
 
     strh = (const strh_header_t *)(strl + 12);
     if (strh->block_id != AVI_STRH_ID)
@@ -155,7 +150,7 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
         /* Audio stream listed first: video is the second strl. */
         const strf_wav_header_t *wav;
         const strf_bmp_header_t *bmp;
-        const list_header_t *second;
+        const list_header_t     *second;
 
         s_avi.video_flag = s_vids_flags[1];
         s_avi.audio_flag = s_auds_flags[0];
@@ -166,10 +161,10 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
             return AVI_STRF_ERR;
         }
         s_avi.sample_rate = wav->sample_rate;
-        s_avi.channels = wav->channels;
-        s_avi.audio_type = wav->format_tag;
+        s_avi.channels    = wav->channels;
+        s_avi.audio_type  = wav->format_tag;
 
-        next = avi_next_list(strl, list);
+        next   = avi_next_list(strl, list);
         second = (const list_header_t *)next;
         if (second->list_id != AVI_LIST_ID)
         {
@@ -199,7 +194,7 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
         {
             return AVI_FORMAT_ERR;
         }
-        s_avi.width = (uint32_t)bmp->bmi_header.width;
+        s_avi.width  = (uint32_t)bmp->bmi_header.width;
         s_avi.height = (uint32_t)bmp->bmi_header.height;
         return AVI_OK;
     }
@@ -212,7 +207,7 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
     /* Video stream listed first: audio is optional. */
     {
         const strf_bmp_header_t *bmp;
-        const list_header_t *second;
+        const list_header_t     *second;
 
         if (strh->handler != AVI_FORMAT_MJPG)
         {
@@ -226,17 +221,17 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
         {
             return AVI_STRF_ERR;
         }
-        s_avi.width = (uint32_t)bmp->bmi_header.width;
+        s_avi.width  = (uint32_t)bmp->bmi_header.width;
         s_avi.height = (uint32_t)bmp->bmi_header.height;
 
-        next = avi_next_list(strl, list);
+        next   = avi_next_list(strl, list);
         second = (const list_header_t *)next;
         if (second->list_id != AVI_LIST_ID)
         {
             /* Video-only file: no audio stream at all. */
             s_avi.sample_rate = 0;
-            s_avi.channels = 0;
-            s_avi.audio_type = 0;
+            s_avi.channels    = 0;
+            s_avi.audio_type  = 0;
             return AVI_OK;
         }
         if (second->list_type != AVI_STRL_ID)
@@ -264,8 +259,8 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
             return AVI_STRF_ERR;
         }
         s_avi.sample_rate = wav->sample_rate;
-        s_avi.channels = wav->channels;
-        s_avi.audio_type = wav->format_tag;
+        s_avi.channels    = wav->channels;
+        s_avi.audio_type  = wav->format_tag;
     }
 
     return AVI_OK;
@@ -273,13 +268,13 @@ static avi_status_t avi_parse_streams(const uint8_t *strl,
 
 avi_status_t avi_init(const uint8_t *block, uint16_t size)
 {
-    const avi_header_t *avi_header;
+    const avi_header_t  *avi_header;
     const list_header_t *list_header;
     const avih_header_t *avih;
-    const uint8_t *cursor;
-    uint16_t cursor_size;
-    uint16_t offset;
-    avi_status_t res;
+    const uint8_t       *cursor;
+    uint16_t             cursor_size;
+    uint16_t             offset;
+    avi_status_t         res;
 
     memset(&s_avi, 0, sizeof(s_avi));
 
@@ -293,7 +288,7 @@ avi_status_t avi_init(const uint8_t *block, uint16_t size)
         return AVI_AVI_ERR;
     }
 
-    cursor = block + sizeof(avi_header_t);
+    cursor      = block + sizeof(avi_header_t);
     cursor_size = (uint16_t)(size - sizeof(avi_header_t));
 
     list_header = (const list_header_t *)cursor;
@@ -315,7 +310,7 @@ avi_status_t avi_init(const uint8_t *block, uint16_t size)
         return AVI_AVIH_ERR;
     }
     s_avi.frame_interval_us = avih->sec_per_frame;
-    s_avi.total_frames = avih->total_frames;
+    s_avi.total_frames      = avih->total_frames;
 
     cursor += avih->block_size + 8;
     cursor_size = (uint16_t)(cursor_size - (avih->block_size + 8));
@@ -348,9 +343,9 @@ avi_status_t avi_init(const uint8_t *block, uint16_t size)
     if (s_avi.sample_rate != 0)
     {
         const uint8_t *movi;
-        uint16_t audio_offset;
+        uint16_t       audio_offset;
 
-        movi = block + offset;
+        movi         = block + offset;
         audio_offset = avi_search_id(movi, (uint16_t)(size - offset), s_avi.audio_flag);
         if (audio_offset == 0)
         {
@@ -394,7 +389,7 @@ uint16_t avi_search_id(const uint8_t *buf, uint16_t size, const char *id)
 
 avi_status_t avi_get_stream_info(const uint8_t *buf)
 {
-    s_avi.stream_id = (uint16_t)(buf[2] | ((uint16_t)buf[3] << 8));
+    s_avi.stream_id   = (uint16_t)(buf[2] | ((uint16_t)buf[3] << 8));
     s_avi.stream_size = (uint32_t)buf[4] | ((uint32_t)buf[5] << 8) |
                         ((uint32_t)buf[6] << 16) | ((uint32_t)buf[7] << 24);
     if ((s_avi.stream_size & 1u) != 0u)

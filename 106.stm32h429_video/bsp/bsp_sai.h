@@ -1,18 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_sai.h
- * @brief   SAI1 block A as an I2S master transmitter, feeding the WM8978 DAC
- *          through DMA2 Stream3 in double-buffer (ping-pong) mode.
- *
- *          Data path:
- *              app buffers -> DMA2_Stream3 (circular, M0AR/M1AR) -> SAI1_A_DR
- *                          -> PE2..PE6 (AF6) -> WM8978 -> speaker / HP
- *
- *          The transfer-complete interrupt does NOT refill anything.  It only
- *          runs the registered callback, which lives in the application and
- *          typically releases a semaphore.  Filling from the ISR would block on
- *          FatFs, which is not interrupt-safe.
- ******************************************************************************
+ * @brief   SAI1 block A as an I2S master transmitter, feeding the WM8978 DAC through DMA2 Stream3 in double-buffer (ping-pong) mode.
+ * @note    document/stm32f429/video_player_port.md A4
  */
 #ifndef __BSP_SAI_H
 #define __BSP_SAI_H

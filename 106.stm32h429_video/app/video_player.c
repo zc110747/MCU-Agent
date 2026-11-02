@@ -1,21 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_player.c
  * @brief   MJPEG/AVI player: playlist scan, demux loop, frame pacing, keys.
- *
- *          Ported from the ALIENTEK 实验47 video player.  Structural changes
- *          against the reference:
- *
- *            - the frame is decoded into an SDRAM surface and pushed to the
- *              panel through LVGL instead of being written into LCD GRAM from
- *              inside libjpeg's upsampler;
- *            - the four hand-rotated audio buffers became the SAI's own DMA
- *              double buffering (app/audio_pcm.c);
- *            - the directory entry index trick (dir_sdi + DIR.blk_ofs) is gone:
- *              the playlist is collected once with f_readdir and re-walked, so
- *              the player no longer depends on FatFs internals;
- *            - timing comes from the FreeRTOS tick, not from a TIM6 interrupt.
- ******************************************************************************
+ * @note    播放列表与帧节拍: document/stm32f429/video_player_port.md A6
  */
 #include <stdio.h>
 #include <string.h>
@@ -38,34 +24,34 @@
 
 /* Read window: one AVI chunk (JPEG frame or PCM block) plus its 8 byte header
  * and the following header.  60 KB matches the reference example. */
-#define AVI_READ_WINDOW  (60U * 1024U)
+#define AVI_READ_WINDOW (60U * 1024U)
 
-#define PLAYLIST_MAX     32U
-#define NAME_MAX_BYTES   64U
+#define PLAYLIST_MAX 32U
+#define NAME_MAX_BYTES 64U
 
 /** Seek step, in seconds of playback. */
-#define SEEK_STEP_SEC    5U
+#define SEEK_STEP_SEC 5U
 
 typedef struct
 {
-    char names[PLAYLIST_MAX][NAME_MAX_BYTES];
+    char     names[PLAYLIST_MAX][NAME_MAX_BYTES];
     uint16_t count;
     uint16_t index;
 } playlist_t;
 
 typedef struct
 {
-    FIL *file;
-    uint8_t *buf;
-    uint32_t total_sec;
-    uint32_t shown_sec;
+    FIL       *file;
+    uint8_t   *buf;
+    uint32_t   total_sec;
+    uint32_t   shown_sec;
     TickType_t frame_due;
-    uint32_t frame_ms;
-    uint8_t key_break;
+    uint32_t   frame_ms;
+    uint8_t    key_break;
 } player_t;
 
 static playlist_t s_list = {0};
-static player_t s_play = {0};
+static player_t   s_play = {0};
 
 /* ------------------------------------------------------------------ */
 /* Playlist                                                           */
@@ -100,15 +86,15 @@ static int8_t name_is_avi(const char *name)
 
 static int8_t playlist_scan(const char *dir)
 {
-    DIR *dp;
+    DIR     *dp;
     FILINFO *info;
-    FRESULT res;
-    int8_t status = 0;
+    FRESULT  res;
+    int8_t   status = 0;
 
     s_list.count = 0U;
     s_list.index = 0U;
 
-    dp = (DIR *)pvPortMalloc(sizeof(DIR));
+    dp   = (DIR *)pvPortMalloc(sizeof(DIR));
     info = (FILINFO *)pvPortMalloc(sizeof(FILINFO));
     if ((dp == NULL) || (info == NULL))
     {
@@ -164,7 +150,7 @@ static void format_hms(uint32_t sec, char *out)
 /** Frame counter arithmetic: keep the frame slot grid, drop missed slots. */
 static void frame_pace(void)
 {
-    TickType_t now = xTaskGetTickCount();
+    TickType_t now    = xTaskGetTickCount();
     TickType_t period = pdMS_TO_TICKS(s_play.frame_ms);
 
     s_play.frame_due += period;
@@ -181,9 +167,9 @@ static void frame_pace(void)
 
 static void show_progress(void)
 {
-    char line[48];
-    char cur[16];
-    char total[16];
+    char     line[48];
+    char     cur[16];
+    char     total[16];
     uint32_t now_sec;
     uint32_t size;
 
@@ -212,10 +198,10 @@ static void show_progress(void)
  */
 static void player_seek(int32_t seconds)
 {
-    FSIZE_t size = f_size(s_play.file);
-    FSIZE_t pos = f_tell(s_play.file);
-    FSIZE_t delta;
-    UINT br;
+    FSIZE_t  size = f_size(s_play.file);
+    FSIZE_t  pos  = f_tell(s_play.file);
+    FSIZE_t  delta;
+    UINT     br;
     uint16_t offset;
 
     if ((s_play.total_sec == 0U) || (size == 0U))
@@ -247,8 +233,8 @@ static void player_seek(int32_t seconds)
         offset = avi_search_id(s_play.buf, (uint16_t)br, "movi");
     }
     offset = (uint16_t)(offset + avi_search_id(s_play.buf + offset,
-                                              (uint16_t)(br - offset),
-                                              avi_info()->video_flag));
+                                               (uint16_t)(br - offset),
+                                               avi_info()->video_flag));
     if ((offset == 0U) || (offset >= br))
     {
         return;
@@ -267,17 +253,17 @@ static int8_t player_run_file(const char *path, const char *name,
                               uint16_t index, uint16_t total)
 {
     const avi_info_t *info;
-    uint16_t panel_w = 0U;
-    uint16_t panel_h = 0U;
-    uint16_t off_x;
-    uint16_t off_y;
-    UINT br = 0U;
-    uint16_t movi_offset;
-    avi_status_t res;
-    uint8_t status = 0U;
+    uint16_t          panel_w = 0U;
+    uint16_t          panel_h = 0U;
+    uint16_t          off_x;
+    uint16_t          off_y;
+    UINT              br = 0U;
+    uint16_t          movi_offset;
+    avi_status_t      res;
+    uint8_t           status = 0U;
 
     s_play.file = (FIL *)pvPortMalloc(sizeof(FIL));
-    s_play.buf = (uint8_t *)pvPortMalloc(AVI_READ_WINDOW);
+    s_play.buf  = (uint8_t *)pvPortMalloc(AVI_READ_WINDOW);
     if ((s_play.file == NULL) || (s_play.buf == NULL))
     {
         PRINT_LOG("[VID ] buffer alloc FAILED\r\n");
@@ -315,7 +301,7 @@ static int8_t player_run_file(const char *path, const char *name,
         goto cleanup;
     }
 
-    info = avi_info();
+    info            = avi_info();
     s_play.frame_ms = info->frame_interval_us / 1000U;
     if (s_play.frame_ms == 0U)
     {
@@ -359,7 +345,7 @@ static int8_t player_run_file(const char *path, const char *name,
 
     fs_lock();
     res = (f_lseek(s_play.file, (FSIZE_t)movi_offset + 12U) == FR_OK) ? AVI_OK
-                                                                    : AVI_STREAM_ERR;
+                                                                      : AVI_STREAM_ERR;
     fs_unlock();
     if (res != AVI_OK)
     {
@@ -375,7 +361,7 @@ static int8_t player_run_file(const char *path, const char *name,
 
         fs_lock();
         res = (f_read(s_play.file, s_play.buf, chunk + 8U, &br) == FR_OK) ? AVI_OK
-                                                                        : AVI_STREAM_ERR;
+                                                                          : AVI_STREAM_ERR;
         fs_unlock();
         if ((res != AVI_OK) || (br < chunk + 8U))
         {
@@ -450,7 +436,7 @@ cleanup:
 
 void video_player_task(void *arg)
 {
-    char path[NAME_MAX_BYTES + 16U];
+    char    path[NAME_MAX_BYTES + 16U];
     uint8_t playlist_ready = 0U;
 
     (void)arg;

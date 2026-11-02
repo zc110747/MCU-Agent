@@ -1,14 +1,7 @@
 /**
- ******************************************************************************
  * @file    audio_pcm.h
  * @brief   PCM playback of AVI audio chunks through SAI1_A -> WM8978.
- *
- *          The caller pushes AVI chunk payloads as they come out of the file;
- *          the module accumulates them into two DMA halves (ping-pong) and
- *          starts the stream once both halves are full.  A push that lands when
- *          no half is free blocks, which is exactly the back-pressure the video
- *          loop needs - the card read rate is tied to the audio clock.
- ******************************************************************************
+ * @note    document/stm32f429/video_player_port.md A4
  */
 #ifndef AUDIO_PCM_H
 #define AUDIO_PCM_H

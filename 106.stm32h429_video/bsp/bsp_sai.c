@@ -1,29 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_sai.c
  * @brief   SAI1_A I2S master TX + DMA2 Stream3 double buffering.
- *
- *  Ported from the ALIENTEK 音乐播放 experiment (HARDWARE/SAI/sai.c).  The
- *  clock chain and register values are kept identical because they are the
- *  part that was validated on real hardware:
- *
- *      SAI_CK = (HSE / PLLM) * PLLI2SN / PLLI2SQ / PLLI2SDIVQ
- *      (HSE = 25 MHz, PLLM = 25 -> 1 MHz VCO input)
- *
- *      MCKDIV is NOT hard-coded.  HAL_SAI_Init() derives it from
- *      Init.AudioFrequency as  MCKDIV = SAI_CK / (Fs * 512); a result of 0
- *      means "no master divider" (MCLK = SAI_CK = 256 * Fs).  That is why the
- *      44.1 kHz / 48 kHz entries below do not carry an explicit divider.
- *
- *  Double buffering:
- *      M0AR = buf0, M1AR = buf1, circular mode.  Each transfer-complete
- *      interrupt flips the controller's CT (current target) bit; the callback
- *      asks bsp_sai_free_buffer() which half just finished and the application
- *      refills exactly that half.
- *
- *  Interrupt priority 6 (>= configMAX_SYSCALL_INTERRUPT_PRIORITY) so the
- *  callback may use xSemaphoreGiveFromISR().  It must NOT touch FatFs.
- ******************************************************************************
+ * @note    PLLI2S 预设与三处必须显式配置: document/stm32f429/video_player_port.md A4
  */
 #include "bsp_sai.h"
 #include "bsp_delay.h"

@@ -1,17 +1,7 @@
 /**
- ******************************************************************************
  * @file    stm32f4xx_it.c
  * @brief   Interrupt service routines owned by this project.
- *
- *          SVC / PendSV / SysTick belong to the FreeRTOS port (their vectors
- *          point straight at vPortSVCHandler / xPortPendSVHandler /
- *          xPortSysTickHandler in sys_startup/gcc/startup_stm32f429xx.s).
- *
- *          TIM8_BRK_TIM12 -> HAL 1 ms time base (TIM12, pre-emption priority 0)
- *          DMA2_Stream3   -> SAI1_A TX (audio), see bsp/bsp_sai.c
- *          DMA2_Stream6   -> SDIO RX (video/audio file reads), see bsp/bsp_sdio.c
- *          SDIO           -> SDIO status/error collection, see bsp/bsp_sdio.c
- ******************************************************************************
+ * @note    向量归属与优先级: document/stm32f429/video_player_port.md A1
  */
 #include "stm32f4xx_it.h"
 #include "stm32f4xx_hal.h"

@@ -1,16 +1,7 @@
 /**
- ******************************************************************************
  * @file    fs_diskio.c
  * @brief   FatFs <-> SDIO glue for volume "0:".
- *
- *  The SDIO data path moves reads with DMA (see bsp/bsp_sdio.c), and the DMA
- *  burst setting needs a 16-byte aligned destination.  FatFs normally passes
- *  its own aligned sector buffer, but f_read() has a direct path that can
- *  forward the caller's buffer, so unaligned requests are bounced through
- *  s_sd_scratch.
- *
- *  Reads are DMA driven; writes stay polled.
- ******************************************************************************
+ * @note    DMA 对齐的跳板缓冲: document/stm32f429/video_player_port.md A5
  */
 #include <string.h>
 

@@ -1,9 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_mjpeg.h
- * @brief   MJPEG frame decoder: one JPEG frame -> one rectangle of an RGB565
- *          surface (the LVGL video image lives in SDRAM).
- ******************************************************************************
+ * @brief   MJPEG frame decoder: one JPEG frame -> one rectangle of an RGB565 surface (the LVGL video image lives in SDRAM).
+ * @note    document/stm32f429/video_player_port.md A3
  */
 #ifndef VIDEO_MJPEG_H
 #define VIDEO_MJPEG_H

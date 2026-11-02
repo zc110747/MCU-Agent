@@ -1,13 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_ui.h
- * @brief   LVGL screen for the MJPEG player: one full-screen true-colour image
- *          as the video surface, plus three text bands on top of it.
- *
- *          LVGL is not thread safe, so every entry point here takes the UI
- *          mutex.  The UI task owns lv_timer_handler(); the player task only
- *          writes the surface pixels and calls video_ui_frame_ready().
- ******************************************************************************
+ * @brief   LVGL screen for the MJPEG player: one full-screen true-colour image as the video surface, plus three text bands on top of it.
+ * @note    document/stm32f429/video_player_port.md A2
  */
 #ifndef VIDEO_UI_H
 #define VIDEO_UI_H

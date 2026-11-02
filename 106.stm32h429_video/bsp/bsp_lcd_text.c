@@ -1,20 +1,8 @@
 /**
-  ******************************************************************************
-  * @file    drv_oled_text.c
-  * @brief   GBK Chinese font reader (SD card backed).
-  *
-  *  Layout of the .FON files
-  *  ------------------------
-  *  Standard GBK "dot matrix" files: glyphs are stored in code order, two byte
-  *  GBK code (qh, ql) mapped to a linear index
-  *
-  *      index  = 190 * (qh - 0x81) + (ql - 0x40 or 0x41)
-  *      offset = index * bytes_per_glyph
-  *
-  *  The stored bitmap is MSB first, column scan.  The display driver wants LSB
-  *  first, row scan, so every glyph goes through Convert_Font_MSB_Column_to_LSB_Row().
-  ******************************************************************************
-  */
+ * @file    bsp_lcd_text.c
+ * @brief   GBK Chinese font reader (SD card backed).
+ * @note    GBK 索引公式与 f_open 重试: document/stm32f429/video_player_port.md A8
+ */
 #include "bsp_lcd_text.h"
 #include "ff.h"
 #include "fs_diskio.h"
@@ -25,32 +13,30 @@
 #include "task.h"
 #include "log.h"
 
-#define FONT_NUMS       5
-#define FONT_MAX_BYTES  192     /* 32x32 needs 128, leave headroom */
+#define FONT_NUMS 5
+#define FONT_MAX_BYTES 192 /* 32x32 needs 128, leave headroom */
 
-/* f_open can fail with FR_DISK_ERR on the first try: the card is read with
- * polled SDIO, and a USB interrupt landing inside a data block transfer makes
- * the command time out.  Retrying the same open is enough and keeps a missing
- * glyph file (or a slow card) from silently dropping one font size. */
+/* f_open can return FR_DISK_ERR on the first try (interrupted SDIO block).
+ * See document/stm32f429/video_player_port.md A8. */
 #define FONT_OPEN_TRIES 4
 #define FONT_OPEN_GAP_MS 5U
 
 /* Index into font_name[] / fil_list[] */
 #define FONT_IDX_UNIGBK 0
-#define FONT_IDX_GBK12  1
-#define FONT_IDX_GBK16  2
-#define FONT_IDX_GBK24  3
-#define FONT_IDX_GBK32  4
+#define FONT_IDX_GBK12 1
+#define FONT_IDX_GBK16 2
+#define FONT_IDX_GBK24 3
+#define FONT_IDX_GBK32 4
 
 typedef struct
 {
-    FATFS   fs;                     /* volume work area              */
-    FIL     fil_list[FONT_NUMS];    /* kept open for the whole run  */
+    FATFS   fs;                  /* volume work area              */
+    FIL     fil_list[FONT_NUMS]; /* kept open for the whole run  */
     uint8_t fil_valid[FONT_NUMS];
     uint8_t mounted;
 } LCD_FS_INFO;
 
-static LCD_FS_INFO g_lcd_fs_info;
+static LCD_FS_INFO s_lcd_fs_info;
 
 /* File basenames, appended to the volume the loader was given
  * (FS_VOL_SD = "0:", the microSD card). */
@@ -62,30 +48,35 @@ static const char *font_name[FONT_NUMS] = {
     "/SYSTEM/FONT/GBK32.FON",
 };
 
-/* Which volume the currently open fonts came from ("0:" or ""). */
-static char s_font_volume[4];
+/* Per-read state of the glyph reader. */
+typedef struct
+{
+    char    volume[4];           /* "0:" or "" */
+    uint8_t buf[FONT_MAX_BYTES]; /* raw glyph scratch, pre-conversion */
 
-/* Scratch buffer for the raw (unconverted) glyph */
-static uint8_t read_buffer[FONT_MAX_BYTES];
+    struct
+    {
+        uint8_t  code[2];  /* GBK code of the last read */
+        uint32_t offset;   /* byte offset inside the .FON */
+        uint16_t bytes;    /* glyph bytes actually read */
+        uint8_t  index;    /* FONT_IDX_xxx */
+        int      seek_res; /* f_lseek result, 0 = OK */
+        int      read_res; /* f_read result, 0 = OK */
+    } last;                /* console diagnostics */
+} FONT_READER_T;
 
-/* Result of the most recent font_read_raw() attempt, for the console. */
-static uint8_t  s_last_code[2];
-static uint32_t s_last_offset;
-static uint16_t s_last_bytes;
-static uint8_t  s_last_index;
-static int      s_last_seek_res;
-static int      s_last_read_res;
+static FONT_READER_T s_font = {0};
 
 const char *lcd_driver_font_source(void)
 {
-    return s_font_volume;
+    return s_font.volume;
 }
 
 /**
-  * @brief  Close any previously opened font files before (re)opening them on
-  *         another volume.  Without this a volume switch would leak the old
-  *         FIL objects.
-  */
+ * @brief  Close any previously opened font files before (re)opening them on
+ *         another volume.  Without this a volume switch would leak the old
+ *         FIL objects.
+ */
 static void font_close_all(void)
 {
     uint8_t index;
@@ -93,26 +84,26 @@ static void font_close_all(void)
     fs_lock();
     for (index = 0; index < FONT_NUMS; index++)
     {
-        if (g_lcd_fs_info.fil_valid[index] != 0u)
+        if (s_lcd_fs_info.fil_valid[index] != 0u)
         {
-            (void)f_close(&g_lcd_fs_info.fil_list[index]);
+            (void)f_close(&s_lcd_fs_info.fil_list[index]);
         }
     }
     fs_unlock();
 
-    memset(&g_lcd_fs_info, 0, sizeof(g_lcd_fs_info));
+    memset(&s_lcd_fs_info, 0, sizeof(s_lcd_fs_info));
 }
 
 /**
-  * @brief  Open every font file we know about on the given volume.
-  *
-  * @param  vol  FatFs volume prefix, FS_VOL_SD ("0:") in this project.  The
-  *              volume must already be mounted by its owner (app/sd_card.c):
-  *              calling f_mount() here would reassign the drive's FATFS work
-  *              area while the owner may still be using it.
-  *
-  * @retval RT_OK if at least one GBKxx.FON is available.
-  */
+ * @brief  Open every font file we know about on the given volume.
+ *
+ * @param  vol  FatFs volume prefix, FS_VOL_SD ("0:") in this project.  The
+ *              volume must already be mounted by its owner (app/sd_card.c):
+ *              calling f_mount() here would reassign the drive's FATFS work
+ *              area while the owner may still be using it.
+ *
+ * @retval RT_OK if at least one GBKxx.FON is available.
+ */
 GlobalType_t lcd_driver_font_init(const char *vol)
 {
     FRESULT res;
@@ -126,7 +117,7 @@ GlobalType_t lcd_driver_font_init(const char *vol)
 
     font_close_all();
 
-    s_font_volume[0] = '\0';
+    s_font.volume[0] = '\0';
 
     /* The volume is already mounted by its owner, so we only open files here,
      * serialized by the shared FS lock. */
@@ -137,20 +128,18 @@ GlobalType_t lcd_driver_font_init(const char *vol)
 
         (void)snprintf(path, sizeof(path), "%s%s", vol, font_name[index]);
 
-        res = f_open(&g_lcd_fs_info.fil_list[index], path, FA_READ);
+        res = f_open(&s_lcd_fs_info.fil_list[index], path, FA_READ);
 
-        /* First attempt failed: the usual cause is a polled-SDIO transfer that
-         * got interrupted (USB enumerating right now, T_PEN, ...).  Retry the
-         * same file before giving up on that size. */
+        /* Interrupted transfer: retry the same file before dropping the size. */
         for (tries = 1U; (res != FR_OK) && (tries < FONT_OPEN_TRIES); tries++)
         {
             vTaskDelay(pdMS_TO_TICKS(FONT_OPEN_GAP_MS));
-            res = f_open(&g_lcd_fs_info.fil_list[index], path, FA_READ);
+            res = f_open(&s_lcd_fs_info.fil_list[index], path, FA_READ);
         }
 
         if (res == FR_OK)
         {
-            g_lcd_fs_info.fil_valid[index] = 1;
+            s_lcd_fs_info.fil_valid[index] = 1;
         }
         else
         {
@@ -160,13 +149,13 @@ GlobalType_t lcd_driver_font_init(const char *vol)
     fs_unlock();
 
     /* UNIGBK.BIN alone is useless - we need at least one glyph file */
-    if (g_lcd_fs_info.fil_valid[FONT_IDX_GBK12] ||
-        g_lcd_fs_info.fil_valid[FONT_IDX_GBK16] ||
-        g_lcd_fs_info.fil_valid[FONT_IDX_GBK24] ||
-        g_lcd_fs_info.fil_valid[FONT_IDX_GBK32])
+    if (s_lcd_fs_info.fil_valid[FONT_IDX_GBK12] ||
+        s_lcd_fs_info.fil_valid[FONT_IDX_GBK16] ||
+        s_lcd_fs_info.fil_valid[FONT_IDX_GBK24] ||
+        s_lcd_fs_info.fil_valid[FONT_IDX_GBK32])
     {
-        g_lcd_fs_info.mounted = 1U;
-        (void)snprintf(s_font_volume, sizeof(s_font_volume), "%s", vol);
+        s_lcd_fs_info.mounted = 1U;
+        (void)snprintf(s_font.volume, sizeof(s_font.volume), "%s", vol);
         return RT_OK;
     }
 
@@ -180,7 +169,7 @@ uint32_t lcd_driver_font_status(void)
 
     for (i = 0; i < FONT_NUMS; i++)
     {
-        if (g_lcd_fs_info.fil_valid[i])
+        if (s_lcd_fs_info.fil_valid[i])
         {
             mask |= (1U << i);
         }
@@ -189,12 +178,12 @@ uint32_t lcd_driver_font_status(void)
 }
 
 /**
-  * @brief  Transpose a glyph from MSB + column scan to LSB + row scan.
-  * @param  src    source bitmap (MSB, column scan)
-  * @param  dst    destination bitmap (LSB, row scan)
-  * @param  width  glyph width in pixels
-  * @param  height glyph height in pixels
-  */
+ * @brief  Transpose a glyph from MSB + column scan to LSB + row scan.
+ * @param  src    source bitmap (MSB, column scan)
+ * @param  dst    destination bitmap (LSB, row scan)
+ * @param  width  glyph width in pixels
+ * @param  height glyph height in pixels
+ */
 static void Convert_Font_MSB_Column_to_LSB_Row(const uint8_t *src, uint8_t *dst,
                                                uint16_t width, uint16_t height)
 {
@@ -227,27 +216,32 @@ static void Convert_Font_MSB_Column_to_LSB_Row(const uint8_t *src, uint8_t *dst,
 }
 
 /**
-  * @brief  Map a font height to the file that holds it.
-  * @retval index into fil_list[], or 0xFF when unsupported.
-  */
+ * @brief  Map a font height to the file that holds it.
+ * @retval index into fil_list[], or 0xFF when unsupported.
+ */
 static uint8_t font_index_from_height(uint16_t height)
 {
     switch (height)
     {
-        case 12: return FONT_IDX_GBK12;
-        case 16: return FONT_IDX_GBK16;
-        case 24: return FONT_IDX_GBK24;
-        case 32: return FONT_IDX_GBK32;
-        default: return 0xFF;
+    case 12:
+        return FONT_IDX_GBK12;
+    case 16:
+        return FONT_IDX_GBK16;
+    case 24:
+        return FONT_IDX_GBK24;
+    case 32:
+        return FONT_IDX_GBK32;
+    default:
+        return 0xFF;
     }
 }
 
 /**
-  * @brief  Seek to a glyph and read it verbatim from the .FON file.
-  * @param  code  2 byte GBK code, lead byte first
-  * @param  dst   destination, at least font->Sizes bytes
-  * @note   No bit reordering: the data stays MSB first / column scan.
-  */
+ * @brief  Seek to a glyph and read it verbatim from the .FON file.
+ * @param  code  2 byte GBK code, lead byte first
+ * @param  dst   destination, at least font->Sizes bytes
+ * @note   No bit reordering: the data stays MSB first / column scan.
+ */
 static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT *font)
 {
     uint8_t  qh, ql;
@@ -258,18 +252,18 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
 
     /* Diagnostics: keep the reason of the most recent failure so the console
      * can tell "the offset is out of range" apart from "the card short-read". */
-    s_last_code[0]  = code[0];
-    s_last_code[1]  = code[1];
-    s_last_offset   = 0U;
-    s_last_bytes    = 0U;
-    s_last_seek_res = 0;
-    s_last_read_res = 0;
-    s_last_index    = 0xFFU;
+    s_font.last.code[0]  = code[0];
+    s_font.last.code[1]  = code[1];
+    s_font.last.offset   = 0U;
+    s_font.last.bytes    = 0U;
+    s_font.last.seek_res = 0;
+    s_font.last.read_res = 0;
+    s_font.last.index    = 0xFFU;
 
     /* Guard against a descriptor that would overrun the scratch buffer */
     if (font->Sizes == 0 || font->Sizes > FONT_MAX_BYTES)
     {
-        s_last_seek_res = -1;
+        s_font.last.seek_res = -1;
         return RT_FAIL;
     }
 
@@ -279,35 +273,33 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
     /* Not a valid GBK lead/trail byte pair */
     if (qh < 0x81 || qh == 0xFF || ql < 0x40 || ql == 0xFF)
     {
-        s_last_seek_res = -2;
+        s_font.last.seek_res = -2;
         return RT_FAIL;
     }
 
     /* 0x7F is not used as a trail byte, the table skips it */
     ql -= (ql < 0x7F) ? 0x40 : 0x41;
     qh -= 0x81;
-    foffset = ((uint32_t)190 * qh + ql) * font->Sizes;
-    s_last_offset = foffset;
+    foffset            = ((uint32_t)190 * qh + ql) * font->Sizes;
+    s_font.last.offset = foffset;
 
-    file_index = font_index_from_height(font->Height);
-    s_last_index = file_index;
-    if (file_index == 0xFF || !g_lcd_fs_info.fil_valid[file_index])
+    file_index        = font_index_from_height(font->Height);
+    s_font.last.index = file_index;
+    if (file_index == 0xFF || !s_lcd_fs_info.fil_valid[file_index])
     {
-        s_last_seek_res = -3;
+        s_font.last.seek_res = -3;
         return RT_FAIL;
     }
 
     fs_lock();
-    /* Retry lives in bsp_sdio_read_blocks() (abort + 2 retries), so keep this
-     * layer single-shot: stacking both would turn one stuck transfer into nine
-     * second-long timeouts on the UI thread. */
-    res = f_lseek(&g_lcd_fs_info.fil_list[file_index], foffset);
-    s_last_seek_res = (int)res;
+    /* Retry lives in bsp_sdio_read_blocks(): keep this layer single-shot. */
+    res                  = f_lseek(&s_lcd_fs_info.fil_list[file_index], foffset);
+    s_font.last.seek_res = (int)res;
     if (res == FR_OK)
     {
-        res = f_read(&g_lcd_fs_info.fil_list[file_index], dst, font->Sizes, &bytes_read);
-        s_last_read_res = (int)res;
-        s_last_bytes    = (uint16_t)bytes_read;
+        res                  = f_read(&s_lcd_fs_info.fil_list[file_index], dst, font->Sizes, &bytes_read);
+        s_font.last.read_res = (int)res;
+        s_font.last.bytes    = (uint16_t)bytes_read;
     }
     fs_unlock();
     if (res != FR_OK || bytes_read != font->Sizes)
@@ -321,17 +313,29 @@ static GlobalType_t font_read_raw(const uint8_t *code, uint8_t *dst, const pFONT
 uint8_t lcd_driver_font_last_error(uint32_t *offset, uint16_t *bytes,
                                    uint8_t *file_index, int8_t *read_res)
 {
-    if (offset != NULL)     { *offset = s_last_offset; }
-    if (bytes != NULL)      { *bytes = s_last_bytes; }
-    if (file_index != NULL) { *file_index = s_last_index; }
-    if (read_res != NULL)   { *read_res = (int8_t)s_last_read_res; }
-    return (uint8_t)((s_last_seek_res != 0) ? s_last_seek_res : s_last_read_res);
+    if (offset != NULL)
+    {
+        *offset = s_font.last.offset;
+    }
+    if (bytes != NULL)
+    {
+        *bytes = s_font.last.bytes;
+    }
+    if (file_index != NULL)
+    {
+        *file_index = s_font.last.index;
+    }
+    if (read_res != NULL)
+    {
+        *read_res = (int8_t)s_font.last.read_res;
+    }
+    return (uint8_t)((s_font.last.seek_res != 0) ? s_font.last.seek_res : s_font.last.read_res);
 }
 
 /**
-  * @brief  Blank a glyph buffer so a read failure shows up as a gap, never as
-  *         garbage left over from the previous character.
-  */
+ * @brief  Blank a glyph buffer so a read failure shows up as a gap, never as
+ *         garbage left over from the previous character.
+ */
 static void font_blank(uint8_t *pbuffer, const pFONT *font)
 {
     uint16_t n = font->Sizes;
@@ -344,8 +348,8 @@ static void font_blank(uint8_t *pbuffer, const pFONT *font)
 }
 
 /**
-  * @brief  Read one GBK glyph into pbuffer (LSB, row scan).
-  */
+ * @brief  Read one GBK glyph into pbuffer (LSB, row scan).
+ */
 GlobalType_t lcd_driver_get_hzmat(uint8_t *code, uint8_t *pbuffer, pFONT *font)
 {
     if (code == NULL || pbuffer == NULL || font == NULL)
@@ -353,20 +357,20 @@ GlobalType_t lcd_driver_get_hzmat(uint8_t *code, uint8_t *pbuffer, pFONT *font)
         return RT_FAIL;
     }
 
-    if (font_read_raw(code, read_buffer, font) != RT_OK)
+    if (font_read_raw(code, s_font.buf, font) != RT_OK)
     {
         font_blank(pbuffer, font);
         return RT_FAIL;
     }
 
-    Convert_Font_MSB_Column_to_LSB_Row(read_buffer, pbuffer,
+    Convert_Font_MSB_Column_to_LSB_Row(s_font.buf, pbuffer,
                                        font->Width, font->Height);
     return RT_OK;
 }
 
 /**
-  * @brief  Read one GBK glyph without touching the bit order (see header).
-  */
+ * @brief  Read one GBK glyph without touching the bit order (see header).
+ */
 GlobalType_t lcd_driver_get_hzmat_raw(const uint8_t *code, uint8_t *pbuffer, const pFONT *font)
 {
     if (code == NULL || pbuffer == NULL || font == NULL)
@@ -387,19 +391,19 @@ uint32_t lcd_driver_font_file_size(uint16_t height)
 {
     uint8_t idx = font_index_from_height(height);
 
-    if (idx == 0xFF || g_lcd_fs_info.fil_valid[idx] == 0u)
+    if (idx == 0xFF || s_lcd_fs_info.fil_valid[idx] == 0u)
     {
         return 0U;
     }
 
-    return (uint32_t)f_size(&g_lcd_fs_info.fil_list[idx]);
+    return (uint32_t)f_size(&s_lcd_fs_info.fil_list[idx]);
 }
 
 /* ---------------------------------------------------------------------------
  * SD card resident font descriptors (pTable == NULL -> read from file)
  *   Sizes = width/8 rounded up * height
  * -------------------------------------------------------------------------*/
-pFONT CH_TEXT_Font12 = { NULL, 12, 12,  24, 0 };
-pFONT CH_TEXT_Font16 = { NULL, 16, 16,  32, 0 };
-pFONT CH_TEXT_Font24 = { NULL, 24, 24,  72, 0 };
-pFONT CH_TEXT_Font32 = { NULL, 32, 32, 128, 0 };
+pFONT CH_TEXT_Font12 = {NULL, 12, 12, 24, 0};
+pFONT CH_TEXT_Font16 = {NULL, 16, 16, 32, 0};
+pFONT CH_TEXT_Font24 = {NULL, 24, 24, 72, 0};
+pFONT CH_TEXT_Font32 = {NULL, 32, 32, 128, 0};

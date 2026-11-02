@@ -1,8 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_player.h
  * @brief   MJPEG/AVI player task: scans 0:/VIDEO and plays every file in it.
- ******************************************************************************
+ * @note    document/stm32f429/video_player_port.md A6
  */
 #ifndef VIDEO_PLAYER_H
 #define VIDEO_PLAYER_H
@@ -15,7 +14,7 @@ extern "C" {
 #define VIDEO_PLAYER_STACK_WORDS 1536U
 
 /** Priority: above the UI pump, below nothing else in this project. */
-#define VIDEO_PLAYER_PRIO        3U
+#define VIDEO_PLAYER_PRIO 3U
 
 /**
  * @brief  FreeRTOS task body.  Waits for the panel + LVGL + card, then plays

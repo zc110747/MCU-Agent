@@ -1,18 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_iic.h
  * @brief   Bit-banged I2C master on PH4 (SCL) / PH5 (SDA), for WM8978 only.
- *
- *          The WM8978 is the only I2C device in this project, its traffic is
- *          two bytes per control-register write, and it never needs clock
- *          stretching or multi-master arbitration.  A bit-banged bus is
- *          therefore preferred over HAL I2C: no peripheral state machine, no
- *          errata workarounds, and it keeps callers free to run before the
- *          FreeRTOS scheduler starts.
- *
- *          Timing: half period = BSP_IIC_DELAY_US, i.e. ~250 kHz at 2 us.  The
- *          WM8978 supports 400 kHz, so there is generous margin.
- ******************************************************************************
+ * @note    document/stm32f429/video_player_port.md A4
  */
 #ifndef __BSP_IIC_H
 #define __BSP_IIC_H

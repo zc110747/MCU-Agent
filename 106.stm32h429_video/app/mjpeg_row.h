@@ -1,14 +1,7 @@
 /**
- ******************************************************************************
  * @file    mjpeg_row.h
- * @brief   Hook between the vendored libjpeg row converter (third_party/jpeg)
- *          and this project's video surface.
- *
- *          jdmerge.c no longer writes to the panel: it asks for a row buffer,
- *          fills it with RGB565 and hands the finished row back through
- *          mjpeg_row_emit().  All three functions are implemented in
- *          app/video_mjpeg.c.
- ******************************************************************************
+ * @brief   Hook between the vendored libjpeg row converter (third_party/jpeg) and this project's video surface.
+ * @note    libjpeg 侧钩子, 升级 libjpeg 必须重放: document/stm32f429/video_player_port.md A3
  */
 #ifndef MJPEG_ROW_H
 #define MJPEG_ROW_H

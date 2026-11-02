@@ -1,16 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_wm8978.c
  * @brief   WM8978 control over the bit-banged I2C bus (PH4/PH5).
- *
- *  Ported from the ALIENTEK 音乐播放 experiment (HARDWARE/WM8978/wm8978.c).
- *  The register sequences are kept identical to the reference; only the I2C
- *  transport changed (bit-banged single/multi-byte write instead of the
- *  ALIENTEK myiic.c macros) and the API was trimmed to what the player uses.
- *
- *  Playback chain this file configures:
- *      SAI1_A (I2S master TX) -> WM8978 DAC -> HP / SPEAKER
- ******************************************************************************
+ * @note    document/stm32f429/video_player_port.md A4
  */
 #include "bsp_wm8978.h"
 #include "bsp_iic.h"
@@ -79,11 +70,11 @@ uint8_t bsp_wm8978_init(void)
     bsp_wm8978_set_hp_volume(0U, 0U);
     bsp_wm8978_set_spk_volume(0U);
 
-    bsp_wm8978_write_reg(1U, 0x1B);     /* MICEN, BIASEN, VMIDSEL = 11 (5k)   */
-    bsp_delay_ms(50U);                  /* let VMID / bias settle before the
-                                         * output stages are switched on      */
-    bsp_wm8978_write_reg(2U, 0x1B0);    /* ROUT1/LOUT1 + boost enabled        */
-    bsp_wm8978_write_reg(3U, 0x6C);     /* LOUT2/ROUT2 (speaker) + mixers     */
+    bsp_wm8978_write_reg(1U, 0x1B);  /* MICEN, BIASEN, VMIDSEL = 11 (5k)   */
+    bsp_delay_ms(50U);               /* let VMID / bias settle before the
+                                      * output stages are switched on      */
+    bsp_wm8978_write_reg(2U, 0x1B0); /* ROUT1/LOUT1 + boost enabled        */
+    bsp_wm8978_write_reg(3U, 0x6C);  /* LOUT2/ROUT2 (speaker) + mixers     */
     bsp_delay_ms(50U);
     bsp_wm8978_write_reg(6U, 0x00);     /* MCLK from the SAI, not PLL         */
     bsp_wm8978_write_reg(43U, 1U << 4); /* INVROUT2: non-inverting speaker    */

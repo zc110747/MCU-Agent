@@ -1,12 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_iic.c
  * @brief   Bit-banged I2C master for the WM8978 (PH4 = SCL, PH5 = SDA).
- *
- *          Pin access goes through BSRR/IDR (not HAL_GPIO_WritePin) because the
- *          bus timing is built from bsp_delay_us() and every extra call in the
- *          loop would shorten the low phase unpredictably.
- ******************************************************************************
+ * @note    仅服务 WM8978: document/stm32f429/video_player_port.md A4
  */
 #include "bsp_iic.h"
 #include "bsp_delay.h"

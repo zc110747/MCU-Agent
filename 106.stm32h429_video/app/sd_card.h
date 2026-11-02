@@ -1,8 +1,7 @@
 /**
- ******************************************************************************
  * @file    sd_card.h
  * @brief   microSD bring-up: SDIO peripheral + FatFs volume "0:".
- ******************************************************************************
+ * @note    document/stm32f429/video_player_port.md A5
  */
 #ifndef SD_CARD_H
 #define SD_CARD_H

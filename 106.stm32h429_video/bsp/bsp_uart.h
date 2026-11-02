@@ -25,45 +25,53 @@ extern UART_HandleTypeDef huart1;
  * prints a burst -- which silently swallowed log lines printed by other
  * tasks (the SD/USB loader messages, for example).  Must stay a power of
  * two: the head/tail wrap relies on it. */
-#define UART_TX_BUF_SIZE   2048
-#define UART_RX_BUF_SIZE   128  /* command channel, drained by ui_task      */
+#define UART_TX_BUF_SIZE 2048
+#define UART_RX_BUF_SIZE 128 /* command channel, drained by ui_task      */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
-  * @brief  Initialize USART1 (PA9/PA10) at 115200 8N1, the TX ring and the
-  *         RX interrupt.  No FreeRTOS object is created here (see above).
-  */
+ * @brief  Initialize USART1 (PA9/PA10) at 115200 8N1, the TX ring and the
+ *         RX interrupt.  No FreeRTOS object is created here (see above).
+ */
 void BSP_UART_Init(void);
 
 /**
-  * @brief  Put data into the TX ring and start the transmitter.
-  *
-  *         Two transmit paths, chosen at call time:
-  *           - RTOS scheduler RUNNING      -> mutex-protected ring enqueue,
-  *                                            drained by the TXE interrupt
-  *           - RTOS scheduler NOT running  -> blocking polled HAL transmit
-  *             (or the UART not initialised yet)
-  *
-  * @return bytes accepted.  NOTE this can be less than len: on the interrupt
-  *         path bytes are dropped when the ring fills up.
-  */
-int  uart_write(const uint8_t *data, int len);
-int  uart_puts(const char *s);
+ * @brief  Put data into the TX ring and start the transmitter.
+ *
+ *         Two transmit paths, chosen at call time:
+ *           - RTOS scheduler RUNNING      -> mutex-protected ring enqueue,
+ *                                            drained by the TXE interrupt
+ *           - RTOS scheduler NOT running  -> blocking polled HAL transmit
+ *             (or the UART not initialised yet)
+ *
+ * @return bytes accepted.  NOTE this can be less than len: on the interrupt
+ *         path bytes are dropped when the ring fills up.
+ */
+int uart_write(const uint8_t *data, int len);
+int uart_puts(const char *s);
 
 /**
-  * @brief  Take up to max bytes out of the RX ring (filled by the USART1 ISR).
-  * @return number of bytes actually copied; 0 when nothing was received.
-  */
-int  uart_read(uint8_t *buf, int max);
+ * @brief  Take up to max bytes out of the RX ring (filled by the USART1 ISR).
+ * @return number of bytes actually copied; 0 when nothing was received.
+ */
+int uart_read(uint8_t *buf, int max);
 
 /**
-  * @brief  Block until the TX ring is fully drained by the USART1 ISR
-  *         (transmitter idle).  Use before a reset/reboot so the last message
-  *         really reaches the wire.  Has a bounded wait so a stuck transmitter
-  *         can never hang the caller.
-  */
+ * @brief  Block until the TX ring is fully drained by the USART1 ISR
+ *         (transmitter idle).  Use before a reset/reboot so the last message
+ *         really reaches the wire.  Has a bounded wait so a stuck transmitter
+ *         can never hang the caller.
+ */
 void uart_flush(void);
 
 /* USART1 interrupt service routine (defined in bsp_uart.c). */
 void BSP_UART_IRQHandler(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __BSP_UART_H */

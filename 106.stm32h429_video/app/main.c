@@ -1,22 +1,7 @@
 /**
- ******************************************************************************
  * @file    main.c
  * @brief   STM32F429IGT6 MJPEG video player (ALIENTEK 实验47 port).
- *
- *          Target board: 正点原子 探索者 F429 + 4.3" 8080 (NT35510) panel.
- *
- *   - microSD over SDIO, DMA2 Stream6 receive, mounted as FatFs "0:"
- *   - playlist is every AVI file under 0:/VIDEO, MJPEG video + PCM audio
- *   - video surface: 800x480 RGB565 in external SDRAM, drawn through LVGL
- *   - audio: SAI1_A -> WM8978, DMA2 Stream3 double buffering
- *   - GBK fonts from 0:/SYSTEM/FONT/GBK{12,16,24,32}.FON
- *   - HAL 1 ms time base on TIM12 (pre-emption priority 0); SysTick is the
- *     FreeRTOS tick
- *
- *   INIT ORDER (hard constraints):
- *     SDRAM -> heap_5 region -> FatFs mutex -> tasks.  Nothing may touch
- *     0xC0000000 (heap, LVGL memory, video surface) before bsp_sdram_init().
- ******************************************************************************
+ * @note    启动顺序与 SDRAM 堆: document/stm32f429/video_player_port.md A1
  */
 #include "stm32f4xx_hal.h"
 #include "FreeRTOS.h"
@@ -41,8 +26,8 @@
 /* Single SDRAM heap region, defined in sdram_heap.c. */
 extern HeapRegion_t xHeapRegions[];
 
-#define UI_TASK_STACK_WORDS  1024U
-#define UI_TASK_PRIO         2U
+#define UI_TASK_STACK_WORDS 1024U
+#define UI_TASK_PRIO 2U
 
 static void SystemClock_Config(void);
 
@@ -167,11 +152,11 @@ int main(void)
         PRINT_LOG("WM8978 not answering (playback will be silent)\r\n");
     }
 
-    xTaskCreate(ui_task,           "ui",     UI_TASK_STACK_WORDS,
+    xTaskCreate(ui_task, "ui", UI_TASK_STACK_WORDS,
                 NULL, UI_TASK_PRIO, NULL);
-    xTaskCreate(video_player_task, "video",  VIDEO_PLAYER_STACK_WORDS,
+    xTaskCreate(video_player_task, "video", VIDEO_PLAYER_STACK_WORDS,
                 NULL, VIDEO_PLAYER_PRIO, NULL);
-    xTaskCreate(led_task,          "led",    256U,
+    xTaskCreate(led_task, "led", 256U,
                 NULL, tskIDLE_PRIORITY + 1U, NULL);
 
     /* FreeRTOS V11 leaves BASEPRI raised after the first xTaskCreate; clear it
@@ -201,22 +186,22 @@ static void SystemClock_Config(void)
     __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
     osc.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    osc.HSEState = RCC_HSE_ON;
-    osc.PLL.PLLState = RCC_PLL_ON;
-    osc.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    osc.PLL.PLLM = 25;
-    osc.PLL.PLLN = 336;
-    osc.PLL.PLLP = RCC_PLLP_DIV2;
-    osc.PLL.PLLQ = 7;
+    osc.HSEState       = RCC_HSE_ON;
+    osc.PLL.PLLState   = RCC_PLL_ON;
+    osc.PLL.PLLSource  = RCC_PLLSOURCE_HSE;
+    osc.PLL.PLLM       = 25;
+    osc.PLL.PLLN       = 336;
+    osc.PLL.PLLP       = RCC_PLLP_DIV2;
+    osc.PLL.PLLQ       = 7;
     if (HAL_RCC_OscConfig(&osc) != HAL_OK)
     {
         Error_Handler();
     }
 
-    clk.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
-                    RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    clk.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    clk.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    clk.ClockType      = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                         RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+    clk.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
+    clk.AHBCLKDivider  = RCC_SYSCLK_DIV1;
     clk.APB1CLKDivider = RCC_HCLK_DIV4;
     clk.APB2CLKDivider = RCC_HCLK_DIV2;
     if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_5) != HAL_OK)

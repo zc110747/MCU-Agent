@@ -1,41 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_sdio.c
  * @brief   microSD card driver over SDIO (4-bit wide bus): DMA reads, polled writes.
- *
- *  Based on embedded_based_on_stm32/code/00-Drivers/drv_sdio.c, then reworked
- *  for this project.
- *
- *  Read path
- *  ---------
- *  HAL_SD_ReadBlocks_DMA() + DMA2 Stream6 / Channel 4 (the SDIO request line
- *  on the F429; the audio stream keeps DMA2 Stream3, so neither path has to be
- *  reconfigured when the other one runs).  One binary semaphore carries the
- *  completion, given from the DMA transfer-complete ISR via HAL_SD_RxCpltCallback().
- *
- *  Two failure modes are handled here rather than in the caller:
- *
- *   1. Stranded FIFO tail.  When the card's data path ends, SDIO drops the DMA
- *      request; the last words stay queued in the 32-word FIFO and the stream
- *      never reaches TC (measured: NDTR frozen at 4, i.e. 16 bytes per block).
- *      bsp_sdio_irq_handler() pulls them out by hand -- BEFORE the HAL clears
- *      DCTRL.DTEN, which would flush them -- and the burst is closed with
- *      HAL_SD_Abort() (that also emits the CMD12 a multi-block read needs).
- *      SDIO->FIFOCNT reads 0 while those words are really there, so NDTR is the
- *      only usable count.
- *
- *   2. Everything else.  HAL_SD_Abort() + retry, SDIO_IO_RETRIES times.  Reads
- *      are idempotent so replaying the same chunk is always safe.
- *
- *  Writes stay polled: they are rare (USB MSC write10) and the TX FIFO is
- *  drained by the CPU without the overrun risk the RX direction has.
- *
- *  Retry policy of bsp_sdio_init()
- *  -------------------------------
- *  bsp_sdio_init() may be called as often as the caller likes.  A failure can
- *  mean "no card in the socket" as much as "real error", so the state is not
- *  latched: every call re-arms the peripheral and re-runs the full enumeration.
- ******************************************************************************
+ * @note    尾 FIFO 滞留与重试策略: document/stm32f429/video_player_port.md A5
  */
 #include "bsp_sdio.h"
 
@@ -50,50 +16,47 @@
 
 SD_HandleTypeDef hsd_card;
 
-static uint8_t s_ready = 0U;
-
 /* -------------------------------------------------------------------------- */
 /* DMA receive channel                                                        */
 /* -------------------------------------------------------------------------- */
 
-#define SDIO_DMA_STREAM   DMA2_Stream6
-#define SDIO_DMA_CHANNEL  DMA_CHANNEL_4
-#define SDIO_DMA_IRQn     DMA2_Stream6_IRQn
+#define SDIO_DMA_STREAM DMA2_Stream6
+#define SDIO_DMA_CHANNEL DMA_CHANNEL_4
+#define SDIO_DMA_IRQn DMA2_Stream6_IRQn
 
-/* Both of these sit at priority 6, i.e. below
- * configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5), so the completion
- * callbacks are allowed to use the FromISR API. */
+/* Both at prio 6, i.e. below configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY:
+ * the callbacks may use the FromISR API. */
 #define SDIO_IRQ_PRIO 6U
-
-static DMA_HandleTypeDef s_hdma_rx;
-static SemaphoreHandle_t s_dma_sem = NULL;
 
 /* Written by the ISRs, cleared by the task before every burst. */
 #define SDIO_DMA_IDLE 0U
-#define SDIO_DMA_OK   1U
-#define SDIO_DMA_ERR  2U
-static volatile uint8_t s_dma_done = SDIO_DMA_IDLE;
+#define SDIO_DMA_OK 1U
+#define SDIO_DMA_ERR 2U
 
-/* DATAEND bookkeeping: lets the task tell "the card has finished, the stream is
- * short" apart from "the transfer is still running". */
-static volatile uint8_t  s_dataend    = 0U;
-static volatile uint32_t s_dataend_ms = 0U;
+/* DMA channel + the burst currently in flight. */
+typedef struct
+{
+    DMA_HandleTypeDef hdma;       /* receive channel, linked via __HAL_LINKDMA */
+    SemaphoreHandle_t sem;        /* given by the transfer-complete ISR */
+    volatile uint8_t  done;       /* SDIO_DMA_IDLE / OK / ERR */
+    volatile uint8_t  need_abort; /* ISR took the tail, task must still close */
+    volatile uint8_t *buf;        /* burst in flight, NULL when idle */
+    volatile uint32_t bytes;      /* nominal size of that burst */
+} SDIO_DMA_STATE_T;
 
-/* Burst in flight, so the ISR knows where a stranded FIFO tail belongs. */
-static volatile uint8_t *s_cur_buf   = NULL;
-static volatile uint32_t s_cur_bytes = 0U;
-
-/* Set when the ISR recovered the tail itself: the task must still close the
- * transfer (the HAL left hsd_card.State at BUSY). */
-static volatile uint8_t s_need_abort = 0U;
+/* DATAEND bookkeeping: tells "card finished, stream short" from "still running". */
+typedef struct
+{
+    volatile uint8_t  flag;
+    volatile uint32_t ms;
+} SDIO_DATAEND_T;
 
 /* -------------------------------------------------------------------------- */
 /* Tunables                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/* 8 KB per burst.  With DMA draining the FIFO there is no CPU-latency window
- * to protect any more, so the bursts can be long; the cap only bounds the
- * worst-case latency of one retry. */
+/* 8 KB per burst: DMA drains the FIFO, so long bursts are safe; the cap
+ * only bounds the latency of one retry. */
 #define SDIO_CHUNK_BLOCKS 16U
 
 /* Retries *after* the first attempt, i.e. three attempts in total. */
@@ -110,9 +73,24 @@ static volatile uint8_t s_need_abort = 0U;
  * wall of text. */
 #define SDIO_RETRY_LOG_LIMIT 8U
 
-static uint32_t s_retry_logs = 0U;
-static uint32_t s_tail_fixes = 0U;
-static uint32_t s_dma_errors = 0U;
+/* Run-time counters, read by bsp_sdio_get_stats(). */
+typedef struct
+{
+    uint32_t retry_logs;
+    uint32_t tail_fixes;
+    uint32_t dma_errors;
+} SDIO_STAT_T;
+
+/* Everything the driver owns. */
+typedef struct
+{
+    SDIO_DMA_STATE_T dma;
+    SDIO_DATAEND_T   dataend;
+    SDIO_STAT_T      stat;
+    uint8_t          ready; /* card enumerated */
+} SDIO_STATE_T;
+
+static SDIO_STATE_T s_sdio = {0};
 
 /* -------------------------------------------------------------------------- */
 /* Hardware bring-up                                                          */
@@ -158,24 +136,24 @@ static GlobalType_t sdio_dma_init(void)
 {
     __HAL_RCC_DMA2_CLK_ENABLE();
 
-    s_hdma_rx.Instance                 = SDIO_DMA_STREAM;
-    s_hdma_rx.Init.Channel             = SDIO_DMA_CHANNEL;
-    s_hdma_rx.Init.Direction           = DMA_PERIPH_TO_MEMORY;
-    s_hdma_rx.Init.PeriphInc           = DMA_PINC_DISABLE;
-    s_hdma_rx.Init.MemInc              = DMA_MINC_ENABLE;
-    s_hdma_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
-    s_hdma_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
-    s_hdma_rx.Init.Mode                = DMA_NORMAL;
-    s_hdma_rx.Init.Priority            = DMA_PRIORITY_VERY_HIGH;
-    s_hdma_rx.Init.FIFOMode            = DMA_FIFOMODE_DISABLE;
-    s_hdma_rx.Init.FIFOThreshold       = DMA_FIFO_THRESHOLD_FULL;
-    s_hdma_rx.Init.MemBurst            = DMA_MBURST_SINGLE;
-    s_hdma_rx.Init.PeriphBurst         = DMA_PBURST_SINGLE;
+    s_sdio.dma.hdma.Instance                 = SDIO_DMA_STREAM;
+    s_sdio.dma.hdma.Init.Channel             = SDIO_DMA_CHANNEL;
+    s_sdio.dma.hdma.Init.Direction           = DMA_PERIPH_TO_MEMORY;
+    s_sdio.dma.hdma.Init.PeriphInc           = DMA_PINC_DISABLE;
+    s_sdio.dma.hdma.Init.MemInc              = DMA_MINC_ENABLE;
+    s_sdio.dma.hdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    s_sdio.dma.hdma.Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
+    s_sdio.dma.hdma.Init.Mode                = DMA_NORMAL;
+    s_sdio.dma.hdma.Init.Priority            = DMA_PRIORITY_VERY_HIGH;
+    s_sdio.dma.hdma.Init.FIFOMode            = DMA_FIFOMODE_DISABLE;
+    s_sdio.dma.hdma.Init.FIFOThreshold       = DMA_FIFO_THRESHOLD_FULL;
+    s_sdio.dma.hdma.Init.MemBurst            = DMA_MBURST_SINGLE;
+    s_sdio.dma.hdma.Init.PeriphBurst         = DMA_PBURST_SINGLE;
 
-    __HAL_LINKDMA(&hsd_card, hdmarx, s_hdma_rx);
+    __HAL_LINKDMA(&hsd_card, hdmarx, s_sdio.dma.hdma);
 
-    (void)HAL_DMA_DeInit(&s_hdma_rx);
-    if (HAL_DMA_Init(&s_hdma_rx) != HAL_OK)
+    (void)HAL_DMA_DeInit(&s_sdio.dma.hdma);
+    if (HAL_DMA_Init(&s_sdio.dma.hdma) != HAL_OK)
     {
         return RT_FAIL;
     }
@@ -204,10 +182,10 @@ GlobalType_t bsp_sdio_init(void)
     hsd_card.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
     hsd_card.Init.ClockDiv            = SDIO_CLOCK_DIV;
 
-    if (s_dma_sem == NULL)
+    if (s_sdio.dma.sem == NULL)
     {
-        s_dma_sem = xSemaphoreCreateBinary();
-        if (s_dma_sem == NULL)
+        s_sdio.dma.sem = xSemaphoreCreateBinary();
+        if (s_sdio.dma.sem == NULL)
         {
             return RT_FAIL;
         }
@@ -215,14 +193,14 @@ GlobalType_t bsp_sdio_init(void)
 
     if (HAL_SD_Init(&hsd_card) != HAL_OK)
     {
-        s_ready = 0;
+        s_sdio.ready = 0;
         return RT_FAIL;
     }
 
     if (sdio_dma_init() != RT_OK)
     {
         HAL_SD_DeInit(&hsd_card);
-        s_ready = 0;
+        s_sdio.ready = 0;
         return RT_FAIL;
     }
 
@@ -230,24 +208,24 @@ GlobalType_t bsp_sdio_init(void)
     if (HAL_SD_ConfigWideBusOperation(&hsd_card, SDIO_BUS_WIDE_4B) != HAL_OK)
     {
         HAL_SD_DeInit(&hsd_card);
-        s_ready = 0;
+        s_sdio.ready = 0;
         return RT_FAIL;
     }
 
-    s_ready = 1;
+    s_sdio.ready = 1;
     return RT_OK;
 }
 
 void bsp_sdio_deinit(void)
 {
     HAL_SD_DeInit(&hsd_card);
-    (void)HAL_DMA_DeInit(&s_hdma_rx);
-    s_ready = 0;
+    (void)HAL_DMA_DeInit(&s_sdio.dma.hdma);
+    s_sdio.ready = 0;
 }
 
 uint8_t bsp_sdio_is_ready(void)
 {
-    return s_ready;
+    return s_sdio.ready;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -256,17 +234,17 @@ uint8_t bsp_sdio_is_ready(void)
 
 void bsp_sdio_dma_rx_irq_handler(void)
 {
-    HAL_DMA_IRQHandler(&s_hdma_rx);
+    HAL_DMA_IRQHandler(&s_sdio.dma.hdma);
 }
 
 static void sdio_wake_task_from_isr(void)
 {
     BaseType_t woken = pdFALSE;
 
-    if ((s_dma_sem != NULL) &&
+    if ((s_sdio.dma.sem != NULL) &&
         (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
     {
-        (void)xSemaphoreGiveFromISR(s_dma_sem, &woken);
+        (void)xSemaphoreGiveFromISR(s_sdio.dma.sem, &woken);
         portYIELD_FROM_ISR(woken);
     }
 }
@@ -319,28 +297,28 @@ void bsp_sdio_irq_handler(void)
     {
         /* Card finished. If the stream is short, the remainder is still in the
          * FIFO right now -- take it before the HAL flushes it away. */
-        if (s_cur_buf != NULL)
+        if (s_sdio.dma.buf != NULL)
         {
-            if (sdio_take_tail((uint8_t *)(void *)s_cur_buf, s_cur_bytes,
-                               s_hdma_rx.Instance->NDTR) != 0U)
+            if (sdio_take_tail((uint8_t *)(void *)s_sdio.dma.buf, s_sdio.dma.bytes,
+                               s_sdio.dma.hdma.Instance->NDTR) != 0U)
             {
-                if (s_hdma_rx.Instance->NDTR != 0U)
+                if (s_sdio.dma.hdma.Instance->NDTR != 0U)
                 {
-                    s_tail_fixes++;
+                    s_sdio.stat.tail_fixes++;
                 }
-                s_need_abort = 1U;
-                s_dma_done   = SDIO_DMA_OK;
+                s_sdio.dma.need_abort = 1U;
+                s_sdio.dma.done       = SDIO_DMA_OK;
             }
             else
             {
-                s_dma_errors++;
-                s_dma_done = SDIO_DMA_ERR;
+                s_sdio.stat.dma_errors++;
+                s_sdio.dma.done = SDIO_DMA_ERR;
             }
             sdio_wake_task_from_isr();
         }
 
-        s_dataend_ms = HAL_GetTick();
-        s_dataend    = 1U;
+        s_sdio.dataend.ms   = HAL_GetTick();
+        s_sdio.dataend.flag = 1U;
     }
 
     HAL_SD_IRQHandler(&hsd_card);
@@ -350,14 +328,14 @@ void bsp_sdio_irq_handler(void)
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
 {
     (void)hsd;
-    s_dma_done = SDIO_DMA_OK;
+    s_sdio.dma.done = SDIO_DMA_OK;
     sdio_wake_task_from_isr();
 }
 
 void HAL_SD_ErrorCallback(SD_HandleTypeDef *hsd)
 {
     (void)hsd;
-    s_dma_done = SDIO_DMA_ERR;
+    s_sdio.dma.done = SDIO_DMA_ERR;
     sdio_wake_task_from_isr();
 }
 
@@ -377,30 +355,27 @@ static HAL_StatusTypeDef sdio_read_chunk(uint8_t *buf, uint32_t start_block,
     uint32_t stuck_left = 0xFFFFFFFFU;
     uint32_t stuck_ms   = 0U;
 
-    if ((s_dma_sem == NULL) || (s_ready == 0U))
+    if ((s_sdio.dma.sem == NULL) || (s_sdio.ready == 0U))
     {
         return HAL_ERROR;
     }
 
-    s_dma_done   = SDIO_DMA_IDLE;
-    s_dataend    = 0U;
-    s_dataend_ms = 0U;
-    s_need_abort = 0U;
-    s_cur_bytes  = bytes;
-    s_cur_buf    = buf; /* the ISR needs this if the stream ends up short */
-    (void)xSemaphoreTake(s_dma_sem, 0); /* drop a stale give */
+    s_sdio.dma.done       = SDIO_DMA_IDLE;
+    s_sdio.dataend.flag   = 0U;
+    s_sdio.dataend.ms     = 0U;
+    s_sdio.dma.need_abort = 0U;
+    s_sdio.dma.bytes      = bytes;
+    s_sdio.dma.buf        = buf;             /* the ISR needs this if the stream ends up short */
+    (void)xSemaphoreTake(s_sdio.dma.sem, 0); /* drop a stale give */
 
     if (HAL_SD_ReadBlocks_DMA(&hsd_card, buf, start_block, nblocks) != HAL_OK)
     {
-        s_cur_buf = NULL;
+        s_sdio.dma.buf = NULL;
         return HAL_ERROR;
     }
 
-    /* Before vTaskStartScheduler() the kernel keeps BASEPRI at
-     * configMAX_SYSCALL_INTERRUPT_PRIORITY, which masks both of our interrupts
-     * (priority 6), so nothing ever sets s_dma_done and blocking on the
-     * semaphore is illegal anyway.  Drive the burst straight from the registers
-     * in that phase instead; the boot mount is the only user of it. */
+    /* Pre-scheduler: BASEPRI masks prio 6, so poll registers instead.
+     * See document/stm32f429/video_player_port.md A5. */
     in_task  = (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) ? 1U : 0U;
     start_ms = HAL_GetTick();
 
@@ -408,45 +383,42 @@ static HAL_StatusTypeDef sdio_read_chunk(uint8_t *buf, uint32_t start_block,
     {
         uint32_t left;
 
-        if (s_dma_done != SDIO_DMA_IDLE)
+        if (s_sdio.dma.done != SDIO_DMA_IDLE)
         {
             break;
         }
 
         if (in_task != 0U)
         {
-            (void)xSemaphoreTake(s_dma_sem, pdMS_TO_TICKS(1));
-            if (s_dma_done != SDIO_DMA_IDLE)
+            (void)xSemaphoreTake(s_sdio.dma.sem, pdMS_TO_TICKS(1));
+            if (s_sdio.dma.done != SDIO_DMA_IDLE)
             {
                 break;
             }
 
-            if ((s_dataend != 0U) &&
-                ((HAL_GetTick() - s_dataend_ms) >= SDIO_TAIL_GRACE_MS))
+            if ((s_sdio.dataend.flag != 0U) &&
+                ((HAL_GetTick() - s_sdio.dataend.ms) >= SDIO_TAIL_GRACE_MS))
             {
-                /* The card finished but bsp_sdio_irq_handler() did not claim
-                 * the burst (it would have set s_dma_done).  The HAL has
-                 * already cleared DTEN by now, so the tail is gone: do not
-                 * pretend this succeeded, let the retry logic replay it. */
+                /* Tail already flushed by HAL: fail so the retry replays it.
+                 * See document/stm32f429/video_player_port.md A5. */
                 break;
             }
         }
         else
         {
-            left = s_hdma_rx.Instance->NDTR;
+            left = s_sdio.dma.hdma.Instance->NDTR;
 
             if (left == 0U)
             {
                 /* Stream counted everything down; the completion interrupt is
                  * masked, so close the burst here. */
-                s_need_abort = 1U;
-                s_dma_done   = SDIO_DMA_OK;
+                s_sdio.dma.need_abort = 1U;
+                s_sdio.dma.done       = SDIO_DMA_OK;
                 break;
             }
 
-            /* The stream stops a few words short at the end of every burst, so
-             * "NDTR has not moved for a few ms" is the end-of-burst signal here
-             * (a live burst changes NDTR continuously). */
+            /* End of burst = NDTR stopped moving (a live burst keeps changing).
+             * See document/stm32f429/video_player_port.md A5. */
             if (left != stuck_left)
             {
                 stuck_left = left;
@@ -458,14 +430,14 @@ static HAL_StatusTypeDef sdio_read_chunk(uint8_t *buf, uint32_t start_block,
             {
                 if (sdio_take_tail(buf, bytes, left) != 0U)
                 {
-                    s_tail_fixes++;
-                    s_need_abort = 1U;
-                    s_dma_done   = SDIO_DMA_OK;
+                    s_sdio.stat.tail_fixes++;
+                    s_sdio.dma.need_abort = 1U;
+                    s_sdio.dma.done       = SDIO_DMA_OK;
                 }
                 else
                 {
-                    s_dma_errors++;
-                    s_dma_done = SDIO_DMA_ERR;
+                    s_sdio.stat.dma_errors++;
+                    s_sdio.dma.done = SDIO_DMA_ERR;
                 }
                 break;
             }
@@ -477,15 +449,14 @@ static HAL_StatusTypeDef sdio_read_chunk(uint8_t *buf, uint32_t start_block,
         }
     }
 
-    s_cur_buf = NULL;
+    s_sdio.dma.buf = NULL;
 
-    if (s_dma_done == SDIO_DMA_OK)
+    if (s_sdio.dma.done == SDIO_DMA_OK)
     {
-        if (s_need_abort != 0U)
+        if (s_sdio.dma.need_abort != 0U)
         {
-            /* The ISR recovered the tail itself, so SD_DMAReceiveCplt() never
-             * ran: close the data path (DPSM, DMAEN, CMD12 when multi-block)
-             * and put hsd_card.State back to READY. */
+            /* ISR took the tail, so Cplt never ran: close the data path here.
+             * See document/stm32f429/video_player_port.md A5. */
             (void)HAL_SD_Abort(&hsd_card);
         }
         /* Else the HAL's own completion path already did all of the above. */
@@ -496,7 +467,7 @@ static HAL_StatusTypeDef sdio_read_chunk(uint8_t *buf, uint32_t start_block,
      * (every multi-block read), then puts hsd_card.State back to READY. */
     (void)HAL_SD_Abort(&hsd_card);
 
-    return (s_dma_done == SDIO_DMA_ERR) ? HAL_ERROR : HAL_TIMEOUT;
+    return (s_sdio.dma.done == SDIO_DMA_ERR) ? HAL_ERROR : HAL_TIMEOUT;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -516,9 +487,7 @@ static HAL_StatusTypeDef sdio_write_chunk(const uint8_t *buf, uint32_t start_blo
         return st;
     }
 
-    /* The polled transfer is complete once the data counter runs out, but the
-     * card itself may still be busy (write-back / internal state machine).
-     * Waiting here keeps the next command from being issued too early. */
+    /* NDTR is done but the card may still be busy: wait for TRANSFER state. */
     while (HAL_SD_GetCardState(&hsd_card) != HAL_SD_CARD_TRANSFER)
     {
         if (waited++ >= SDIO_RW_TIMEOUT_MS)
@@ -538,15 +507,15 @@ static HAL_StatusTypeDef sdio_write_chunk(const uint8_t *buf, uint32_t start_blo
 static HAL_StatusTypeDef sdio_transfer(const uint8_t *buf, uint32_t start_block,
                                        uint32_t nblocks, bool write)
 {
-    if (!s_ready)
+    if (!s_sdio.ready)
     {
         return HAL_ERROR;
     }
 
     while (nblocks > 0U)
     {
-        uint32_t chunk = (nblocks > SDIO_CHUNK_BLOCKS) ? SDIO_CHUNK_BLOCKS : nblocks;
-        uint32_t tries = 0U;
+        uint32_t          chunk = (nblocks > SDIO_CHUNK_BLOCKS) ? SDIO_CHUNK_BLOCKS : nblocks;
+        uint32_t          tries = 0U;
         HAL_StatusTypeDef st;
 
         for (;;)
@@ -559,13 +528,11 @@ static HAL_StatusTypeDef sdio_transfer(const uint8_t *buf, uint32_t start_block,
                 break;
             }
 
-            /* One line per failed attempt, but only the first few: a copy run
-             * can produce several, and a blocking UART print in the middle of
-             * it would cost more than the retry.  Log before the abort, which
-             * clears ErrorCode. */
-            if (s_retry_logs < SDIO_RETRY_LOG_LIMIT)
+            /* First few failures only; log before Abort, which clears
+             * ErrorCode.  See document/stm32f429/video_player_port.md A5. */
+            if (s_sdio.stat.retry_logs < SDIO_RETRY_LOG_LIMIT)
             {
-                s_retry_logs++;
+                s_sdio.stat.retry_logs++;
                 PRINT_LOG("[SD  ] %s blk=%lu n=%lu st=%d err=0x%08lX retry=%lu\r\n",
                           (write != false) ? "write" : "read",
                           (unsigned long)start_block, (unsigned long)chunk, (int)st,
@@ -608,7 +575,7 @@ GlobalType_t bsp_sdio_get_info(uint32_t *block_count, uint16_t *block_size)
 {
     HAL_SD_CardInfoTypeDef info;
 
-    if (!s_ready)
+    if (!s_sdio.ready)
     {
         return RT_FAIL;
     }
@@ -634,14 +601,14 @@ void bsp_sdio_stats(uint32_t *tail_fixes, uint32_t *dma_errors, uint32_t *retry_
 {
     if (tail_fixes != NULL)
     {
-        *tail_fixes = s_tail_fixes;
+        *tail_fixes = s_sdio.stat.tail_fixes;
     }
     if (dma_errors != NULL)
     {
-        *dma_errors = s_dma_errors;
+        *dma_errors = s_sdio.stat.dma_errors;
     }
     if (retry_logs != NULL)
     {
-        *retry_logs = s_retry_logs;
+        *retry_logs = s_sdio.stat.retry_logs;
     }
 }

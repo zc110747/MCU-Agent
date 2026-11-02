@@ -1,19 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_mjpeg.c
  * @brief   MJPEG frame decoder.
- *
- *          Ported from the ALIENTEK 实验47 example.  The reference decoder
- *          pushed every scanline straight into the LCD (DMA2D on RGB panels,
- *          GRAM writes on MCU panels); here the row converter in
- *          third_party/jpeg/jdmerge.c calls mjpeg_row_emit() instead, and this
- *          file copies the scanline into the RGB565 surface.
- *
- *          libjpeg asks jmemnobs.c for memory, which forwards to
- *          mjpeg_pool_alloc() here: a bump allocator over one 38 KB block that
- *          is reset at the start of every frame.  libjpeg's free calls are
- *          no-ops by design (jmemnobs.c keeps the same contract).
- ******************************************************************************
+ * @note    行钩子 / 4:4:4 / 38 KB 池: document/stm32f429/video_player_port.md A3
  */
 #include <setjmp.h>
 #include <stdio.h>
@@ -31,10 +19,9 @@
  * proved 38 KB is enough for the AVI sample clips. */
 #define MJPEG_POOL_BYTES (38U * 1024U)
 
-struct my_error_mgr
-{
+struct my_error_mgr {
     struct jpeg_error_mgr pub;
-    jmp_buf setjmp_buffer;
+    jmp_buf               setjmp_buffer;
 };
 
 typedef struct my_error_mgr *my_error_ptr;
@@ -42,20 +29,20 @@ typedef struct my_error_mgr *my_error_ptr;
 typedef struct
 {
     struct jpeg_decompress_struct *cinfo;
-    struct my_error_mgr *jerr;
-    uint8_t *pool;
-    uint32_t pool_pos;
-    uint16_t *row;
-    uint8_t *scanline;
-    const uint8_t *jpeg_data;
-    uint32_t jpeg_size;
-    uint16_t *surface;
-    uint16_t surface_w;
-    uint16_t surface_h;
-    uint16_t off_x;
-    uint16_t off_y;
-    uint16_t row_index;
-    uint8_t ready;
+    struct my_error_mgr           *jerr;
+    uint8_t                       *pool;
+    uint32_t                       pool_pos;
+    uint16_t                      *row;
+    uint8_t                       *scanline;
+    const uint8_t                 *jpeg_data;
+    uint32_t                       jpeg_size;
+    uint16_t                      *surface;
+    uint16_t                       surface_w;
+    uint16_t                       surface_h;
+    uint16_t                       off_x;
+    uint16_t                       off_y;
+    uint16_t                       row_index;
+    uint8_t                        ready;
 } mjpeg_state_t;
 
 static mjpeg_state_t s_mjpeg = {0};
@@ -148,7 +135,7 @@ static boolean fill_input_buffer(j_decompress_ptr cinfo)
     if (s_mjpeg.jpeg_size == 0U)
     {
         /* Truncated frame: hand libjpeg an EOI so it stops cleanly. */
-        static JOCTET eoi[2] = { 0xFF, JPEG_EOI };
+        static JOCTET eoi[2] = {0xFF, JPEG_EOI};
 
         cinfo->src->next_input_byte = eoi;
         cinfo->src->bytes_in_buffer = 2;
@@ -157,7 +144,7 @@ static boolean fill_input_buffer(j_decompress_ptr cinfo)
     {
         cinfo->src->next_input_byte = s_mjpeg.jpeg_data;
         cinfo->src->bytes_in_buffer = s_mjpeg.jpeg_size;
-        s_mjpeg.jpeg_size = 0U;
+        s_mjpeg.jpeg_size           = 0U;
     }
     return TRUE;
 }
@@ -188,13 +175,13 @@ static void jpeg_memory_src(j_decompress_ptr cinfo)
         cinfo->src = (struct jpeg_source_mgr *)(*cinfo->mem->alloc_small)(
             (j_common_ptr)cinfo, JPOOL_PERMANENT, sizeof(struct jpeg_source_mgr));
     }
-    cinfo->src->init_source = init_source;
+    cinfo->src->init_source       = init_source;
     cinfo->src->fill_input_buffer = fill_input_buffer;
-    cinfo->src->skip_input_data = skip_input_data;
+    cinfo->src->skip_input_data   = skip_input_data;
     cinfo->src->resync_to_restart = jpeg_resync_to_restart;
-    cinfo->src->term_source = term_source;
-    cinfo->src->bytes_in_buffer = 0;
-    cinfo->src->next_input_byte = NULL;
+    cinfo->src->term_source       = term_source;
+    cinfo->src->bytes_in_buffer   = 0;
+    cinfo->src->next_input_byte   = NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -215,10 +202,9 @@ int8_t video_mjpeg_open(uint16_t *surface, uint16_t surface_w,
         sizeof(struct jpeg_decompress_struct));
     s_mjpeg.jerr = (struct my_error_mgr *)pvPortMalloc(sizeof(struct my_error_mgr));
     s_mjpeg.pool = (uint8_t *)pvPortMalloc(MJPEG_POOL_BYTES);
-    s_mjpeg.row = (uint16_t *)pvPortMalloc((size_t)surface_w * sizeof(uint16_t));
-    /* Scanline target for libjpeg's non-merged path (4:4:4 chroma).  The
-     * merged path ignores it, but a 4:4:4 frame would otherwise hand a NULL
-     * buffer to jdcolor/jdsample and fault. */
+    s_mjpeg.row  = (uint16_t *)pvPortMalloc((size_t)surface_w * sizeof(uint16_t));
+    /* Only jdcolor/jdsample use it (4:4:4); a NULL there faults.
+     * See document/stm32f429/video_player_port.md A3. */
     s_mjpeg.scanline = (uint8_t *)pvPortMalloc((size_t)surface_w * 3U);
 
     if ((s_mjpeg.cinfo == NULL) || (s_mjpeg.jerr == NULL) ||
@@ -233,14 +219,14 @@ int8_t video_mjpeg_open(uint16_t *surface, uint16_t surface_w,
     memset(s_mjpeg.cinfo, 0, sizeof(struct jpeg_decompress_struct));
     memset(s_mjpeg.jerr, 0, sizeof(struct my_error_mgr));
 
-    s_mjpeg.surface = surface;
+    s_mjpeg.surface   = surface;
     s_mjpeg.surface_w = surface_w;
     s_mjpeg.surface_h = surface_h;
-    s_mjpeg.off_x = off_x;
-    s_mjpeg.off_y = off_y;
-    s_mjpeg.pool_pos = 0U;
+    s_mjpeg.off_x     = off_x;
+    s_mjpeg.off_y     = off_y;
+    s_mjpeg.pool_pos  = 0U;
     s_mjpeg.row_index = 0U;
-    s_mjpeg.ready = 1U;
+    s_mjpeg.ready     = 1U;
 
     return 0;
 }
@@ -284,11 +270,11 @@ int8_t video_mjpeg_decode(const uint8_t *data, uint32_t size)
 
     s_mjpeg.jpeg_data = data;
     s_mjpeg.jpeg_size = size;
-    s_mjpeg.pool_pos = 0U;
+    s_mjpeg.pool_pos  = 0U;
     s_mjpeg.row_index = 0U;
 
-    s_mjpeg.cinfo->err = jpeg_std_error(&s_mjpeg.jerr->pub);
-    s_mjpeg.jerr->pub.error_exit = my_error_exit;
+    s_mjpeg.cinfo->err             = jpeg_std_error(&s_mjpeg.jerr->pub);
+    s_mjpeg.jerr->pub.error_exit   = my_error_exit;
     s_mjpeg.jerr->pub.emit_message = my_emit_message;
 
     if (setjmp(s_mjpeg.jerr->setjmp_buffer) != 0)
@@ -303,14 +289,13 @@ int8_t video_mjpeg_decode(const uint8_t *data, uint32_t size)
     (void)jpeg_read_header(s_mjpeg.cinfo, TRUE);
 
     /* Speed over quality: this decodes video frames, not photographs. */
-    s_mjpeg.cinfo->dct_method = JDCT_IFAST;
+    s_mjpeg.cinfo->dct_method          = JDCT_IFAST;
     s_mjpeg.cinfo->do_fancy_upsampling = FALSE;
 
     (void)jpeg_start_decompress(s_mjpeg.cinfo);
 
-    /* Output rows are produced by jdmerge.c's merged upsampler, which calls
-     * mjpeg_row_emit() once per scanline; the scanline loop below only drives
-     * the pipeline. */
+    /* Rows come from jdmerge's upsampler via mjpeg_row_emit() (4:2:0/4:2:2);
+     * the loop below only drives the pipeline. */
     while (s_mjpeg.cinfo->output_scanline < s_mjpeg.cinfo->output_height)
     {
         JSAMPROW rows[1];

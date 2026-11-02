@@ -1,13 +1,7 @@
 /**
- ******************************************************************************
  * @file    video_ui.c
  * @brief   LVGL video screen: full-panel image + two text bands.
- *
- *          The image object points straight at the SDRAM surface the MJPEG
- *          decoder writes into (LV_IMG_CF_TRUE_COLOR, LV_COLOR_DEPTH 16), so a
- *          frame costs one invalidate and one LVGL flush to the panel - there
- *          is no copy on the decode side.
- ******************************************************************************
+ * @note    全屏 TRUE_COLOR image: document/stm32f429/video_player_port.md A2
  */
 #include <string.h>
 
@@ -24,16 +18,16 @@
 
 typedef struct
 {
-    uint16_t *surface;
-    uint16_t width;
-    uint16_t height;
-    lv_obj_t *screen;
-    lv_obj_t *image;
-    lv_obj_t *title;
-    lv_obj_t *status;
-    lv_img_dsc_t image_dsc;
+    uint16_t         *surface;
+    uint16_t          width;
+    uint16_t          height;
+    lv_obj_t         *screen;
+    lv_obj_t         *image;
+    lv_obj_t         *title;
+    lv_obj_t         *status;
+    lv_img_dsc_t      image_dsc;
     SemaphoreHandle_t mutex;
-    uint8_t ready;
+    uint8_t           ready;
 } video_ui_state_t;
 
 static video_ui_state_t s_ui = {0};
@@ -108,8 +102,8 @@ int8_t video_ui_init(void)
         }
     }
 
-    s_ui.width = (uint16_t)LCD_Width;
-    s_ui.height = (uint16_t)LCD_Height;
+    s_ui.width   = (uint16_t)LCD_Width;
+    s_ui.height  = (uint16_t)LCD_Height;
     s_ui.surface = (uint16_t *)pvPortMalloc((size_t)s_ui.width *
                                             (size_t)s_ui.height *
                                             sizeof(uint16_t));
@@ -127,11 +121,11 @@ int8_t video_ui_init(void)
     lv_obj_set_style_bg_opa(s_ui.screen, LV_OPA_COVER, 0);
 
     s_ui.image_dsc.header.always_zero = 0;
-    s_ui.image_dsc.header.w = s_ui.width;
-    s_ui.image_dsc.header.h = s_ui.height;
-    s_ui.image_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
-    s_ui.image_dsc.data_size = (uint32_t)s_ui.width * (uint32_t)s_ui.height * 2U;
-    s_ui.image_dsc.data = (const uint8_t *)s_ui.surface;
+    s_ui.image_dsc.header.w           = s_ui.width;
+    s_ui.image_dsc.header.h           = s_ui.height;
+    s_ui.image_dsc.header.cf          = LV_IMG_CF_TRUE_COLOR;
+    s_ui.image_dsc.data_size          = (uint32_t)s_ui.width * (uint32_t)s_ui.height * 2U;
+    s_ui.image_dsc.data               = (const uint8_t *)s_ui.surface;
 
     s_ui.image = lv_img_create(s_ui.screen);
     lv_img_set_src(s_ui.image, &s_ui.image_dsc);

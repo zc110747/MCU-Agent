@@ -1,13 +1,7 @@
 /**
- ******************************************************************************
  * @file    bsp_wm8978.h
- * @brief   WM8978 audio codec control (I2C side only; the audio data path is
- *          SAI1 block A, see bsp_sai.h).
- *
- *          Register values are shadowed in RAM because the WM8978 I2C
- *          interface is write-only: every "read-modify-write" helper below
- *          works on the shadow table, not on the chip.
- ******************************************************************************
+ * @brief   WM8978 audio codec control (I2C side only; the audio data path is SAI1 block A, see bsp_sai.h).
+ * @note    document/stm32f429/video_player_port.md A4
  */
 #ifndef __BSP_WM8978_H
 #define __BSP_WM8978_H
