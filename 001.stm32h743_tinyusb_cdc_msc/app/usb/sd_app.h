@@ -24,6 +24,10 @@ void cmd_remount(void);           /* CDC: re-read the on-disk FAT (after  */
                                    /*       the USB host has changed files) */
 void cmd_sync(void);              /* CDC: force the write-back cache out  */
 void cmd_scache(void);            /* CDC: block-cache counters / layout   */
+void cmd_sdbench(const char* arg);/* CDC: raw SDIO read throughput (MB/s) */
+void cmd_fatclean(void);          /* CDC: clear the FAT32 dirty flag that */
+                                   /*      makes Windows verify the whole  */
+                                   /*      FAT on every mount              */
 
 #ifdef __cplusplus
 }

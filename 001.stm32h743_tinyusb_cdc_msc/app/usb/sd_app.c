@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>      /* vsnprintf */
+#include <stdlib.h>     /* strtoul */
 
 typedef struct
 {
@@ -277,4 +278,140 @@ void cmd_scache(void)
     {
         sd_printf("  layout   : not recognised (blank or unsupported)\r\n");
     }
+}
+
+/* ------------------------------------------------------------------------ */
+/* sdbench - how fast is the card itself?                                   */
+/*                                                                          */
+/* Bypasses the block cache *and* the USB stack, so the number is the raw   */
+/* SDIO link speed. Compare it with what the host achieves over USB: if this */
+/* is an order of magnitude higher, the card is not the bottleneck.         */
+/* ------------------------------------------------------------------------ */
+#define SD_BENCH_BUF 32768u
+static uint8_t g_bench[SD_BENCH_BUF] __attribute__((section(".ram_d1")));
+
+static void sd_bench_run(uint32_t chunk, uint32_t total, const char* label)
+{
+    uint32_t const secs  = chunk / 512u;
+    uint32_t const iters = total / chunk;
+    uint32_t       lba   = 32768u;      /* data area, well clear of the FAT */
+    uint32_t       ok    = 0;
+
+    uint32_t const t0 = board_millis();
+    for (uint32_t i = 0; i < iters; i++)
+    {
+        if (sdcard_raw_read_blocks(g_bench, lba, secs) != SD_ST_OK) break;
+        lba += secs;
+        ok++;
+    }
+    uint32_t const dt    = board_millis() - t0;
+    uint32_t const kb    = (ok * chunk) / 1024u;
+
+    if (dt == 0u)
+    {
+        sd_printf("  %-5s %lu KB in <1 ms\r\n", label, (unsigned long) kb);
+        return;
+    }
+    sd_printf("  %-5s %lu x %luB = %lu KB in %lu ms  ->  %lu.%02lu MB/s\r\n",
+              label,
+              (unsigned long) ok, (unsigned long) chunk, (unsigned long) kb,
+              (unsigned long) dt,
+              (unsigned long) (kb / dt),
+              (unsigned long) ((kb * 100u / dt) % 100u));
+}
+
+void cmd_sdbench(const char* arg)
+{
+    if (!sdcard_present())
+    {
+        sd_printf("no card\r\n");
+        return;
+    }
+
+    uint32_t mb = (arg != NULL) ? (uint32_t) strtoul(arg, NULL, 10) : 8u;
+    if (mb == 0u) mb = 8u;
+    if (mb > 48u) mb = 48u;
+
+    sd_printf("SDIO raw read (cache + USB bypassed), %lu MB per run\r\n",
+              (unsigned long) mb);
+    sd_bench_run(512u,   mb * 1048576u / 4u, "512B");
+    sd_bench_run(4096u,  mb * 1048576u,      "4KB");
+    sd_bench_run(16384u, mb * 1048576u,      "16KB");
+    sd_bench_run(32768u, mb * 1048576u,      "32KB");
+}
+
+/* ------------------------------------------------------------------------ */
+/* fatclean - clear the FAT32 "dirty" bit the host left behind               */
+/*                                                                          */
+/* Windows sets FAT[1].bit31 to 0 when it mounts a volume and back to 1 only */
+/* on a clean unmount. Yanking the cable therefore leaves the volume marked  */
+/* dirty, and the next mount makes Windows verify the whole FAT - 7.5 MB on  */
+/* this card, i.e. seconds over USB. Clearing the flag here costs one sector */
+/* write.                                                                   */
+/* ------------------------------------------------------------------------ */
+void cmd_fatclean(void)
+{
+    SDCACHE_STATS_T s;
+    sdcache_stats(&s);
+
+    if (s.fs_type != 32u)
+    {
+        sd_printf("only FAT32 is handled (detected type %u)\r\n",
+                  (unsigned) s.fs_type);
+        return;
+    }
+
+    uint8_t sec[512];
+    uint32_t const boot = s.part_lba;
+    if (sdcard_raw_read_blocks(sec, boot, 1) != SD_ST_OK)
+    {
+        sd_printf("boot sector read failed\r\n");
+        return;
+    }
+
+    uint32_t const rsvd  = (uint32_t) sec[14] | ((uint32_t) sec[15] << 8);
+    uint8_t  const nfat  = sec[16];
+    uint32_t const fatsz = (uint32_t) sec[36] | ((uint32_t) sec[37] << 8) |
+                           ((uint32_t) sec[38] << 16) | ((uint32_t) sec[39] << 24);
+
+    sd_printf("FAT32 part@%lu rsvd=%lu nfat=%u fatsz=%lu\r\n",
+              (unsigned long) boot, (unsigned long) rsvd,
+              (unsigned) nfat, (unsigned long) fatsz);
+
+    /* The window must not hold an old copy of the sector we are about to
+     * rewrite, and it must not be carrying unflushed data either. */
+    (void) sdcache_flush();
+
+    uint32_t cleaned = 0;
+    for (uint8_t i = 0; i < nfat; i++)
+    {
+        uint32_t const lba = boot + rsvd + (uint32_t) i * fatsz;
+
+        if (sdcard_raw_read_blocks(sec, lba, 1) != SD_ST_OK)
+        {
+            sd_printf("  FAT%u @lba %lu: read failed\r\n",
+                      (unsigned) (i + 1u), (unsigned long) lba);
+            continue;
+        }
+
+        uint32_t const was = (uint32_t) sec[4]        | ((uint32_t) sec[5] << 8) |
+                             ((uint32_t) sec[6] << 16) | ((uint32_t) sec[7] << 24);
+        uint32_t const now = was | 0xC0000000u;   /* bit31 clean, bit30 no error */
+
+        if (now != was)
+        {
+            sec[4] = (uint8_t) (now);
+            sec[5] = (uint8_t) (now >> 8);
+            sec[6] = (uint8_t) (now >> 16);
+            sec[7] = (uint8_t) (now >> 24);
+            if (sdcard_raw_write_blocks(sec, lba, 1) == SD_ST_OK) cleaned++;
+        }
+        sd_printf("  FAT%u @lba %lu: FAT[1] 0x%08lX -> 0x%08lX\r\n",
+                  (unsigned) (i + 1u), (unsigned long) lba,
+                  (unsigned long) was, (unsigned long) now);
+    }
+
+    sdcache_invalidate();          /* the cached FAT heads are stale now */
+    (void) sdcache_prewarm();      /* and reload the window from the card */
+    sd_printf("dirty flag cleared on %lu FAT copies\r\n", (unsigned long) cleaned);
 }

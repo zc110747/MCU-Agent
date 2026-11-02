@@ -11,6 +11,7 @@
 
 #include "tusb.h"
 #include "stm32h7xx.h"
+#include "bsp_sdcard.h"   /* sd_trace_add: enumeration timestamps */
 
 /* TinyUSB's example VID. 0xCafe is not registered to anyone - fine for
 * development, but do get your own VID/PID before shipping a product. */
@@ -49,6 +50,15 @@ static const tusb_desc_device_t desc_device = {
 
 const uint8_t* tud_descriptor_device_cb(void)
 {
+    /* First GET_DESCRIPTOR of a session: the host has just noticed the connect.
+     * Timestamped so the trace can split "plug -> enumeration start" from
+     * "enumeration start -> configured". */
+    static bool once = false;
+    if (!once)
+    {
+        once = true;
+        sd_trace_add(SD_TR_USBFIRST, 0, 0, 0);
+    }
     return (const uint8_t*) &desc_device;
 }
 

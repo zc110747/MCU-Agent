@@ -43,7 +43,10 @@ typedef enum {
 #define SD_TRACE_ENABLE 1
 #endif
 
-#define SD_TRACE_N 128
+/* 768 entries = 9 KB in AXI SRAM. A cold Windows mount issues a few hundred
+ * MSC commands; a ring smaller than that overwrites the very beginning of the
+ * sequence - which is where the answer usually is. */
+#define SD_TRACE_N 768
 
 enum {
   SD_TR_BOOT = 1,   /* firmware reached main()                       */
@@ -68,6 +71,11 @@ enum {
   SD_TR_PREWARM,    /* boot cache prewarm  code=ok sub=sectors       */
   SD_TR_FLUSH,      /* cache write-back    code=0/1                  */
   SD_TR_FWDIRTY,    /* dirty sector write-back  code=1 evict/2 drop/3 flush-fail */
+  SD_TR_RDDONE,     /* READ10 returned     code=0/1 sub=bytes arg=duration ms */
+  SD_TR_SCSIDONE,   /* SCSI cmd returned   code=opcode arg=duration ms  */
+  SD_TR_USBFIRST,   /* host asked for the device descriptor (enumeration
+                     * starts; the first GET_DESCRIPTOR arrives ~100 ms after
+                     * the plug, once the host has debounced the connect)   */
 };
 
 void sd_trace_add(uint8_t tag, uint8_t code, uint16_t sub, uint32_t arg);

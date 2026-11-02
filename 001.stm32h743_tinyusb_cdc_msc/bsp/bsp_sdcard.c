@@ -58,7 +58,7 @@ typedef struct
     uint8_t  tag;
 } SD_TRACE_ENTRY_T;
 
-static SD_TRACE_ENTRY_T g_tr[SD_TRACE_N];
+static SD_TRACE_ENTRY_T g_tr[SD_TRACE_N] __attribute__((section(".ram_d1")));
 static uint16_t         g_tr_w;      /* next write slot (ring)  */
 static uint16_t         g_tr_count;  /* entries stored, <= N    */
 
@@ -68,7 +68,7 @@ static const char* const g_tr_name[] =
     "MOUNT",    "UMOUNT", "TUR",    "CAP",     "RD",
     "RDOK",     "RDERR",  "WR",     "WROK",    "WRERR",
     "SCSI",     "SCSIUNK","SSU",    "WARM",    "PREWARM",
-    "FLUSH",    "FWDIRTY",
+    "FLUSH",    "FWDIRTY","RDDONE", "SCSIDONE","USBFIRST",
 };
 
 void sd_trace_add(uint8_t tag, uint8_t code, uint16_t sub, uint32_t arg)

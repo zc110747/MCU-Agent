@@ -130,6 +130,55 @@ CDC 回显按「一次读入的整块」批量写 FIFO，不再逐字节发 1 �
 
 ---
 
+### 5.3 插入后为什么要等约 10 秒（实测定位）
+
+现象：盘符出现很快，但双击打开、列出根目录要 9~10 s（对比普通 U 盘 1~2 s）。
+
+分段实测（`tools/watch_mount.py` + `mtrace`，2026-11-02）：
+
+| 阶段 | 耗时 | 说明 |
+|---|---|---|
+| 插入 → 盘符出现 | **0.22 s** | 主机只读 MBR + BPB（约 2 KB），枚举 91 ms |
+| 盘符 → 可列出根目录 | **9.5 s** | 主机按 32 KB 步长顺序读完整个 FAT 区，约 8 MB |
+| 单条 READ10 设备侧处理 | 3 ms | SDIO 已经很快 |
+| 单条 READ10 主机侧节奏 | 37 ms | 34 ms 花在 USB 传输上 |
+
+`sdbench` 直测卡侧（绕过缓存与 USB）：
+
+```
+512B   1.95 MB/s      4KB    6.80 MB/s
+16KB  10.07 MB/s     32KB   10.96 MB/s   <- 8 MB 只需 0.75 s
+```
+
+结论：**瓶颈是 USB Full Speed 12 Mbps（实测 0.84 MB/s），不是 SDIO。**
+SDIO 25 MHz × 4 线已跑到 10.96 MB/s（理论 12.5 MB/s 的 88%），在单条命令里只占 3/37 ≈ 8%；
+即使把 SDIO 提到 50 MHz，9.66 s 也只能降到约 9.5 s。
+
+已排除的猜测：
+
+- **不是缓存没命中**：`scache` 显示挂载期 `direct` 读占绝大多数，而卡侧本来就只要 3 ms。
+- **不是 FAT 脏标志**：`FAT[1]` 为 `0x7FFFFFFF`（bit31 = 0，脏）时确实会让 Windows 校验全表，
+  但用「安全弹出」把干净位写回后重插，**仍然 9.5 s** —— 主机每次挂载都会读这 8 MB，与脏标志无关。
+  `fatclean` 命令仍保留：它只负责把被硬拔线留下的脏标志清掉，避免下次挂载多跑一遍校验。
+
+可以缩短的只有两条路（本次未实施，卡上有数据不宜重新格式化）：
+
+| 方向 | 预期 | 代价 |
+|---|---|---|
+| 卷改 exFAT（FAT 约 1 MB 而不是 7.46 MB） | 9.5 s → 约 1.5 s | 需重新格式化 + `FF_FS_EXFAT=1` |
+| FAT32 簇改 32 KB（FAT 减半） | 9.5 s → 约 4.7 s | 需重新格式化 |
+| 限制卷容量（如 8 GB） | 同比例下降 | 牺牲容量 |
+| 外接 ULPI PHY 跑 USB High Speed | 9.5 s → 约 0.3 s | 需改板；`OTG_HS` 内置的仍是 FS PHY |
+
+复现方法：
+
+```bash
+py -3 tools/watch_mount.py --unplug 120     # 拔插一轮，打印各阶段耗时
+# CDC 命令：sdbench 8  -> 卡侧原始读速；mtrace -> 每条 READ10 的耗时
+```
+
+---
+
 ## 6. 调试与烧录
 
 - **VSCode（cortex-debug）**：`.vscode/launch.json` 用裸工具名（`openocdPath:"openocd"`、`gdbPath:"arm-none-eabi-gdb"`），
@@ -155,6 +204,13 @@ CDC 回显按「一次读入的整块」批量写 FIFO，不再逐字节发 1 �
   - `py -3 tools/test_cache.py write|verify|cleanup [COM7] [G:]` — 缓存/回写回归：
     `write` 写入 176 B + 1 MB 两个文件并打印缓存统计，**复位**后跑 `verify`
     （文件若仍在，说明数据真的在卡上），最后 `cleanup` 删除。
+  - `py -3 tools/watch_mount.py [--unplug] [秒数]` — 插入耗时分解：同时记录
+    CDC 端口出现、盘符可列出、首个文件可读三个时刻，并回读设备侧事件表
+    （挂在 COM19 上的 USART1 日志给出 ms-since-reset 与墙钟的锚点）。
+- 设备侧诊断命令（CDC）：
+  - `sdbench [MB]` — 绕过缓存与 USB，直测 SDIO 读速（512B/4KB/16KB/32KB 四档）
+  - `fatclean` — 清除硬拔线留下的 FAT32 脏标志（bit31/bit30），两张 FAT 都改
+  - `mtrace` — 事件表，含每条 READ10 的耗时（`RDDONE arg=ms`）
 
 ---
 
@@ -166,3 +222,4 @@ CDC 回显按「一次读入的整块」批量写 FIFO，不再逐字节发 1 �
 | 改 `.ld` 后 ninja 报 `no work to do` | 链接脚本未触发重配置 → 重跑 `cmake --preset debug` 或 `clean` |
 | cortex-debug Attach 超时 | `openocd.cfg` **不要**加 `connect_assert_srst`（会把 core 一直 hold 在 reset），保持 `stm32h7x.cfg` 默认软件复位 |
 | USB 枚举不稳定 | 确认 `USB_PORT` 与实际焊接的 USB 引脚（FS=PA11/PA12，HS=PB14/PB15）一致 |
+| 插入后盘符很快但打开要 10 s | USB Full Speed 带宽（0.84 MB/s）× 主机必读的 8 MB FAT。**不是 SDIO**，实测卡侧 10.96 MB/s。详见 5.3 |

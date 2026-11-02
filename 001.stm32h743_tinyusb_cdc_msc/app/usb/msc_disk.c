@@ -24,8 +24,8 @@ static uint8_t g_msc_sector[512];
 * within a second, so only a bounded number of them are recorded (failures
 * always are). The budget is re-armed on every SET_CONFIGURATION so that a
 * trace read right after a plug-in contains the whole mount sequence. A cold
-* mount is MBR + BPB + FAT + directory, well under 90 reads. */
-#define MSC_TRACE_READ_BUDGET 80
+* Windows mount is a few hundred reads, hence the generous budget. */
+#define MSC_TRACE_READ_BUDGET 384
 static uint16_t g_msc_rd_trace = MSC_TRACE_READ_BUDGET;
 
 /* Re-arm read tracing for the next host mount (called from tud_mount_cb). */
@@ -84,8 +84,10 @@ int32_t tud_msc_read10_cb(uint8_t lun,
 {
     (void) lun;
     uint32_t const blk = sdcard_block_size();
+    uint32_t const t0  = board_millis();
+    int32_t        rc  = -1;                   /* 0 would mean "busy" */
 
-    if (blk == 0 || bufsize == 0) return -1;   /* 0 would mean "busy" */
+    if (blk == 0 || bufsize == 0) return -1;
 
     bool const keep = (g_msc_rd_trace > 0U);
     if (keep)
@@ -97,33 +99,38 @@ int32_t tud_msc_read10_cb(uint8_t lun,
     /* Fast path: sector aligned, whole sectors. */
     if (offset == 0U && (bufsize % blk) == 0U)
     {
-        if (sdcard_read_blocks((uint8_t*) buffer, lba, bufsize / blk) != SD_ST_OK)
+        if (sdcard_read_blocks((uint8_t*) buffer, lba, bufsize / blk) == SD_ST_OK)
         {
-            return -1;
+            rc = (int32_t) bufsize;
         }
-        return (int32_t) bufsize;
     }
-
-    /* Slow path: bounce one sector at a time. */
-    uint32_t sector = lba + (offset / blk);
-    uint32_t const skip = offset % blk;
-    uint32_t       pos  = 0;
-
-    while (pos < bufsize)
+    else
     {
-        uint32_t const inblk = (skip + pos) % blk;
-        uint32_t       n     = blk - inblk;
-        if (n > (bufsize - pos)) n = bufsize - pos;
+        /* Slow path: bounce one sector at a time. */
+        uint32_t sector = lba + (offset / blk);
+        uint32_t const skip = offset % blk;
+        uint32_t       pos  = 0;
 
-        if (sdcard_read_blocks(g_msc_sector, sector, 1) != SD_ST_OK)
+        while (pos < bufsize)
         {
-            return -1;
+            uint32_t const inblk = (skip + pos) % blk;
+            uint32_t       n     = blk - inblk;
+            if (n > (bufsize - pos)) n = bufsize - pos;
+
+            if (sdcard_read_blocks(g_msc_sector, sector, 1) != SD_ST_OK) break;
+
+            memcpy((uint8_t*) buffer + pos, g_msc_sector + inblk, n);
+            pos += n;
+            sector++;
         }
-        memcpy((uint8_t*) buffer + pos, g_msc_sector + inblk, n);
-        pos += n;
-        sector++;
+        if (pos == bufsize) rc = (int32_t) bufsize;
     }
-    return (int32_t) bufsize;
+
+    /* Duration is the whole point of this entry: it separates "the host waited
+     * a second between commands" from "one command took a second". */
+    sd_trace_add(SD_TR_RDDONE, (rc < 0) ? 1U : 0U, (uint16_t) bufsize,
+                 board_millis() - t0);
+    return rc;
 }
 
 int32_t tud_msc_write10_cb(uint8_t lun,
@@ -209,6 +216,8 @@ int32_t tud_msc_scsi_cb(uint8_t lun,
     (void) lun;
     uint8_t const op = scsi_cmd[0];
     uint8_t*      out = (uint8_t*) buffer;
+    uint32_t const t0 = board_millis();
+    int32_t        rc;
 
     sd_trace_add(SD_TR_SCSI, op, bufsize, 0);
 
@@ -223,10 +232,12 @@ int32_t tud_msc_scsi_cb(uint8_t lun,
         case 0x1B:  /* START STOP UNIT       - handled by the stack too */
         case 0x1E:  /* PREVENT ALLOW MEDIUM REMOVAL                     */
         case 0x00:  /* TEST UNIT READY (already handled by the stack)   */
-            return 0;
+            rc = 0;
+            break;
 
         case 0x35:  /* SYNCHRONIZE CACHE(10) - flush the write-back window */
-            return (sdcache_flush() == SD_ST_OK) ? 0 : -1;
+            rc = (sdcache_flush() == SD_ST_OK) ? 0 : -1;
+            break;
 
         case 0x9E:  /* READ CAPACITY(16)                                */
         {
@@ -235,18 +246,24 @@ int32_t tud_msc_scsi_cb(uint8_t lun,
 
             if (out == NULL || bufsize < 32U || blocks == 0U || bsize == 0U)
             {
-                return -1;
+                rc = -1;
+                break;
             }
             memset(out, 0, 32);
             put_be32(&out[4], blocks - 1U);   /* last logical block */
             put_be32(&out[8], bsize);
-            return 32;
+            rc = 32;
+            break;
         }
 
         default:
             sd_trace_add(SD_TR_SCSIUNK, op, bufsize, 0);
-            return -1;   /* genuinely unsupported -> STALL */
+            rc = -1;   /* genuinely unsupported -> STALL */
+            break;
     }
+
+    sd_trace_add(SD_TR_SCSIDONE, op, bufsize, board_millis() - t0);
+    return rc;
 }
 
 /* The host tells us when it mounts (load) and ejects (unload) the volume.

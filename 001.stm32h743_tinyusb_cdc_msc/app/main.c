@@ -136,6 +136,8 @@ static void cmd_help(void)
     "  flood <n>     send n lines back to back (throughput test)\r\n"
     "  sd            SD card / filesystem status\r\n"
     "  scache        block-cache counters + detected volume layout\r\n"
+    "  sdbench [MB]  raw SDIO read speed (cache and USB bypassed)\r\n"
+    "  fatclean      clear the FAT32 dirty flag left by an unsafe unplug\r\n"
     "  sync          flush the write-back cache to the card now\r\n"
     "  ls            list files on the SD card\r\n"
     "  cat <file>    print a file from the SD card\r\n"
@@ -259,6 +261,14 @@ static void handle_line(char* line)
     else if (strcmp(line, "scache") == 0)
     {
         cmd_scache();
+    }
+    else if (strncmp(line, "sdbench", 7) == 0)
+    {
+        cmd_sdbench(line + 7);
+    }
+    else if (strcmp(line, "fatclean") == 0)
+    {
+        cmd_fatclean();
     }
     else if (strcmp(line, "sync") == 0)
     {
@@ -434,11 +444,15 @@ void tud_mount_cb(void)
     g_cdc.link = LINK_MOUNTED;
     msc_trace_arm();             /* so a trace read now shows this mount */
     sd_trace_add(SD_TR_MOUNT, 0, 0, 0);
+    /* Also on the debug UART: gives the PC-side watcher a wall-clock anchor
+     * for the ms-since-reset timeline of the trace ring. */
+    PRINT_LOG("[%lu ms] USB configured\r\n", (unsigned long) board_millis());
 }
 void tud_umount_cb(void)
 {
     g_cdc.link = LINK_UNMOUNTED;
     sd_trace_add(SD_TR_UMOUNT, 0, 0, 0);
+    PRINT_LOG("[%lu ms] USB released\r\n", (unsigned long) board_millis());
     /* The host is gone: nothing may stay in the write-back window. */
     (void) sdcache_flush();
 }
